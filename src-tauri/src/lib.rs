@@ -1,4 +1,8 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+//! Entry point de la lib de Tauri. Registra plugins y comandos.
+
+mod commands;
+mod python_bridge;
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -8,7 +12,11 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .plugin(tauri_plugin_shell::init())
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            commands::python::run_python_hello,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

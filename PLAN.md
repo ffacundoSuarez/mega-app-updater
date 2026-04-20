@@ -343,13 +343,22 @@ main                 ← solo código estable, releases se hacen desde acá
 - [ ] Verificar compilación en Windows (`npm run tauri build`)
 - [ ] Commit inicial
 
-### Fase 2 — Python sidecar (2-3 días)
-- [ ] Script `bundle-python.ps1` descargando python-build-standalone 3.12
-- [ ] `requirements.txt` con deps del script (openpyxl, python-pptx, pandas si aplica)
-- [ ] Instalar deps al bundle
-- [ ] Configurar `externalBin` en `tauri.conf.json`
-- [ ] Command Rust de prueba que ejecute un `hello.py`
-- [ ] Verificar que en el MSI buildado el Python se ejecuta correctamente
+### Fase 2 — Python sidecar (2-3 días) ✅
+- [x] Script `bundle-python.ps1` descargando python-build-standalone 3.12
+- [x] `requirements.txt` con deps del script (openpyxl, python-pptx — pandas queda fuera por ahora)
+- [x] Instalar deps al bundle
+- [x] Configurar `externalBin` en `tauri.conf.json` — **ver nota abajo, se usó `bundle.resources`**
+- [x] Command Rust de prueba que ejecute un `hello.py` (`run_python_hello`)
+- [ ] Verificar que en el MSI buildado el Python se ejecuta correctamente *(pendiente de un build + instalación real)*
+
+> **Nota de implementación**: el PLAN original preveía usar `externalBin` con el
+> sidecar renombrado a `python-runner-x86_64-pc-windows-msvc.exe`. En la práctica
+> `externalBin` de Tauri solo soporta un único ejecutable, pero `python.exe`
+> necesita sus DLLs + `Lib/` + `DLLs/` co-ubicados. Se optó por `bundle.resources`
+> mapeando `src-tauri/binaries/python-runtime` → `python-runtime` y
+> `src-tauri/binaries/python-scripts` → `python-scripts`. Rust resuelve con
+> `BaseDirectory::Resource` y spawnea vía `tauri-plugin-shell`. Ver
+> `src-tauri/src/python_bridge.rs`.
 
 ### Fase 3 — Primera herramienta: Excel → PPT (1-2 días)
 - [ ] Portar script existente a `python-scripts/excel_to_pptx.py`
