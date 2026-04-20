@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "bundle:python": "powershell -ExecutionPolicy Bypass -NoProfile -File ./scripts/bundle-python.ps1",
+    "bundle:python:force": "powershell -ExecutionPolicy Bypass -NoProfile -File ./scripts/bundle-python.ps1 -Force"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",

@@ -2,8 +2,18 @@
 // Sirve como dashboard dinámico: bienvenida + acceso rápido a herramientas
 // + actividad reciente / novedades.
 
-import { ArrowRight, FileSpreadsheet, Sparkles } from "lucide-react";
+import { useState } from "react";
+import {
+  ArrowRight,
+  CheckCircle2,
+  FileSpreadsheet,
+  Loader2,
+  Sparkles,
+  XCircle,
+  Zap,
+} from "lucide-react";
 import type { ToolId } from "@/components/Toolbar";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -12,6 +22,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { runPythonHello, type PythonHelloResponse } from "@/lib/tauri";
 
 interface HomeViewProps {
   appVersion: string;
@@ -37,6 +48,26 @@ const QUICK_TOOLS: QuickTool[] = [
 ];
 
 export function HomeView({ appVersion, onOpenTool }: HomeViewProps) {
+  // Estado del ping al sidecar Python (Fase 2 — diagnóstico).
+  // `result` = respuesta ok, `error` = mensaje de error, ambos `null` mientras no se corrió.
+  const [pingLoading, setPingLoading] = useState(false);
+  const [pingResult, setPingResult] = useState<PythonHelloResponse | null>(null);
+  const [pingError, setPingError] = useState<string | null>(null);
+
+  async function handlePingPython() {
+    setPingLoading(true);
+    setPingError(null);
+    setPingResult(null);
+    try {
+      const res = await runPythonHello("Mega");
+      setPingResult(res);
+    } catch (err) {
+      setPingError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPingLoading(false);
+    }
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
       {/* Hero */}
@@ -111,17 +142,95 @@ export function HomeView({ appVersion, onOpenTool }: HomeViewProps) {
         </div>
       </section>
 
-      {/* Actividad / novedades */}
+      {/* Diagnóstico del sidecar Python (Fase 2).
+          Se puede ocultar / mover a una vista de "Settings" cuando la app madure. */}
       <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold tracking-tight">
-          Actividad reciente
-        </h2>
-        <Card className="border-dashed">
-          <CardContent className="flex flex-col items-center justify-center gap-1 py-10 text-center">
-            <p className="text-sm font-medium">Todavía no hay actividad</p>
-            <p className="text-xs text-muted-foreground">
-              Cuando uses una herramienta, el historial aparece acá.
-            </p>
+        <h2 className="text-lg font-semibold tracking-tight">Diagnóstico</h2>
+        <Card>
+          <CardHeader>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <CardTitle className="text-base">Sidecar Python</CardTitle>
+                <CardDescription>
+                  Ejecuta <code>hello.py</code> para verificar que el runtime
+                  embebido y sus dependencias están funcionando.
+                </CardDescription>
+              </div>
+              <Button
+                size="sm"
+                onClick={handlePingPython}
+                disabled={pingLoading}
+                className="gap-2"
+              >
+                {pingLoading ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Zap className="size-4" />
+                )}
+                {pingLoading ? "Ejecutando..." : "Probar sidecar"}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {pingError && (
+              <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+                <XCircle className="mt-0.5 size-4 shrink-0" />
+                <div className="flex flex-col gap-1">
+                  <span className="font-medium">Falló la ejecución</span>
+                  <pre className="whitespace-pre-wrap break-all font-mono text-[11px] opacity-90">
+                    {pingError}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {pingResult && (
+              <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 p-3 text-xs">
+                <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="size-4" />
+                  <span className="font-medium">
+                    {pingResult.raw.message}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 pl-6 text-muted-foreground">
+                  <span>Python</span>
+                  <span className="font-mono">
+                    {pingResult.raw.python.version}
+                  </span>
+                  <span>Sistema</span>
+                  <span className="font-mono">
+                    {pingResult.raw.platform.system}{" "}
+                    {pingResult.raw.platform.machine}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-1 pl-6">
+                  <span className="text-muted-foreground">Dependencias:</span>
+                  {pingResult.raw.dependencies.map((dep) => (
+                    <div
+                      key={dep.name}
+                      className="flex items-center gap-1.5 font-mono"
+                    >
+                      {dep.ok ? (
+                        <CheckCircle2 className="size-3 text-emerald-600 dark:text-emerald-400" />
+                      ) : (
+                        <XCircle className="size-3 text-destructive" />
+                      )}
+                      <span>{dep.name}</span>
+                      <span className="text-muted-foreground">
+                        {dep.ok ? `v${dep.version}` : dep.error}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!pingLoading && !pingResult && !pingError && (
+              <p className="text-xs text-muted-foreground">
+                Todavía no se ejecutó. Si es la primera vez, corré{" "}
+                <code>npm run bundle:python</code> para generar el runtime.
+              </p>
+            )}
           </CardContent>
         </Card>
       </section>
