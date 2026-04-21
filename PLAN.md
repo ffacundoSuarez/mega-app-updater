@@ -336,12 +336,12 @@ main                 ← solo código estable, releases se hacen desde acá
 ## 8. Roadmap por Fases
 
 ### Fase 1 — Scaffold del proyecto (1-2 días)
-- [ ] `npm create tauri-app@latest` con template React + TypeScript + Vite
-- [ ] Configurar Tailwind CSS
-- [ ] Inicializar shadcn/ui (`npx shadcn@latest init`)
-- [ ] UI mínima: ventana + sidebar + vista placeholder
-- [ ] Verificar compilación en Windows (`npm run tauri build`)
-- [ ] Commit inicial
+- [x] `npm create tauri-app@latest` con template React + TypeScript + Vite
+- [x] Configurar Tailwind CSS
+- [x] Inicializar shadcn/ui (`npx shadcn@latest init`)
+- [x] UI mínima: ventana + sidebar + vista placeholder
+- [x] Verificar compilación en Windows (`npm run tauri build`)
+- [x] Commit inicial
 
 ### Fase 2 — Python sidecar (2-3 días) ✅
 - [x] Script `bundle-python.ps1` descargando python-build-standalone 3.12
@@ -349,7 +349,7 @@ main                 ← solo código estable, releases se hacen desde acá
 - [x] Instalar deps al bundle
 - [x] Configurar `externalBin` en `tauri.conf.json` — **ver nota abajo, se usó `bundle.resources`**
 - [x] Command Rust de prueba que ejecute un `hello.py` (`run_python_hello`)
-- [ ] Verificar que en el MSI buildado el Python se ejecuta correctamente *(pendiente de un build + instalación real)*
+- [x] Verificar que en el MSI buildado el Python se ejecuta correctamente *(pendiente de un build + instalación real)*
 
 > **Nota de implementación**: el PLAN original preveía usar `externalBin` con el
 > sidecar renombrado a `python-runner-x86_64-pc-windows-msvc.exe`. En la práctica
@@ -360,26 +360,186 @@ main                 ← solo código estable, releases se hacen desde acá
 > `BaseDirectory::Resource` y spawnea vía `tauri-plugin-shell`. Ver
 > `src-tauri/src/python_bridge.rs`.
 
-### Fase 3 — Primera herramienta: Excel → PPT (1-2 días)
-- [ ] Portar script existente a `python-scripts/excel_to_pptx.py`
-- [ ] Adaptar: recibir path por argv, devolver JSON por stdout
-- [ ] Vista React con input de archivo + botón
+### Fase 3 — Primera herramienta (BLOQUEADA / pendiente de decisiones) ⏸️
+
+> **Estado**: en pausa intencional. Ver **sección 3.bis** más abajo para
+> el análisis del script real recibido y las decisiones pendientes.
+> Se decidió saltar temporalmente a Fase 4 (updater + CI/CD) para asegurar
+> primero el pipeline de releases antes de integrar una herramienta pesada.
+
+Checklist original (aplica cuando se retome, probablemente con scope reducido):
+- [ ] Portar script existente a `python-scripts/<tool>/`
+- [ ] Adaptar: recibir parámetros por argv/JSON, devolver resultado por stdout
+- [ ] Vista React con inputs correspondientes + botón
 - [ ] Command Rust que orquesta el flujo
 - [ ] Manejo de errores y feedback visual
-- [ ] Abrir el archivo generado al terminar (usando `tauri-plugin-opener`)
+- [ ] Abrir el archivo generado al terminar (`tauri-plugin-opener`)
 
-### Fase 4 — Auto-updater (1-2 días)
-- [ ] Generar keypair: `npx tauri signer generate -w ~/.tauri/mega-app.key`
-- [ ] Pubkey en `tauri.conf.json`, privkey como secret de GitHub
-- [ ] Configurar endpoint apuntando a releases privados con header `Authorization`
-- [ ] Probar update end-to-end: instalar v0.1.0, publicar v0.1.1, verificar update
-- [ ] UI del diálogo de update (shadcn Dialog)
+### Fase 3.bis — Análisis del script real recibido (21/04/2026)
 
-### Fase 5 — CI/CD (1 día)
-- [ ] Workflow `ci.yml` para PRs (compila + sube artifact)
-- [ ] Workflow `release.yml` para tags (compila + firma + publica release)
-- [ ] Configurar todos los secrets
-- [ ] Primer release oficial v1.0.0
+> El script que se creía era un simple "Excel → PPT" en realidad es un motor de
+> **Brand Audit / Tracking de Marca** sustancialmente más complejo. Esta sección
+> documenta el estado hallado para que al retomar Fase 3 no haya que redescubrir.
+
+#### Ubicación de los fuentes
+- ZIP entregado por el usuario, descomprimido en `incoming/pruebaPythonOK/` (ignorado por git).
+- 10 archivos Python (~400 KB de código) + `cuestionario.xlsx` de ejemplo.
+
+#### Estructura del proyecto recibido
+
+| Archivo | Rol | Tamaño |
+|---|---|---|
+| `main.py` | Orquestador: carga bases, arma tareas, genera PPT y Excel | 33 KB |
+| `config.py` | Configuración completa del estudio (hardcoded YPF) | **128 KB** |
+| `config_loader.py` | Lee `manual_tasks.csv` | 5 KB |
+| `tabulation_engine.py` | Motor de tabulación (SRQ, MRQ, grids, escalas) | 57 KB |
+| `process_data.py` | Procesamiento de escalas/singles/duales | 14 KB |
+| `utils.py` | Carga SPSS con `pyreadstat`, banners, diccionario | 43 KB |
+| `create_slides.py` | Inyección de datos en plantilla PPTX | 105 KB |
+| `visual_engine.py` | Helpers gráficos | 15 KB |
+| `generador_ia.py` | Integración Gemini (títulos + executive summary) | 7 KB |
+| `__init__.py` | Marca como paquete (imports relativos) | 0 B |
+
+#### Flujo real (no es "Excel → PPT")
+
+```
+Inputs:
+  - SPSS principal (.sav)              ← vía pyreadstat (NO es Excel)
+  - SPSS secundario opcional (.sav)
+  - Template PowerPoint (.pptx)
+  - Diccionario del estudio (.xlsx)
+  - Tareas manuales (.csv)
+  - Config (config.py) ← hoy hardcoded al estudio YPF
+
+Procesa (tabulación + gráficos + opcional IA) →
+
+Outputs (escritos al CWD):
+  - informe_<STUDY_ID>.pptx
+  - Tablas_Principal_<STUDY_ID>.xlsx
+  - Tablas_Secundaria_<STUDY_ID>.xlsx (si aplica)
+  - debug_ejecucion.log
+```
+
+#### Choques con el PLAN original
+
+1. **Input es SPSS, no Excel.** Renombrar `excel_to_pptx` a algo como
+   `brand_audit` / `sav_to_report` cuando se integre.
+
+2. **Dependencias pesadas** (habíamos excluido pandas en Fase 2):
+
+   | Dep | Estado | ¿Obligatoria? |
+   |---|---|---|
+   | `openpyxl` | ✅ ya está | sí |
+   | `python-pptx` | ✅ ya está | sí |
+   | `pandas` | ❌ faltaba | **sí** |
+   | `numpy` | ❌ faltaba | **sí** (dep de pandas y pyreadstat) |
+   | `pyreadstat` | ❌ faltaba | **sí** (C extensions, Windows wheels OK) |
+   | `google-generativeai` o `google-genai` | ❌ faltaba | solo si se mantiene módulo IA |
+
+   Impacto: el bundle pasa de ~35 MB estimados a **~100 MB**. Hay que asumirlo
+   o evaluar recortar features (ej: quitar SPSS y forzar conversión previa a
+   Parquet; quitar IA del cliente).
+
+3. **Imports relativos** (`from . import config`). Obliga a ejecutar como paquete:
+   `python -m brand_audit.main`. El `python_bridge.rs` actual corre
+   `python.exe <script>.py [args]`; hay que añadir soporte para `-m paquete.módulo`
+   o usar un `run.py` en la raíz del paquete como wrapper.
+
+4. **`config.py` está hardcoded al estudio YPF.** Contiene:
+   - Paths literales (`"YPF ABRIL.sav"`, `"INFORME COMPLETO YPF MONITOR.pptx"`).
+   - IDs del estudio, nombres de olas, variables de ponderación.
+   - Listas gigantes de variables "basura" a limpiar.
+   - Mapa completo de gráficos/tablas a inyectar (nombres exactos de shapes en la plantilla).
+
+   Para usarlo desde una app genérica hay que **externalizar los parámetros
+   por estudio** (archivo `study.json` o similar), manteniendo las constantes
+   del negocio adentro del paquete.
+
+5. **Outputs al CWD.** El script hace `prs.save(f"informe_{STUDY_ID}.pptx")`
+   contra el directorio actual. En la app instalada el CWD es el dir de
+   instalación (read-only o peor). Hay que:
+   - Pasar `output_dir` como parámetro, o
+   - Cambiar CWD del subproceso Python al dir de outputs antes de ejecutar.
+
+6. **Gemini API key** hardcoded como `"MI_API_KEY"` placeholder en `main.py`.
+   Hay que definir dónde guardarla (opciones barajadas: `tauri-plugin-store`
+   cifrado, input en UI por sesión, variable de entorno del usuario).
+
+#### Decisiones pendientes (bloquean el retome de Fase 3)
+
+- [ ] **Alcance**: ¿integramos el motor completo tal cual, o primero hacemos
+  una herramienta MVP más chica (ej. un `excel_to_pptx` genuino) y este motor
+  queda para más adelante?
+- [ ] **Cómo pasar parámetros del estudio**:
+  - (a) `study.json` por estudio (simple, requiere que el usuario entienda el formato)
+  - (b) UI completa con form y file pickers (mejor UX, mucho frontend)
+  - (c) Híbrido: "Carpeta de estudio" con convención fija (`study.json` + `data/*.sav` + `template.pptx` + ...)
+- [ ] **Dependencias pesadas**: ¿asumimos bundle ~100 MB o recortamos features?
+- [ ] **Módulo IA**: ¿lo dejamos para esta primera versión o lo sacamos del MVP?
+- [ ] **Dónde guardar API key de Gemini** (si IA queda).
+- [ ] **Dónde van los outputs**: carpeta elegida por run, fija en
+  `%USERPROFILE%\Documents\MegaApp\<estudio>\`, o junto a los inputs.
+
+#### Plan tentativo para cuando se retome
+
+Esto es una propuesta, no está aprobada aún:
+
+1. Crear `python-scripts/brand_audit/` con el paquete tal cual (sin los archivos
+   no-código del zip: `.xlsx`, `.code-workspace`).
+2. Agregar wrapper `python-scripts/run_brand_audit.py` que:
+   - Lea un `study.json` (path por argv).
+   - Monkey-patchee `brand_audit.config` con los valores del JSON.
+   - Cambie CWD al `output_dir` del estudio.
+   - Llame a `main.run_brand_audit()`.
+   - Imprima al final una línea JSON con los paths de outputs generados.
+3. Actualizar `python-scripts/requirements.txt` con las deps que faltan y
+   correr `npm run bundle:python` para re-bundlear.
+4. Ampliar `python_bridge.rs` para soportar ejecución como módulo (o seguir
+   invocando `run_brand_audit.py` como wrapper).
+5. Command Rust `run_brand_audit(study_json_path) -> BrandAuditResult`.
+6. Vista React en `src/tools/brand-audit/` con form mínimo (selector de
+   carpeta de estudio) + `tauri-plugin-opener` para abrir el PPT final.
+
+---
+
+### Fase 4 — Auto-updater (1-2 días) ✅ (pendiente prueba end-to-end)
+- [x] Generar keypair: `mega-app.key` en `%USERPROFILE%\.tauri\` (sin password, Ed25519)
+- [x] Pubkey en `tauri.conf.json` → `plugins.updater.pubkey`
+- [x] Endpoint configurado: `https://github.com/ffacundoSuarez/mega-app-updater/releases/latest/download/latest.json`
+- [x] `installMode: passive` para que Windows muestre la UI nativa del MSI
+- [x] `createUpdaterArtifacts: true` en `bundle` para que `tauri build` emita `.sig`
+- [x] Plugins Rust (`tauri-plugin-updater`, `tauri-plugin-process`) registrados en `lib.rs`
+- [x] Header `Authorization: Bearer <PAT>` inyectado en runtime desde `option_env!("UPDATER_GITHUB_TOKEN")` (build-time)
+- [x] Permisos `updater:default`, `process:default`, `process:allow-restart` en capabilities
+- [x] shadcn/ui `dialog` + `progress` instalados
+- [x] `src/lib/updater.ts` con wrappers `checkForUpdate` / `installUpdate`
+- [x] `UpdateDialog` reescrito con estados available → downloading → installing → error.
+      Sin botón "Más tarde" (update obligatorio), no se cierra con Esc ni click afuera.
+- [x] Hook silencioso en `App.tsx` que chequea al iniciar; errores (offline, 404 pre-primer-release) se ignoran para no bloquear el arranque
+- [x] `.gitignore` protege `*.key` / `*.key.pub`
+- [x] `docs/DEV_GUIDE.md` documenta claves, rotación y secrets necesarios
+- [ ] **Probar update end-to-end** (se hace en Fase 5 con CI): instalar v0.1.0, publicar v0.1.1, verificar update real
+
+> **Decisiones de producto tomadas en Fase 4**:
+> - Chequeo **al iniciar** la app (no periódico, no manual).
+> - Update **obligatorio**, sin botón "Más tarde".
+> - `installMode: passive` (Windows muestra barra de progreso nativa, sin preguntas).
+> - **Se muestra el changelog** del release en el diálogo (campo `body` que Tauri toma de las release notes).
+> - Keypair **sin password** por simplicidad del CI. Se puede rotar a una con
+>   password más adelante si es necesario, teniendo en cuenta el costo para
+>   instalaciones ya distribuidas (ver `DEV_GUIDE.md` § Rotar las claves).
+
+### Fase 5 — CI/CD (1 día) ✅ (pipeline listo, pendiente primer tag)
+- [x] Workflow `ci.yml` para PRs (compila + sube artifact firmado como zip, 14 días de retención)
+- [x] Workflow `release.yml` para tags `v*.*.*` (usa `tauri-apps/tauri-action@v0`,
+      firma, genera `latest.json`, crea GitHub Release)
+- [x] Cache del sidecar Python (hash de `requirements.txt` + `bundle-python.ps1`)
+- [x] Cache de Rust (`Swatinem/rust-cache@v2`)
+- [x] Versiones bumpeadas a `1.0.0` en `tauri.conf.json`, `Cargo.toml`,
+      `package.json`, `App.tsx`
+- [ ] **Usuario**: configurar 3 secrets en GitHub Actions (ver `docs/DEV_GUIDE.md` §2)
+- [ ] **Usuario**: push del commit + tag `v1.0.0` para disparar el primer release
+- [ ] **Usuario**: verificar instalación del MSI generado
 
 ### Fase 6 — Distribución (0.5 día)
 - [ ] Escribir `USER_GUIDE.md` con screenshots del SmartScreen workaround

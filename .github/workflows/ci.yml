@@ -1,0 +1,85 @@
+# CI: compila la app en Windows en cada PR a main y en cada push a una branch
+# que no sea main, y sube el instalador como artifact para QA manual.
+#
+# Este workflow NO crea release, NO publica en GitHub Releases y NO le llega al
+# usuario final por el updater. Es solo para probar los cambios antes de mergear.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches-ignore: [main]
+
+# Evita correr dos veces el mismo commit cuando se abre un PR desde una branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # El sidecar Python pesa ~80 MB y tarda varios minutos en armarse.
+      # Lo cacheamos según el hash de requirements.txt + el script bundler.
+      # Si cualquiera de los dos cambia, se recompila desde cero automáticamente.
+      - name: Cache Python sidecar
+        id: cache-python
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/binaries
+          key: python-sidecar-${{ runner.os }}-${{ hashFiles('python-scripts/requirements.txt', 'scripts/bundle-python.ps1') }}
+
+      - name: Bundle Python sidecar
+        if: steps.cache-python.outputs.cache-hit != 'true'
+        run: npm run bundle:python
+
+      - name: Install npm deps
+        run: npm ci
+
+      # Build firmado (mismo flujo que release). createUpdaterArtifacts=true en
+      # tauri.conf.json exige la clave de firma, aunque en CI el artifact sea
+      # solo para QA y nunca se publique.
+      - name: Build Tauri app
+        run: npm run tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # PAT embebido para que los binarios de CI también puedan consultar
+          # releases privados si alguien instala uno para probar.
+          UPDATER_GITHUB_TOKEN: ${{ secrets.UPDATER_GITHUB_TOKEN }}
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mega-app-${{ github.sha }}
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*.sig
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/msi/*.sig
+          retention-days: 14
+          if-no-files-found: error
