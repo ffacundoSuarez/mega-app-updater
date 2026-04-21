@@ -1,0 +1,78 @@
+# Release: al pushear un tag `vX.Y.Z`, compila la app firmada y crea un GitHub
+# Release con:
+#   - El instalador (NSIS .exe y/o MSI).
+#   - La firma Ed25519 (.sig) de cada instalador.
+#   - Un `latest.json` que el plugin-updater de Tauri consume.
+#
+# La versión del tag tiene que coincidir con la de `tauri.conf.json` y `Cargo.toml`.
+# El release queda como publicado (no draft).
+
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    permissions:
+      contents: write  # necesario para que tauri-action cree el release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Cache Python sidecar
+        id: cache-python
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/binaries
+          key: python-sidecar-${{ runner.os }}-${{ hashFiles('python-scripts/requirements.txt', 'scripts/bundle-python.ps1') }}
+
+      - name: Bundle Python sidecar
+        if: steps.cache-python.outputs.cache-hit != 'true'
+        run: npm run bundle:python
+
+      - name: Install npm deps
+        run: npm ci
+
+      # tauri-action hace build, firma los instaladores, genera latest.json y
+      # crea el GitHub Release con todo adjunto. Usa GITHUB_TOKEN automático.
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # PAT embebido en el binario para que la app instalada pueda
+          # autenticarse contra el repo privado al chequear updates.
+          UPDATER_GITHUB_TOKEN: ${{ secrets.UPDATER_GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Mega App ${{ github.ref_name }}'
+          releaseBody: |
+            Release publicado automáticamente desde el tag `${{ github.ref_name }}`.
+
+            El updater integrado se encarga de aplicar esta versión
+            automáticamente la próxima vez que el usuario abra la app.
+          releaseDraft: false
+          prerelease: false
+          # Genera latest.json adjunto al release, que es lo que consume el plugin-updater.
+          includeUpdaterJson: true

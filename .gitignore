@@ -22,3 +22,13 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Carpeta para ZIPs / scripts que el usuario arrima a analizar.
+# No se commitea: ver PLAN.md sección 3.bis.
+incoming/
+
+# Claves de firma Ed25519 del updater. NUNCA deben entrar al repo.
+# La privada vive en %USERPROFILE%\.tauri\, la pública en tauri.conf.json.
+*.key
+*.key.pub
+
