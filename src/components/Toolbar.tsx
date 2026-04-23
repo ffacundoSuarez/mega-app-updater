@@ -1,12 +1,12 @@
 // Sidebar / toolbar principal de la app.
-// Inicio + lista de herramientas disponibles.
+// Inicio + lista de herramientas disponibles + acceso a Ajustes.
 
-import { FileSpreadsheet, Home } from "lucide-react";
+import { BarChart3, Home, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** Vistas navegables desde el sidebar. "home" es la landing page. */
-export type ViewId = "home" | ToolId;
-export type ToolId = "excel-to-pptx";
+export type ViewId = "home" | "settings" | ToolId;
+export type ToolId = "brand-audit";
 
 interface NavItem {
   id: ViewId;
@@ -24,11 +24,18 @@ const HOME_ITEM: NavItem = {
 /** Herramientas disponibles. A medida que se sumen, se agregan acá. */
 const TOOLS: NavItem[] = [
   {
-    id: "excel-to-pptx",
-    label: "Excel → PowerPoint",
-    icon: FileSpreadsheet,
+    id: "brand-audit",
+    label: "Brand Audit · YPF",
+    icon: BarChart3,
   },
 ];
+
+/** Entradas del footer (abajo del sidebar). */
+const SETTINGS_ITEM: NavItem = {
+  id: "settings",
+  label: "Ajustes",
+  icon: Settings2,
+};
 
 export interface ToolbarProps {
   activeView: ViewId;
@@ -65,14 +72,23 @@ export function Toolbar({ activeView, onSelectView, appVersion }: ToolbarProps) 
         </ul>
       </nav>
 
-      {/* Footer: versión y estado */}
-      <div className="border-t p-3">
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>v{appVersion}</span>
-          <span className="flex items-center gap-1.5">
-            <span className="size-1.5 rounded-full bg-emerald-500" />
-            Al día
-          </span>
+      {/* Footer: ajustes + versión */}
+      <div className="flex flex-col border-t">
+        <ul className="flex flex-col gap-1 p-2">
+          <NavEntry
+            item={SETTINGS_ITEM}
+            active={activeView === SETTINGS_ITEM.id}
+            onClick={() => onSelectView(SETTINGS_ITEM.id)}
+          />
+        </ul>
+        <div className="border-t px-3 py-2.5">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>v{appVersion}</span>
+            <span className="flex items-center gap-1.5">
+              <span className="size-1.5 rounded-full bg-emerald-500" />
+              Al día
+            </span>
+          </div>
         </div>
       </div>
     </aside>

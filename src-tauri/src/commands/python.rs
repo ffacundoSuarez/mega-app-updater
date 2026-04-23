@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::AppHandle;
 
-use crate::python_bridge::{run_python_script, PythonBridgeError};
+use crate::python_bridge::{run_python_script, PythonBridgeError, PythonRunOptions};
 
 /// Respuesta del ping al sidecar Python.
 ///
@@ -33,7 +33,7 @@ pub async fn run_python_hello(
         _ => vec![],
     };
 
-    let output = run_python_script(&app, "hello.py", &args).await?;
+    let output = run_python_script(&app, "hello.py", &args, PythonRunOptions::default()).await?;
 
     // El script garantiza una línea JSON por stdout. Si no parsea, devolvemos
     // el error como string para que el usuario pueda diagnosticar.

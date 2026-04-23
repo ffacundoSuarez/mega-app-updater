@@ -5,8 +5,8 @@
 import { useState } from "react";
 import {
   ArrowRight,
+  BarChart3,
   CheckCircle2,
-  FileSpreadsheet,
   Loader2,
   Sparkles,
   XCircle,
@@ -39,11 +39,12 @@ interface QuickTool {
 
 const QUICK_TOOLS: QuickTool[] = [
   {
-    id: "excel-to-pptx",
-    label: "Excel → PowerPoint",
-    description: "Convertí una planilla en una presentación lista para compartir.",
-    icon: FileSpreadsheet,
-    status: "soon",
+    id: "brand-audit",
+    label: "Brand Audit · YPF",
+    description:
+      "Generá el informe mensual (PPT + Excel) a partir de los archivos .sav de la ola.",
+    icon: BarChart3,
+    status: "available",
   },
 ];
 

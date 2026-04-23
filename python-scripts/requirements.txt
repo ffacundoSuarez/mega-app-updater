@@ -1,8 +1,26 @@
 # Dependencias del sidecar Python de Mega App.
 # Se instalan en build-time dentro de python-runtime/Lib/site-packages
-# por scripts/bundle-python.ps1 → ver Fase 2 del PLAN.md.
+# por scripts/bundle-python.ps1 → ver Fase 2/3 del PLAN.md.
 #
 # Versiones pinneadas para builds reproducibles.
 
+# --- Core tools (Fase 2) ---
 openpyxl==3.1.5
 python-pptx==1.0.2
+
+# --- Brand Audit engine (Fase 3) ---
+# pandas 2.2.3 es compatible con numpy 2.x en Python 3.12.
+pandas==2.2.3
+numpy==2.1.3
+# scipy es usado por utils.py (stats.norm, etc.) para cálculos estadísticos.
+scipy==1.14.1
+# pyreadstat trae wheels precompilados para Windows x86_64 + Python 3.12.
+# 1.2.8 tiene un bug conocido ("Unknown error" en SAVs válidos) arreglado en 1.3.x.
+# Ver https://github.com/WizardMac/ReadStat/issues/356
+pyreadstat==1.3.4
+# El motor usa DOS SDKs de Google mezclados:
+#  - `google-generativeai` (viejo, EOL nov-2025) → generador_ia.py
+#  - `google-genai` (nuevo SDK) → utils.py (`from google import genai`)
+# Incluimos ambos hasta que el motor se refactoree a usar sólo el nuevo.
+google-generativeai==0.8.6
+google-genai==1.58.0
