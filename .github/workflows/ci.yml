@@ -1,16 +1,18 @@
-# CI: compila la app en Windows en cada PR a main y en cada push a una branch
-# que no sea main, y sube el instalador como artifact para QA manual.
+# CI: compila la app en Windows únicamente en PRs abiertos hacia main y sube
+# el instalador como artifact para QA manual.
 #
 # Este workflow NO crea release, NO publica en GitHub Releases y NO le llega al
 # usuario final por el updater. Es solo para probar los cambios antes de mergear.
+#
+# Nota: se decidió no correr en push a feature branches (ahorra minutos de
+# Actions y evita builds de WIP). El PR se encarga de validar antes del merge.
+# El merge a main tampoco dispara nada porque el PR ya se validó.
 
 name: CI
 
 on:
   pull_request:
     branches: [main]
-  push:
-    branches-ignore: [main]
 
 # Evita correr dos veces el mismo commit cuando se abre un PR desde una branch.
 concurrency:

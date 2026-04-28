@@ -360,20 +360,76 @@ main                 ← solo código estable, releases se hacen desde acá
 > `BaseDirectory::Resource` y spawnea vía `tauri-plugin-shell`. Ver
 > `src-tauri/src/python_bridge.rs`.
 
-### Fase 3 — Primera herramienta (BLOQUEADA / pendiente de decisiones) ⏸️
+### Fase 3 — Primera herramienta: Brand Audit (YPF hardcoded) ✅
 
-> **Estado**: en pausa intencional. Ver **sección 3.bis** más abajo para
-> el análisis del script real recibido y las decisiones pendientes.
-> Se decidió saltar temporalmente a Fase 4 (updater + CI/CD) para asegurar
-> primero el pipeline de releases antes de integrar una herramienta pesada.
+> **Estado**: completada el 23/04/2026. Motor Brand Audit integrado end-to-end:
+> el usuario elige 2 `.sav` + ola en la UI, el motor corre como sidecar Python,
+> y la app devuelve un PowerPoint (~126 slides) + Excel de tablas.
+> El scope y deps se decidieron según lo descripto en sección 3.bis.
 
-Checklist original (aplica cuando se retome, probablemente con scope reducido):
-- [ ] Portar script existente a `python-scripts/<tool>/`
-- [ ] Adaptar: recibir parámetros por argv/JSON, devolver resultado por stdout
-- [ ] Vista React con inputs correspondientes + botón
-- [ ] Command Rust que orquesta el flujo
-- [ ] Manejo de errores y feedback visual
-- [ ] Abrir el archivo generado al terminar (`tauri-plugin-opener`)
+- [x] Copiar paquete `brand_audit/` (main, config, utils, tabulation_engine,
+      process_data, create_slides, visual_engine, generador_ia, config_loader)
+      + assets (`INFORME COMPLETO YPF MONITOR.pptx` + `cuestionario.xlsx`) a
+      `python-scripts/brand_audit/`.
+- [x] Wrapper `python-scripts/run_brand_audit.py` que parsea argv, monkey-patchea
+      `brand_audit.config` con valores dinámicos (SAV principal, SAV secundario,
+      wave filter, wave name, toggles IA), cambia CWD a `output_dir`, y emite
+      líneas JSON de progreso + 1 línea final con paths de outputs.
+- [x] Ampliar `requirements.txt`: `pandas==2.2.3`, `numpy==2.1.3`, `scipy==1.14.1`,
+      `pyreadstat==1.3.4` (la 1.2.8 tenía bug de "Unknown error"),
+      `google-generativeai==0.8.6` + `google-genai==1.58.0` (el motor usa los dos).
+      Runtime final: ~610 MB.
+- [x] Forzar UTF-8 en stdout/stderr del sidecar (`PYTHONIOENCODING=utf-8` +
+      `PYTHONUTF8=1` desde Rust; `sys.stdout.reconfigure` en el wrapper).
+      Sin esto, los emojis del logger crasheaban en `cp1252`.
+- [x] Ampliar `python_bridge.rs`: soporte para env vars (`opts.env`), `cwd`
+      opcional, y streaming línea-por-línea de stdout/stderr como eventos
+      Tauri (`brand-audit-progress`) para log en vivo en la UI.
+- [x] Command Rust `run_brand_audit(BrandAuditParams) -> BrandAuditResult` con:
+      resolución de `Documents\MegaApp\`, copia de assets en el primer run,
+      creación de subcarpeta por timestamp, spawn del sidecar con progreso,
+      parseo de la última línea JSON de stdout.
+- [x] Plugins sumados: `tauri-plugin-dialog`, `tauri-plugin-fs`,
+      `tauri-plugin-store`. Permissions en `capabilities/default.json`.
+- [x] Vista React `src/tools/brand-audit/BrandAuditView.tsx` con file pickers
+      (principal obligatoria + secundaria opcional), inputs de ola,
+      toggles IA, log en vivo, y botones para abrir outputs.
+- [x] Vista `src/tools/settings/SettingsView.tsx` para configurar la API key
+      de Gemini (persistida con `tauri-plugin-store` en
+      `%APPDATA%\Mega App\settings.json`).
+- [x] Toolbar actualizada: entrada "Brand Audit · YPF" + "Ajustes".
+      Placeholder `excel-to-pptx` removido.
+- [x] **Probado end-to-end** con `YPF ABRIL.sav` (1667 columnas) + `CONDUCTORES.sav`
+      en `npm run tauri dev`: genera informe completo (PPT ~126 slides + Excels).
+
+**Decisiones tomadas sobre lo que estaba pendiente en 3.bis** (y sus respuestas):
+- **Scope**: integrar el motor completo hardcoded al estudio YPF. Generalizar
+  después, cuando esté probado.
+- **Parámetros dinámicos**: vienen por UI (argv al wrapper) — SAV principal,
+  SAV secundario, wave filter, wave name, toggles IA. Todo lo demás de
+  `config.py` queda hardcoded dentro del paquete.
+- **Dependencias**: se aceptaron todas (bundle 610 MB). Prioridad fue
+  funcionalidad sobre tamaño.
+- **Módulo IA**: integrado y funcional, OFF por default. La key la
+  configura cada usuario en Ajustes.
+- **API key Gemini**: persistida localmente con `tauri-plugin-store`. Se
+  propaga al sidecar vía env var (`GEMINI_API_KEY`), nunca por argv.
+- **Outputs**: `Documents\MegaApp\YPF Monitor\<timestamp>\`. Nunca se sobreescriben.
+- **Template `.pptx` y assets**: bundleados en los resources del MSI, y en el
+  primer run se copian a `Documents\MegaApp\assets\` (editable por el usuario
+  sin esperar release nuevo, no se pisan en corridas posteriores).
+- **Base secundaria**: opcional en la UI.
+- **`manual_tasks.csv`**: el motor ya lo trata como opcional; queda pendiente
+  de recibirlo del usuario (cuando se pase, va en `Documents\MegaApp\assets\`).
+
+**Pendiente como follow-up (no bloquea Fase 3 cerrada)**:
+- [ ] Probar IA real cuando el usuario tenga API key de Gemini.
+- [ ] Generalizar el motor para soportar otros estudios (sección 7.?).
+- [ ] Migrar `google.generativeai` (deprecated EOL nov-2025) a `google.genai`
+      puro, para poder bajar una dependencia.
+- [ ] Optimizar tamaño del bundle (actualmente 610 MB). Candidatos:
+      `.pyc`-only (`python -m compileall -b`), borrado de `__pycache__`,
+      removeer tests/docs de site-packages.
 
 ### Fase 3.bis — Análisis del script real recibido (21/04/2026)
 
@@ -537,9 +593,9 @@ Esto es una propuesta, no está aprobada aún:
 - [x] Cache de Rust (`Swatinem/rust-cache@v2`)
 - [x] Versiones bumpeadas a `1.0.0` en `tauri.conf.json`, `Cargo.toml`,
       `package.json`, `App.tsx`
-- [ ] **Usuario**: configurar 3 secrets en GitHub Actions (ver `docs/DEV_GUIDE.md` §2)
-- [ ] **Usuario**: push del commit + tag `v1.0.0` para disparar el primer release
-- [ ] **Usuario**: verificar instalación del MSI generado
+- [x] **Usuario**: configurar 3 secrets en GitHub Actions (ver `docs/DEV_GUIDE.md` §2)
+- [x] **Usuario**: push del commit + tag `v1.0.0` para disparar el primer release
+- [x] **Usuario**: verificar instalación del MSI generado
 
 ### Fase 6 — Distribución (0.5 día)
 - [ ] Escribir `USER_GUIDE.md` con screenshots del SmartScreen workaround
@@ -579,7 +635,8 @@ Esto es una propuesta, no está aprobada aún:
 - **Auth al repo privado**: PAT embebido con scope mínimo.
 - **Canal beta**: no, pero CI genera artifacts para testing previo a release.
 - **Python version**: 3.12.
-- **Primer caso de uso**: Excel → PowerPoint.
+- **Primer caso de uso**: ~~Excel → PowerPoint~~ → **Brand Audit** (Tracking YPF,
+  SPSS → PPT + Excel). Ver Fase 3.
 
 ## 11. Decisiones Pendientes
 

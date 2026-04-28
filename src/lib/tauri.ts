@@ -36,3 +36,49 @@ export interface PythonHelloResponse {
 export function runPythonHello(name?: string): Promise<PythonHelloResponse> {
   return invoke<PythonHelloResponse>("run_python_hello", { name });
 }
+
+// --- Brand Audit (Fase 3) -------------------------------------------------
+
+/** Nombre del evento Tauri que emite el backend con cada línea de stdout/stderr
+ *  durante la ejecución del motor. La UI lo escucha con `listen(...)`. */
+export const BRAND_AUDIT_PROGRESS_EVENT = "brand-audit-progress";
+
+/** Parámetros que enviamos al backend. El shape debe coincidir con
+ *  `BrandAuditParams` en src-tauri/src/commands/brand_audit.rs (camelCase). */
+export interface BrandAuditParams {
+  savPrincipal: string;
+  savSecundario?: string | null;
+  waveFilter: number;
+  waveName: string;
+  useAiInsights?: boolean;
+  useAiSummary?: boolean;
+  geminiApiKey?: string | null;
+}
+
+/** Resultado del comando Brand Audit. */
+export interface BrandAuditResult {
+  ok: boolean;
+  outputDir: string;
+  ppt: string | null;
+  excelPrincipal: string | null;
+  excelSecundario: string | null;
+  log: string | null;
+  studyId: string | null;
+  stdout: string;
+  stderr: string;
+}
+
+/** Evento de progreso emitido por el backend mientras corre el motor. */
+export interface BrandAuditProgressPayload {
+  stream: "stdout" | "stderr";
+  line: string;
+}
+
+/** Ejecuta el motor Brand Audit (tabulación + PPT + Excel). Puede tardar
+ *  minutos. Para seguimiento en vivo, suscribite a `BRAND_AUDIT_PROGRESS_EVENT`
+ *  con `listen()` antes de llamar. */
+export function runBrandAudit(
+  params: BrandAuditParams,
+): Promise<BrandAuditResult> {
+  return invoke<BrandAuditResult>("run_brand_audit", { params });
+}

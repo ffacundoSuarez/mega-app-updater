@@ -5,7 +5,8 @@ import { TitleBar } from "@/components/TitleBar";
 import { Toolbar, type ViewId } from "@/components/Toolbar";
 import { UpdateDialog } from "@/components/UpdateDialog";
 import { HomeView } from "@/tools/home/HomeView";
-import { ExcelToPptxView } from "@/tools/excel-to-pptx/ExcelToPptxView";
+import { BrandAuditView } from "@/tools/brand-audit/BrandAuditView";
+import { SettingsView } from "@/tools/settings/SettingsView";
 import { checkForUpdate, type Update } from "@/lib/updater";
 
 // Versión de la app. En runtime se podría leer con `getVersion()` del plugin,
@@ -54,7 +55,8 @@ function App() {
           {activeView === "home" && (
             <HomeView appVersion={APP_VERSION} onOpenTool={setActiveView} />
           )}
-          {activeView === "excel-to-pptx" && <ExcelToPptxView />}
+          {activeView === "brand-audit" && <BrandAuditView />}
+          {activeView === "settings" && <SettingsView />}
         </main>
       </div>
 
