@@ -1,10 +1,9 @@
 // Shell del Limpiador. Maneja la navegación entre pantallas internas con un
-// state machine simple (no router): list → new → project. Cada pantalla recibe
-// `onNavigate(view, projectId?)` para moverse.
+// state machine simple (no router): list → new → project → upload/rules/review/export.
 //
-// F1 cubre: list, new, y un placeholder en project. Las pantallas de upload,
-// rules, review y export se irán llenando en iteraciones siguientes (etapa 2.B
-// en adelante).
+// Cada navegación lleva opcionalmente projectId y/o versionId. El selectedProjectId
+// se preserva al entrar a review/export aunque ahí también se use selectedVersionId,
+// para que el "Volver al proyecto" funcione sin un fetch extra.
 
 import { useEffect, useState } from "react";
 import { AlertTriangle, Sparkles } from "lucide-react";
@@ -26,8 +25,22 @@ import { NewProject } from "./routes/NewProject";
 import { ProjectDetail } from "./routes/ProjectDetail";
 import { Upload } from "./routes/Upload";
 import { Rules } from "./routes/Rules";
+import { Review } from "./routes/Review";
+import { Export } from "./routes/Export";
 
-export type LimpiadorView = "list" | "new" | "project" | "upload" | "rules";
+export type LimpiadorView =
+  | "list"
+  | "new"
+  | "project"
+  | "upload"
+  | "rules"
+  | "review"
+  | "export";
+
+interface NavigateOpts {
+  projectId?: string | null;
+  versionId?: string | null;
+}
 
 export interface LimpiadorViewProps {
   /** Disponible para que un caller pueda saltar a Ajustes desde acá. */
@@ -36,12 +49,10 @@ export interface LimpiadorViewProps {
 
 export function LimpiadorView({ onOpenSettings }: LimpiadorViewProps) {
   const [view, setView] = useState<LimpiadorView>("list");
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
-    null
-  );
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
 
   // Estado de las keys de Supabase: la herramienta no funciona sin ellas.
-  // Si faltan, mostramos un banner gateando todas las pantallas.
   const [hasSupabaseKeys, setHasSupabaseKeys] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -52,11 +63,12 @@ export function LimpiadorView({ onOpenSettings }: LimpiadorViewProps) {
     return () => {
       cancelled = true;
     };
-  }, [view]); // re-chequea al cambiar de pantalla por si el user fue a Ajustes y volvió
+  }, [view]);
 
-  const navigate = (next: LimpiadorView, projectId?: string | null) => {
+  const navigate = (next: LimpiadorView, opts: NavigateOpts = {}) => {
     setView(next);
-    setSelectedProjectId(projectId ?? null);
+    if (opts.projectId !== undefined) setSelectedProjectId(opts.projectId);
+    if (opts.versionId !== undefined) setSelectedVersionId(opts.versionId);
   };
 
   if (hasSupabaseKeys === null) {
@@ -87,14 +99,14 @@ export function LimpiadorView({ onOpenSettings }: LimpiadorViewProps) {
       {view === "list" && (
         <ProjectList
           onCreateNew={() => navigate("new")}
-          onOpenProject={(id) => navigate("project", id)}
+          onOpenProject={(id) => navigate("project", { projectId: id })}
         />
       )}
 
       {view === "new" && (
         <NewProject
           onCancel={() => navigate("list")}
-          onCreated={(projectId) => navigate("project", projectId)}
+          onCreated={(projectId) => navigate("project", { projectId })}
           onOpenSettings={onOpenSettings}
         />
       )}
@@ -103,16 +115,36 @@ export function LimpiadorView({ onOpenSettings }: LimpiadorViewProps) {
         <ProjectDetail
           projectId={selectedProjectId}
           onBack={() => navigate("list")}
-          onUpload={() => navigate("upload", selectedProjectId)}
-          onOpenRules={() => navigate("rules", selectedProjectId)}
+          onUpload={() =>
+            navigate("upload", { projectId: selectedProjectId })
+          }
+          onOpenRules={() =>
+            navigate("rules", { projectId: selectedProjectId })
+          }
+          onOpenReview={(versionId) =>
+            navigate("review", {
+              projectId: selectedProjectId,
+              versionId,
+            })
+          }
+          onOpenExport={(versionId) =>
+            navigate("export", {
+              projectId: selectedProjectId,
+              versionId,
+            })
+          }
         />
       )}
 
       {view === "upload" && selectedProjectId && (
         <Upload
           projectId={selectedProjectId}
-          onCancel={() => navigate("project", selectedProjectId)}
-          onUploaded={() => navigate("project", selectedProjectId)}
+          onCancel={() =>
+            navigate("project", { projectId: selectedProjectId })
+          }
+          onUploaded={() =>
+            navigate("project", { projectId: selectedProjectId })
+          }
           onOpenSettings={onOpenSettings}
         />
       )}
@@ -120,8 +152,40 @@ export function LimpiadorView({ onOpenSettings }: LimpiadorViewProps) {
       {view === "rules" && selectedProjectId && (
         <Rules
           projectId={selectedProjectId}
-          onBack={() => navigate("project", selectedProjectId)}
-          onGoToUpload={() => navigate("upload", selectedProjectId)}
+          onBack={() =>
+            navigate("project", { projectId: selectedProjectId })
+          }
+          onGoToUpload={() =>
+            navigate("upload", { projectId: selectedProjectId })
+          }
+        />
+      )}
+
+      {view === "review" && selectedVersionId && (
+        <Review
+          versionId={selectedVersionId}
+          onBack={() =>
+            navigate("project", { projectId: selectedProjectId })
+          }
+          onGoToExport={() =>
+            navigate("export", {
+              projectId: selectedProjectId,
+              versionId: selectedVersionId,
+            })
+          }
+        />
+      )}
+
+      {view === "export" && selectedProjectId && selectedVersionId && (
+        <Export
+          projectId={selectedProjectId}
+          versionId={selectedVersionId}
+          onBack={() =>
+            navigate("review", {
+              projectId: selectedProjectId,
+              versionId: selectedVersionId,
+            })
+          }
         />
       )}
     </div>

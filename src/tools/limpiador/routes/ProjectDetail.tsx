@@ -1,20 +1,22 @@
 // Detalle de un proyecto del Limpiador. Muestra metadata del proyecto +
 // lista de versiones cargadas. El botón "Subir nueva versión" lleva a la
 // pantalla Upload (etapas 2.B + 2.C).
-//
-// Reglas, review y export se completan en iteraciones siguientes (paso 3 y
-// paso 5 del plan).
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowLeft,
   CheckCircle2,
+  ClipboardList,
   Clock,
+  Download,
   FileSpreadsheet,
   Filter,
   FolderOpen,
   Loader2,
+  Play,
+  RefreshCw,
+  Square,
   Trash2,
   Upload as UploadIcon,
   XCircle,
@@ -34,6 +36,11 @@ import {
   deleteVersion,
   listVersions,
 } from "@/lib/cleaning/versions-repository";
+import {
+  runCleaningJob,
+  type CleaningJobController,
+  type CleaningJobProgress,
+} from "@/lib/cleaning/cleaning-job";
 import type {
   CleaningProject,
   CleaningVersion,
@@ -45,6 +52,8 @@ export interface ProjectDetailProps {
   onBack: () => void;
   onUpload: () => void;
   onOpenRules: () => void;
+  onOpenReview: (versionId: string) => void;
+  onOpenExport: (versionId: string) => void;
 }
 
 export function ProjectDetail({
@@ -52,12 +61,24 @@ export function ProjectDetail({
   onBack,
   onUpload,
   onOpenRules,
+  onOpenReview,
+  onOpenExport,
 }: ProjectDetailProps) {
   const [project, setProject] = useState<CleaningProject | null>(null);
   const [versions, setVersions] = useState<CleaningVersion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Set<string>>(new Set());
+
+  // Solo permitimos un QC corriendo a la vez desde esta pantalla. El controller
+  // queda en un ref para que cancel() siga funcionando aunque el state se
+  // actualice; el progreso (live) se renderiza desde activeJob.
+  const [activeJob, setActiveJob] = useState<{
+    versionId: string;
+    progress: CleaningJobProgress | null;
+    jobError: string | null;
+  } | null>(null);
+  const jobControllerRef = useRef<CleaningJobController | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -79,6 +100,61 @@ export function ProjectDetail({
   useEffect(() => {
     void load();
   }, [load]);
+
+  const handleRunQC = useCallback(
+    (version: CleaningVersion) => {
+      if (jobControllerRef.current) return; // ya hay uno corriendo
+
+      setActiveJob({ versionId: version.id, progress: null, jobError: null });
+
+      const controller = runCleaningJob(version.id, {
+        onProgress: (progress) => {
+          setActiveJob((curr) =>
+            curr && curr.versionId === version.id
+              ? { ...curr, progress }
+              : curr
+          );
+        },
+      });
+      jobControllerRef.current = controller;
+
+      controller.promise
+        .then((result) => {
+          if (result.status === "error" && result.errorMessage) {
+            setActiveJob((curr) =>
+              curr && curr.versionId === version.id
+                ? { ...curr, jobError: result.errorMessage ?? null }
+                : curr
+            );
+          }
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          setActiveJob((curr) =>
+            curr && curr.versionId === version.id
+              ? { ...curr, jobError: message }
+              : curr
+          );
+        })
+        .finally(() => {
+          jobControllerRef.current = null;
+          // Recargamos para que el status/processed_rows reflejen lo persistido.
+          void load();
+          // Limpiamos el activeJob un toque después para que el usuario alcance
+          // a ver el último mensaje de error si hubo.
+          setTimeout(() => {
+            setActiveJob((curr) =>
+              curr && curr.versionId === version.id ? null : curr
+            );
+          }, 1500);
+        });
+    },
+    [load]
+  );
+
+  const handleCancelQC = useCallback(() => {
+    jobControllerRef.current?.cancel();
+  }, []);
 
   const handleDeleteVersion = useCallback(
     async (version: CleaningVersion) => {
@@ -209,28 +285,28 @@ export function ProjectDetail({
                 </div>
               ) : (
                 <ul className="flex flex-col gap-2">
-                  {versions.map((v) => (
-                    <VersionRow
-                      key={v.id}
-                      version={v}
-                      deleting={deleting.has(v.id)}
-                      onDelete={() => void handleDeleteVersion(v)}
-                    />
-                  ))}
+                  {versions.map((v) => {
+                    const isActive = activeJob?.versionId === v.id;
+                    return (
+                      <VersionRow
+                        key={v.id}
+                        version={v}
+                        deleting={deleting.has(v.id)}
+                        onDelete={() => void handleDeleteVersion(v)}
+                        onOpenReview={() => onOpenReview(v.id)}
+                        onOpenExport={() => onOpenExport(v.id)}
+                        onRunQC={() => handleRunQC(v)}
+                        onCancelQC={handleCancelQC}
+                        isJobRunning={isActive}
+                        liveProgress={isActive ? activeJob?.progress ?? null : null}
+                        liveError={isActive ? activeJob?.jobError ?? null : null}
+                        anyJobRunning={activeJob !== null}
+                      />
+                    );
+                  })}
                 </ul>
               )}
             </CardContent>
-          </Card>
-
-          <Card className="border-dashed">
-            <CardHeader>
-              <CardTitle className="text-base">Próximos pasos</CardTitle>
-              <CardDescription>
-                Reglas, ejecución de QC, dashboard de revisión y export se
-                arman en las siguientes iteraciones (paso 3 y paso 5 del
-                plan).
-              </CardDescription>
-            </CardHeader>
           </Card>
         </>
       )}
@@ -242,9 +318,57 @@ interface VersionRowProps {
   version: CleaningVersion;
   deleting: boolean;
   onDelete: () => void;
+  onOpenReview: () => void;
+  onOpenExport: () => void;
+  onRunQC: () => void;
+  onCancelQC: () => void;
+  isJobRunning: boolean;
+  liveProgress: CleaningJobProgress | null;
+  liveError: string | null;
+  anyJobRunning: boolean;
 }
 
-function VersionRow({ version, deleting, onDelete }: VersionRowProps) {
+function VersionRow({
+  version,
+  deleting,
+  onDelete,
+  onOpenReview,
+  onOpenExport,
+  onRunQC,
+  onCancelQC,
+  isJobRunning,
+  liveProgress,
+  liveError,
+  anyJobRunning,
+}: VersionRowProps) {
+  // Review tiene sentido si el motor ya generó al menos progreso.
+  // Export sólo cuando completó OK (sin flags pendientes / error).
+  const canReview =
+    version.status === "completed" ||
+    version.status === "processing" ||
+    version.status === "error";
+  const canExport = version.status === "completed";
+
+  // Pending → Ejecutar QC. Error → Reanudar (el motor levanta desde
+  // processed_rows). Processing sin job activo en esta sesión → también dejamos
+  // reanudar por si quedó colgado de un cierre anterior.
+  const canRunQC =
+    !isJobRunning &&
+    !anyJobRunning &&
+    (version.status === "pending" ||
+      version.status === "error" ||
+      version.status === "processing");
+
+  const runLabel =
+    version.status === "pending" ? "Ejecutar QC" : "Reanudar QC";
+  const RunIcon = version.status === "pending" ? Play : RefreshCw;
+
+  // Mientras el job corre en esta sesión, el progreso live pisa al de la BD.
+  const displayProgress = isJobRunning && liveProgress
+    ? liveProgress.progressPercentage
+    : version.progress_percentage ?? 0;
+  const showProgress = isJobRunning || version.status === "processing";
+
   return (
     <li className="flex flex-col gap-2 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 flex-1 items-start gap-3">
@@ -259,18 +383,29 @@ function VersionRow({ version, deleting, onDelete }: VersionRowProps) {
             {version.total_rows} filas · creada{" "}
             {new Date(version.created_at).toLocaleString()}
           </p>
-          {version.status === "processing" && (
+          {showProgress && (
             <div className="mt-1.5 flex items-center gap-2">
-              <Progress
-                value={version.progress_percentage ?? 0}
-                className="h-1.5 flex-1"
-              />
+              <Progress value={displayProgress} className="h-1.5 flex-1" />
               <span className="text-xs text-muted-foreground">
-                {version.progress_percentage ?? 0}%
+                {displayProgress}%
               </span>
             </div>
           )}
-          {version.error_message && (
+          {isJobRunning && liveProgress && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {liveProgress.processedRows} / {liveProgress.totalRows} filas ·{" "}
+              {liveProgress.totalFlagged} flags
+            </p>
+          )}
+          {liveError && (
+            <p
+              className="mt-1 truncate text-xs text-destructive"
+              title={liveError}
+            >
+              {liveError}
+            </p>
+          )}
+          {!liveError && version.error_message && (
             <p
               className="mt-1 truncate text-xs text-destructive"
               title={version.error_message}
@@ -280,13 +415,53 @@ function VersionRow({ version, deleting, onDelete }: VersionRowProps) {
           )}
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <StatusBadge status={version.status} />
+        {isJobRunning ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onCancelQC}
+            className="gap-1"
+          >
+            <Square className="size-4" />
+            Cancelar
+          </Button>
+        ) : (
+          canRunQC && (
+            <Button size="sm" onClick={onRunQC} className="gap-1">
+              <RunIcon className="size-4" />
+              {runLabel}
+            </Button>
+          )
+        )}
+        {canReview && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onOpenReview}
+            className="gap-1"
+          >
+            <ClipboardList className="size-4" />
+            Revisar
+          </Button>
+        )}
+        {canExport && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onOpenExport}
+            className="gap-1"
+          >
+            <Download className="size-4" />
+            Exportar
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"
           onClick={onDelete}
-          disabled={deleting}
+          disabled={deleting || isJobRunning}
           aria-label="Eliminar versión"
         >
           {deleting ? (

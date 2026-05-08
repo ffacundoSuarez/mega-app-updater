@@ -123,6 +123,34 @@ export interface FlagCounts {
   decided: number;
 }
 
+/**
+ * Fila completa de `cleaning_flags` tal como se lee desde DB. Incluye los
+ * campos enriquecidos del paso 4 (que pueden venir como NULL si la fila se
+ * creó antes de la migración).
+ */
+export interface CleaningFlag {
+  id: string;
+  version_id: string;
+  row_id: string;
+  flag_type: FlagType;
+  reason: string;
+  matched_rules: string[];
+  confidence: number;
+  user_decision: FlagDecision;
+  decided_at?: string | null;
+  created_at: string;
+  // Campos del paso 4
+  recommendation: FlagRecommendation | null;
+  friendly_explanation: string | null;
+  affected_question_ids: string[];
+  similar_response_ids: string[];
+}
+
+/** `CleaningFlag` con la fila join'ada. Lo que devuelve `listFlags`. */
+export interface CleaningFlagWithRow extends CleaningFlag {
+  row?: CleaningRow | null;
+}
+
 /** Inserción/upsert hacia `cleaning_flags`. */
 export interface CleaningFlagInsert {
   version_id: string;
@@ -137,4 +165,31 @@ export interface CleaningFlagInsert {
   recommendation: FlagRecommendation | null;
   affected_question_ids: string[];
   similar_response_ids: string[];
+}
+
+/**
+ * Edit local de una celda de `cleaning_rows.data` (paso 5.A).
+ * Los edits no modifican `cleaning_rows.data` — viven en su propia tabla
+ * para preservar el original y permitir revertir / auditar / sincronizar.
+ */
+export interface CleaningRowEdit {
+  id: string;
+  row_id: string;
+  version_id: string;
+  column_id: string;
+  original_value: unknown;
+  new_value: unknown;
+  edited_at: string;
+  edited_by: string | null;
+  /** Reservado para 5.C (sync a QuestionPro). */
+  synced_to_qp: boolean;
+  synced_at: string | null;
+}
+
+/** Conteo enriquecido para el panel de stats del review. */
+export interface ReviewFlagCounts extends FlagCounts {
+  /** Cantidad de flags con `user_decision = 'remove'`. */
+  toRemove: number;
+  /** Cantidad de flags con `user_decision = 'keep'`. */
+  toKeep: number;
 }

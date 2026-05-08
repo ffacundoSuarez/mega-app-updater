@@ -4,20 +4,22 @@
  * Construye el prompt, llama a OpenAI vía `fetch` nativo (sin SDK) y devuelve
  * un array de `AnalyzeResult` alineado 1:1 con las filas del batch.
  *
- * El comportamiento del prompt y el fallback es idéntico al original. Cambios:
+ * Cambios respecto del original:
  *   - `fetch` directo a `/v1/chat/completions` en lugar del SDK `openai`
  *   - Retries con backoff exponencial en errores 429/5xx antes de caer al
  *     fallback "todo none" (el original caía al primer fallo de red)
  *   - Tipos estrictos para el response parseado
  *   - Logging via callback opcional (`onLog`) para no acoplar a `console.log`
- *   - Modelo, temperatura y max tokens parametrizables (default = mismo que el
- *     original: gpt-4o-mini, sin temperature explícita, 4000 tokens)
+ *   - Prompt en español, temperature=0 + seed para determinismo, metadata
+ *     filtrada del input, schema enriquecido con tipo+opciones de QP, nulls/
+ *     vacíos eliminados de la fila (reduce ruido y falsos positivos).
  */
 
 import type {
   AnalyzeResult,
   CleaningRow,
   CleaningRule,
+  SchemaColumn,
   VersionSchema,
 } from "./types";
 
@@ -61,63 +63,130 @@ interface RawAiRowResult {
   affected_question_ids?: string[];
 }
 
+/** Máximo de opciones de single/multi a incluir en el schema del prompt. */
+const MAX_OPTIONS_IN_PROMPT = 50;
+
 /**
- * Construye el prompt de análisis. Mismo texto que el original; sólo se cambió
- * el contexto (template literal) por legibilidad.
+ * Decide si una columna llega o no al prompt. Excluimos metadata
+ * (columnas con `is_metadata` o cuyo id empieza con `META_`) — son ruido
+ * para el modelo. El response_id ya viaja en la cabecera de cada ROW.
+ */
+function isPromptColumn(col: SchemaColumn): boolean {
+  if (col.is_metadata) return false;
+  if (col.id.startsWith("META_")) return false;
+  return true;
+}
+
+/**
+ * Línea del schema para el prompt. Incluye tipo de pregunta y opciones cuando
+ * están enriquecidas desde QuestionPro, para que el modelo pueda decodificar
+ * respuestas codificadas (ej: "Q5: 3" → "Muy satisfecho") y diferenciar
+ * abiertas de cerradas.
+ */
+function describeSchemaColumn(col: SchemaColumn): string {
+  const typeTag = col.qp_question_type ? ` [${col.qp_question_type}]` : "";
+  let line = `- ${col.id}${typeTag}: "${col.question}"`;
+
+  if (col.qp_options && col.qp_options.length > 0) {
+    const opts = col.qp_options
+      .slice(0, MAX_OPTIONS_IN_PROMPT)
+      .map((o) => `${o.answerID}=${o.text}`)
+      .join(", ");
+    const truncated = col.qp_options.length > MAX_OPTIONS_IN_PROMPT
+      ? ` (+${col.qp_options.length - MAX_OPTIONS_IN_PROMPT} más)`
+      : "";
+    line += ` — opciones: ${opts}${truncated}`;
+  }
+
+  return line;
+}
+
+/**
+ * Serializa los valores de una fila para el prompt, pero filtra:
+ *  - columnas metadata (no aportan al QC)
+ *  - valores null/undefined/string vacío (el modelo no debería razonar sobre
+ *    "el campo está null" — si está vacío, no se lo mostramos)
+ */
+function serializeRowData(
+  row: CleaningRow,
+  promptColumns: SchemaColumn[]
+): string {
+  const promptIds = new Set(promptColumns.map((c) => c.id));
+  const lines: string[] = [];
+
+  for (const [key, value] of Object.entries(row.data)) {
+    if (!promptIds.has(key)) continue;
+    if (value === null || value === undefined) continue;
+    if (typeof value === "string" && value.trim() === "") continue;
+    lines.push(`  ${key}: ${JSON.stringify(value)}`);
+  }
+
+  return lines.length > 0 ? lines.join("\n") : "  (sin respuestas)";
+}
+
+/**
+ * Construye el prompt de análisis (en español). Excluye metadata, enriquece
+ * el schema con tipo+opciones de QP y filtra valores vacíos del input.
  */
 export function buildPrompt(
   rows: CleaningRow[],
   schema: VersionSchema,
   rules: CleaningRule[]
 ): string {
-  const schemaDescription = schema.columns
-    .map((col) => `- ${col.id}: "${col.question}"`)
+  const promptColumns = schema.columns.filter(isPromptColumn);
+
+  const schemaDescription = promptColumns
+    .map(describeSchemaColumn)
     .join("\n");
 
   const rulesDescription =
     rules.length > 0
       ? rules.map((rule, i) => describeRule(rule, i)).join("\n")
-      : "No specific rules defined - use general quality detection only.";
+      : "No hay reglas definidas — usar sólo detección general de calidad.";
 
   const rowsData = rows
     .map((row, i) => {
-      const rowDataStr = Object.entries(row.data)
-        .map(([key, value]) => `  ${key}: ${JSON.stringify(value)}`)
-        .join("\n");
+      const rowDataStr = serializeRowData(row, promptColumns);
       return `ROW ${i + 1} (row_number: ${row.row_number}, response_id: ${
         row.response_id ?? "N/A"
       }):\n${rowDataStr}`;
     })
     .join("\n\n");
 
-  return `You are a data quality analyst reviewing survey responses to identify potentially invalid data.
+  return `Sos un analista de calidad de datos revisando respuestas de encuesta para identificar datos potencialmente inválidos.
 
-SURVEY SCHEMA (Column ID: Question):
+ESQUEMA DE LA ENCUESTA (columnId [tipo]: "pregunta" — opciones si aplica):
 ${schemaDescription}
 
-USER-DEFINED RULES TO ENFORCE:
+REGLAS DEFINIDAS POR EL USUARIO:
 ${rulesDescription}
 
-ADDITIONAL PATTERNS TO DETECT (be conservative - only flag if clearly problematic):
-- Responses that look copy-pasted or templated across multiple questions
-- Gibberish, random characters, or keyboard spam
-- Responses that are suspiciously AI-generated (overly perfect grammar, generic platitudes, no personal touch)
-- Open-ended answers that don't logically match the question asked
-- Contradictory answers within the same response (e.g., age says 25 but mentions grandchildren)
-- Extremely short or lazy answers like "good", "ok", "yes" for questions requiring detailed responses
+PATRONES ADICIONALES A DETECTAR (sé conservador — flagueá sólo si claramente hay problema):
+- Respuestas copy-paste o templateadas a través de varias preguntas
+- Galimatías, caracteres random, golpes de teclado
+- Respuestas sospechosamente generadas por IA (gramática perfecta, genéricas, sin contenido personal)
+- Respuestas abiertas que no responden lógicamente la pregunta
+- Contradicciones internas (ej: edad dice 25 pero menciona nietos)
+- Respuestas excesivamente cortas o vagas ("bien", "ok", "sí") en preguntas que piden desarrollo
 
-BE CONSERVATIVE: Only flag responses that are CLEARLY problematic. When in doubt, don't flag.
+REGLAS IMPORTANTES DE INTERPRETACIÓN:
+- Si una columna NO aparece en una fila, esa pregunta quedó sin responder. NO inventes que falta un campo si está presente con un valor.
+- Para preguntas tipo single/multi/rating, los valores numéricos representan answerIDs — usá la lista de opciones del schema para decodificar antes de juzgar.
+- Las preguntas con tipo [text] o sin tipo son abiertas; las cerradas no necesitan texto largo.
+- Si el row dice "(sin respuestas)" significa que la fila entera está vacía.
 
-ROWS TO ANALYZE:
+SÉ CONSERVADOR: flagueá sólo respuestas CLARAMENTE problemáticas. Ante la duda, no flaguees.
+
+FILAS A ANALIZAR:
 ${rowsData}
 
-For each row, respond with a JSON object. Return a JSON array with one object per row:
+Para cada fila respondé un objeto JSON. Devolvé un array JSON con un objeto por fila:
 [
   {
     "row_number": 1,
     "flag": "red" | "yellow" | "none",
-    "reason": "Brief explanation in English (only if flagged)",
-    "matched_rules": ["rule_id_1"] or ["pattern_detected"],
+    "reason": "Explicación breve en español (sólo si está flagueada)",
+    "matched_rules": ["rule_id_1"] o ["pattern_detected"],
     "confidence": 0.85,
     "recommendation": "remove" | "review" | "keep",
     "friendly_explanation": "Texto en español dirigido al revisor humano. Formato: 'Recomiendo {accion} porque en \\\\'{textoPregunta}\\\\' la respuesta {motivo}.'",
@@ -126,17 +195,17 @@ For each row, respond with a JSON object. Return a JSON array with one object pe
   ...
 ]
 
-Flag meanings:
-- "red": Clearly invalid/bot response - recommend removal
-- "yellow": Suspicious but uncertain - needs human review
-- "none": Appears valid
+Significado de los flags:
+- "red": respuesta claramente inválida/bot — recomendar eliminación
+- "yellow": sospechosa pero incierta — requiere revisión humana
+- "none": parece válida
 
-Field details:
-- "recommendation": map "red" → "remove", "yellow" → "review", "none" → "keep"; for "none" you may omit it.
-- "friendly_explanation": short, in Spanish, addressed to a human reviewer. Reference the column by its question text (not by ID). Omit if flag is "none".
-- "affected_question_ids": list the column IDs (Q1, Q22, META_*, …) whose values triggered the flag. Empty array if not applicable.
+Detalles de los campos:
+- "recommendation": mapeo "red" → "remove", "yellow" → "review", "none" → "keep"; para "none" puede omitirse.
+- "reason" y "friendly_explanation": ambos en español. "friendly_explanation" debe referenciar la columna por el texto de su pregunta, no por el ID. Omitilo si flag es "none".
+- "affected_question_ids": lista los column IDs (Q1, Q22, …) cuyos valores dispararon el flag. Array vacío si no aplica.
 
-Respond ONLY with the JSON array, no other text.`;
+Respondé SÓLO con el array JSON, sin texto adicional.`;
 }
 
 /** Texto en lenguaje natural de la regla, tal como lo lee el prompt. */
@@ -177,12 +246,16 @@ export async function analyzeBatch(
       {
         role: "system",
         content:
-          "You are a data quality analyst. Respond only with valid JSON arrays. Be conservative - only flag clearly problematic responses.",
+          "Sos un analista de calidad de datos. Respondé sólo con arrays JSON válidos. Sé conservador: flagueá únicamente respuestas claramente problemáticas.",
       },
       { role: "user", content: prompt },
     ],
     max_completion_tokens: maxCompletionTokens,
     response_format: { type: "json_object" },
+    // Determinismo: clasificación binaria, no creatividad. Seed para que dos
+    // corridas sobre los mismos datos sean reproducibles.
+    temperature: 0,
+    seed: 42,
   };
 
   let attempt = 0;
