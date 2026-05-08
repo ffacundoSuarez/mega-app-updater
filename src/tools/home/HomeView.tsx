@@ -46,6 +46,14 @@ const QUICK_TOOLS: QuickTool[] = [
     icon: BarChart3,
     status: "available",
   },
+  {
+    id: "limpiador",
+    label: "Limpiador de Encuestas",
+    description:
+      "Identificá respuestas inválidas o sospechosas en tus encuestas Qualtrics o QuestionPro con IA.",
+    icon: Sparkles,
+    status: "available",
+  },
 ];
 
 export function HomeView({ appVersion, onOpenTool }: HomeViewProps) {
