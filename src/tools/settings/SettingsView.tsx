@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
+  Bug,
   CheckCircle2,
   Eye,
   EyeOff,
@@ -27,9 +28,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import {
   getEncryptionKeySetting,
   getGeminiApiKey,
+  getLimpiadorDebugPrompts,
   getOpenaiApiKey,
   getQuestionproApiKey,
   getSupabaseAnonKey,
@@ -37,6 +40,7 @@ import {
   hasGeminiApiKey,
   setEncryptionKeySetting,
   setGeminiApiKey,
+  setLimpiadorDebugPrompts,
   setOpenaiApiKey,
   setQuestionproApiKey,
   setSupabaseAnonKey,
@@ -203,16 +207,19 @@ export function SettingsView() {
   const [hasEnc, setHasEnc] = useState(false);
   const [encSave, setEncSave] = useState<SaveState>("idle");
 
+  const [debugPrompts, setDebugPromptsState] = useState(false);
+
   useEffect(() => {
     (async () => {
       try {
-        const [g, url, anon, oai, qpk, ek] = await Promise.all([
+        const [g, url, anon, oai, qpk, ek, dbg] = await Promise.all([
           getGeminiApiKey(),
           getSupabaseUrl(),
           getSupabaseAnonKey(),
           getOpenaiApiKey(),
           getQuestionproApiKey(),
           getEncryptionKeySetting(),
+          getLimpiadorDebugPrompts(),
         ]);
         if (g) setGemini(g);
         setHasGemini(await hasGeminiApiKey());
@@ -226,6 +233,7 @@ export function SettingsView() {
         setHasQp(!!qpk);
         if (ek) setEnc(ek);
         setHasEnc(!!ek);
+        setDebugPromptsState(dbg);
       } finally {
         setLoading(false);
       }
@@ -350,6 +358,17 @@ export function SettingsView() {
     setEnc("");
     setHasEnc(false);
     setEncSave("idle");
+  }, []);
+
+  const toggleDebugPrompts = useCallback(async (next: boolean) => {
+    setDebugPromptsState(next);
+    try {
+      await setLimpiadorDebugPrompts(next);
+    } catch (e) {
+      console.error(e);
+      // Revertimos el switch si no se pudo persistir.
+      setDebugPromptsState(!next);
+    }
   }, []);
 
   return (
@@ -488,6 +507,38 @@ export function SettingsView() {
         onSave={saveEnc}
         onClear={clearEnc}
       />
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-start gap-3">
+            <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Bug className="size-4" />
+            </div>
+            <div className="flex-1">
+              <CardTitle className="text-base">Modo debug del Limpiador</CardTitle>
+              <CardDescription>
+                Cuando está activo, el motor de QC vuelca a la consola del WebView
+                el prompt enviado a OpenAI y la respuesta cruda de cada batch.
+                Útil para iterar el prompt. Abrí la consola con devtools
+                (en <span className="font-mono">tauri dev</span>) para verlo.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between gap-4">
+            <Label htmlFor="limpiador-debug" className="text-sm font-normal">
+              Loguear prompts del QC
+            </Label>
+            <Switch
+              id="limpiador-debug"
+              checked={debugPrompts}
+              onCheckedChange={(v) => void toggleDebugPrompts(v)}
+              disabled={loading}
+            />
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

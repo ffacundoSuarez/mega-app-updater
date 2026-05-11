@@ -16,6 +16,50 @@ import type {
   ReviewFlagCounts,
 } from "./types";
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Cita un valor para una lista PostgREST `in.(...)` (escapa comillas dobles). */
+function quoteForIn(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Trae las filas referenciadas por `cleaning_flags.similar_response_ids` (que
+ * guarda `response_id`s o, como fallback, `row_id`s — ver el contrato de QC).
+ * Busca por ambas columnas; los identificadores con forma de UUID también se
+ * matchean contra `id`. Usado por el review para mostrar el texto real de las
+ * respuestas similares en vez del id crudo (idea 9 del rediseño 5.B).
+ */
+export async function getSimilarRows(
+  versionId: string,
+  identifiers: string[]
+): Promise<CleaningRow[]> {
+  const uniq = [...new Set(identifiers.filter((s) => s && s.trim()))];
+  if (uniq.length === 0) return [];
+
+  const client = await getCleaningSupabaseClient();
+  const respList = uniq.map(quoteForIn).join(",");
+  const orParts = [`response_id.in.(${respList})`];
+  const uuidLike = uniq.filter((s) => UUID_RE.test(s));
+  if (uuidLike.length > 0) {
+    orParts.push(`id.in.(${uuidLike.map(quoteForIn).join(",")})`);
+  }
+
+  const { data, error } = await client
+    .from("cleaning_rows")
+    .select("*")
+    .eq("version_id", versionId)
+    .or(orParts.join(","));
+
+  if (error) {
+    throw new Error(
+      `No se pudieron cargar las respuestas similares: ${error.message}`
+    );
+  }
+  return (data ?? []) as unknown as CleaningRow[];
+}
+
 export interface ListFlagsFilters {
   flagType?: FlagType;
   /**
@@ -133,6 +177,25 @@ export async function bulkUpdateFlagDecisions(
     throw new Error(`No se pudieron actualizar los flags: ${error.message}`);
   }
   return flagIds.length;
+}
+
+/**
+ * Paso 5.C: marca un flag `user_decision = 'remove'` como ya eliminado de
+ * QuestionPro (setea `removed_from_qp_at = now()`). Idempotente: re-aplicarlo
+ * sólo pisa el timestamp.
+ */
+export async function markFlagRemovedFromQP(flagId: string): Promise<void> {
+  const client = await getCleaningSupabaseClient();
+  const { error } = await client
+    .from("cleaning_flags")
+    .update({ removed_from_qp_at: new Date().toISOString() })
+    .eq("id", flagId);
+
+  if (error) {
+    throw new Error(
+      `No se pudo marcar el flag como eliminado de QuestionPro: ${error.message}`
+    );
+  }
 }
 
 /** Resetea todas las decisiones de la versión (las vuelve a "pending"). */

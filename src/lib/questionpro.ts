@@ -7,9 +7,8 @@
  *   - `matchExcelColumnsToQuestionpro` + `normalizeQuestionproMatchText`
  *     (etapa 2.C, match determinístico Excel ↔ API)
  *   - `getQuestionProExcelMetadataColumns` (etapa 2.B, parser Excel QP)
- *
- * Sync de respuestas (`getResponse` / `deleteResponse` / `createResponse`) se
- * incorporará en la etapa 5.C cuando arme la sincronización a QP.
+ *   - `getResponse` / `deleteResponse` / `createResponse` (etapa 5.C, sync del
+ *     review a QP vía DELETE+POST)
  */
 
 const QP_API_BASE = "https://api.questionpro.com/a/api/v2";
@@ -279,6 +278,144 @@ export function getQuestionProExcelMetadataColumns(): ReadonlyArray<{
     { label: "Duplicado", columnId: "META_DUPLICADO" },
     { label: "País", columnId: "META_PAIS" },
   ];
+}
+
+// ===========================================================================
+// Sync de respuestas (etapa 5.C) — GET / DELETE / POST de respuestas
+// ===========================================================================
+
+/**
+ * Una entrada del `responseSet` de una respuesta: una pregunta + sus valores.
+ *
+ * El shape de `answerValues` depende del tipo de pregunta (texto vs. opción
+ * múltiple vs. escala…): a veces es `[{ value, answerText }]`, a veces
+ * `[{ value }]`, a veces primitivos. Por eso lo dejamos como `unknown[]` y el
+ * merge de edits (ver `sync-to-questionpro.ts`) muta la estructura existente en
+ * lugar de reconstruirla.
+ */
+export interface QPResponseSetItem {
+  questionID: number;
+  answerValues: unknown[];
+}
+
+/**
+ * Respuesta completa tal como la devuelve `GET /surveys/{id}/responses/{rid}`.
+ * Todos los campos de metadata son opcionales: si la API no los trae para una
+ * respuesta puntual, simplemente no se reenvían en el POST de re-creación.
+ *
+ * NOTA: shape validado contra la doc de QuestionPro
+ * (https://www.questionpro.com/api/get-response.html y create-response.html),
+ * pero puede haber drift menor; confirmar contra una encuesta real en 5.C/A.6.
+ */
+export interface QPFullResponse {
+  responseID: number;
+  surveyID: number;
+  timestamp?: string;
+  ipAddress?: string;
+  location?: { country?: string; region?: string; city?: string } | null;
+  duplicate?: boolean;
+  timeTaken?: number;
+  responseStatus?: string;
+  customVariables?: Record<string, string> | null;
+  languageID?: number;
+  operatingSystem?: string;
+  osDeviceType?: string;
+  browser?: string;
+  responseSet: QPResponseSetItem[];
+}
+
+/** Lo que se manda en el POST de re-creación: la respuesta menos sus IDs. */
+export type QPResponsePayload = Omit<QPFullResponse, "responseID" | "surveyID">;
+
+interface QPResponseAPIWrapper {
+  response: QPFullResponse;
+}
+
+interface QPCreateResponseAPIWrapper {
+  response: { responseID: number };
+}
+
+/** GET de una respuesta puntual con todo su `responseSet` y metadata. */
+export async function getResponse(
+  surveyId: string,
+  responseId: string,
+  apiKey: string
+): Promise<QPFullResponse> {
+  const res = await fetch(
+    `${QP_API_BASE}/surveys/${surveyId}/responses/${responseId}`,
+    { headers: { "api-key": apiKey } }
+  );
+  if (!res.ok) {
+    throw qpResponseError(res, await safeText(res), responseId);
+  }
+  const data = (await res.json()) as QPResponseAPIWrapper;
+  const r = data.response;
+  if (!r || !Array.isArray(r.responseSet)) {
+    throw new Error(
+      `QuestionPro devolvió una respuesta inesperada para la respuesta ${responseId}`
+    );
+  }
+  return r;
+}
+
+/** DELETE de una respuesta. Idempotente del lado nuestro: un 404 lo tomamos OK. */
+export async function deleteResponse(
+  surveyId: string,
+  responseId: string,
+  apiKey: string
+): Promise<void> {
+  const res = await fetch(
+    `${QP_API_BASE}/surveys/${surveyId}/responses/${responseId}`,
+    { method: "DELETE", headers: { "api-key": apiKey } }
+  );
+  // 404 = ya no existe → tratamos como éxito (idempotencia del re-sync).
+  if (!res.ok && res.status !== 404) {
+    throw qpResponseError(res, await safeText(res), responseId);
+  }
+}
+
+/**
+ * POST de una respuesta nueva. QuestionPro asigna un `responseID` nuevo —
+ * por eso re-crear una respuesta editada cambia su ID interno (el resto de
+ * la metadata se preserva si la API la respeta).
+ */
+export async function createResponse(
+  surveyId: string,
+  payload: QPResponsePayload,
+  apiKey: string
+): Promise<{ responseID: number }> {
+  const res = await fetch(`${QP_API_BASE}/surveys/${surveyId}/responses`, {
+    method: "POST",
+    headers: { "api-key": apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw qpResponseError(res, await safeText(res));
+  }
+  const data = (await res.json()) as QPCreateResponseAPIWrapper;
+  const id = data.response?.responseID;
+  if (typeof id !== "number") {
+    throw new Error(
+      "QuestionPro no devolvió el responseID de la respuesta re-creada"
+    );
+  }
+  return { responseID: id };
+}
+
+function qpResponseError(res: Response, body: string, responseId?: string): Error {
+  if (res.status === 401 || res.status === 403) {
+    return new Error(
+      "API key de QuestionPro inválida o sin permisos para esta encuesta"
+    );
+  }
+  if (res.status === 404) {
+    return new Error(
+      responseId
+        ? `Respuesta ${responseId} no encontrada en QuestionPro`
+        : "Recurso no encontrado en QuestionPro"
+    );
+  }
+  return new Error(`Error de QuestionPro (${res.status}): ${truncate(body, 200)}`);
 }
 
 async function safeText(res: Response): Promise<string> {

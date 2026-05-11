@@ -1,36 +1,40 @@
-// Pantalla de Review (paso 5.A + 5.B).
+// Pantalla de Review (paso 5.B) — rediseño "Inbox" (ideas 1, 2, 4 del menú).
 //
-// Cambios clave vs mega-dashboard:
-//   - "friendly_explanation" como texto principal de la tarjeta cuando existe
-//     (fallback a `reason` si la versión es pre-paso-4).
-//   - Badge "Recomiendo eliminar/revisar/mantener" arriba de la tarjeta usando
-//     `flag.recommendation`.
-//   - Tarjetas de pregunta(s) afectada(s) (`affected_question_ids`) con texto
-//     completo y edición inline de la celda (5.A — `cleaning_row_edits`).
-//   - Collapsable de respuestas similares (`similar_response_ids`) cuando los
-//     embeddings detectaron paráfrasis cross-row.
-//   - Filtro adicional por recomendación.
-//   - En la grilla expandida se muestra el texto de la pregunta (`column.question`)
-//     en lugar del id; cada celda es editable inline.
+// Layout split-pane: lista compacta de flags a la izquierda (1 línea c/u),
+// panel de detalle a la derecha que cambia al click. Estilo Outlook/Linear.
+//   - Idea 1: split-pane con scroll independiente en cada lado.
+//   - Idea 2: severidad por color (4 niveles, ver `@/lib/cleaning/severity`);
+//     la lista se ordena por severidad descendente y cada ítem tiene un punto
+//     de color; el detalle muestra una pill de severidad.
+//   - Idea 4: los filtros pasan a chips removibles + un menú "+ Filtro";
+//     dimensiones: tipo, decisión, recomendación, severidad.
 //
-// La sincronización a QuestionPro (5.C) NO está acá: la sección queda abierta
-// para una iteración separada con su propia confirmación destructiva.
+// El detalle conserva todo lo de antes: friendly_explanation, badge de
+// recomendación, preguntas afectadas con edición inline (5.A), respuestas
+// similares collapsable, grilla de la fila completa, decisión keep/remove,
+// y el botón "Sincronizar con QuestionPro" (5.C) sigue en el header.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   AlertTriangle,
   ArrowLeft,
+  BarChart3,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
+  CloudUpload,
   Download,
   Edit3,
   Filter,
   Info,
   Loader2,
+  Maximize2,
+  Plus,
   RotateCcw,
   Undo2,
+  X,
   XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -38,28 +42,48 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   bulkUpdateFlagDecisions,
   getReviewFlagCounts,
+  getSimilarRows,
   listFlags,
   resetFlagDecisions,
   updateFlagDecision,
   type ListFlagsFilters,
 } from "@/lib/cleaning/flags-repository";
+import {
+  getReviewSyncStatus,
+  hasPendingSync,
+  syncReviewToQP,
+  type ReviewSyncStatus,
+  type SyncToQPProgress,
+  type SyncToQPResult,
+} from "@/lib/cleaning/sync-to-questionpro";
 import {
   getVersionEdits,
   revertRowEdit,
@@ -67,8 +91,20 @@ import {
 } from "@/lib/cleaning/row-edits-repository";
 import { getVersion } from "@/lib/cleaning/cleaning-repository";
 import { getCleaningSupabaseClient } from "@/lib/cleaning/supabase-client";
+import {
+  effectiveRecommendation,
+  flagColor,
+  flagSeverityScore,
+  RULE_COLOR_ACCENT,
+  RULE_COLOR_DOT,
+  RULE_COLOR_LABEL,
+  RULE_COLOR_PILL,
+  RULE_COLOR_RANK,
+  type RuleColor,
+} from "@/lib/cleaning/severity";
 import type {
   CleaningFlagWithRow,
+  CleaningRow,
   CleaningRowEdit,
   CleaningVersion,
   FlagRecommendation,
@@ -94,6 +130,7 @@ export interface ReviewProps {
 type FilterType = "all" | "red" | "yellow";
 type FilterDecision = "all" | "pending" | "keep" | "remove";
 type FilterRecommendation = "all" | FlagRecommendation;
+type FilterColor = "all" | RuleColor;
 
 export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
   const [version, setVersion] = useState<CleaningVersion | null>(null);
@@ -106,20 +143,22 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Filtros
+  // Filtros: tipo y decisión van al query; recomendación y color, client-side.
   const [filterType, setFilterType] = useState<FilterType>("all");
   const [filterDecision, setFilterDecision] = useState<FilterDecision>("all");
   const [filterRecommendation, setFilterRecommendation] =
     useState<FilterRecommendation>("all");
+  const [filterColor, setFilterColor] = useState<FilterColor>("all");
+  // Columna afectada (id del schema) por la que filtrar; null = sin filtro.
+  const [filterColumn, setFilterColumn] = useState<string | null>(null);
 
-  // Selección (para bulk update)
+  // Selección para bulk + flag activo en el panel de detalle.
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectedFlagId, setSelectedFlagId] = useState<string | null>(null);
 
-  // UI per-flag
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [expandedSimilars, setExpandedSimilars] = useState<Set<string>>(
-    new Set()
-  );
+  // UI per-flag (en el detalle).
+  const [showFullRow, setShowFullRow] = useState(false);
+  const [showSimilars, setShowSimilars] = useState(false);
   const [updating, setUpdating] = useState<Set<string>>(new Set());
 
   // --- carga inicial + reload tras cambios -------------------------------
@@ -151,7 +190,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
     try {
       const f = await listFlags(versionId, filters);
       setFlags(f);
-      setSelected(new Set()); // limpiar selección al cambiar filtro
+      setSelected(new Set());
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -165,11 +204,113 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
     if (!loading) void loadFlags();
   }, [loadFlags, loading]);
 
-  // Filtro por recomendación se aplica client-side (no hay índice DB ideal).
+  // Flags visibles: filtros client-side + orden por severidad descendente.
   const visibleFlags = useMemo(() => {
-    if (filterRecommendation === "all") return flags;
-    return flags.filter((f) => f.recommendation === filterRecommendation);
-  }, [flags, filterRecommendation]);
+    let list = flags;
+    if (filterRecommendation !== "all") {
+      list = list.filter(
+        (f) => effectiveRecommendation(f) === filterRecommendation
+      );
+    }
+    if (filterColor !== "all") {
+      list = list.filter((f) => flagColor(f) === filterColor);
+    }
+    if (filterColumn) {
+      list = list.filter((f) =>
+        (f.affected_question_ids ?? []).includes(filterColumn)
+      );
+    }
+    return [...list].sort((a, b) => {
+      const rank = RULE_COLOR_RANK[flagColor(b)] - RULE_COLOR_RANK[flagColor(a)];
+      if (rank !== 0) return rank;
+      const score = flagSeverityScore(b) - flagSeverityScore(a);
+      if (score !== 0) return score;
+      return a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0;
+    });
+  }, [flags, filterRecommendation, filterColor, filterColumn]);
+
+  // Heatmap: flags por columna afectada (sobre el set ya filtrado por
+  // tipo/decisión), con el color de severidad del peor flag de cada columna.
+  const columnFlagStats = useMemo(() => {
+    const acc = new Map<
+      string,
+      { columnId: string; count: number; worst: RuleColor }
+    >();
+    for (const f of flags) {
+      const color = flagColor(f);
+      for (const colId of f.affected_question_ids ?? []) {
+        const cur = acc.get(colId);
+        if (!cur) {
+          acc.set(colId, { columnId: colId, count: 1, worst: color });
+        } else {
+          cur.count++;
+          if (RULE_COLOR_RANK[color] > RULE_COLOR_RANK[cur.worst]) {
+            cur.worst = color;
+          }
+        }
+      }
+    }
+    return [...acc.values()].sort((a, b) => b.count - a.count);
+  }, [flags]);
+
+  const schemaById = useMemo(() => {
+    const m = new Map<string, SchemaColumn>();
+    if (version) for (const c of version.schema.columns) m.set(c.id, c);
+    return m;
+  }, [version]);
+
+  const filterColumnLabel = filterColumn
+    ? schemaById.get(filterColumn)?.question || filterColumn
+    : "";
+
+  // Mantener un flag seleccionado válido.
+  useEffect(() => {
+    if (visibleFlags.length === 0) {
+      if (selectedFlagId !== null) setSelectedFlagId(null);
+      return;
+    }
+    if (!selectedFlagId || !visibleFlags.some((f) => f.id === selectedFlagId)) {
+      setSelectedFlagId(visibleFlags[0].id);
+    }
+  }, [visibleFlags, selectedFlagId]);
+
+  // Resetear UI per-flag al cambiar de flag activo.
+  useEffect(() => {
+    setShowFullRow(false);
+    setShowSimilars(false);
+  }, [selectedFlagId]);
+
+  const selectedFlag = useMemo(
+    () => visibleFlags.find((f) => f.id === selectedFlagId) ?? null,
+    [visibleFlags, selectedFlagId]
+  );
+
+  const selectedIndex = useMemo(
+    () => visibleFlags.findIndex((f) => f.id === selectedFlagId),
+    [visibleFlags, selectedFlagId]
+  );
+
+  // Cambia cada vez que hay algo distinto para sincronizar a QP (una decisión
+  // 'remove' nueva/revertida, un edit nuevo/sincronizado/revertido). Se lo
+  // pasamos al botón de sync para que recargue su estado.
+  const syncRefreshKey = useMemo(() => {
+    let removeCount = 0;
+    for (const f of flags) {
+      if (f.user_decision === "remove" && !f.removed_from_qp_at) removeCount++;
+    }
+    let editCount = 0;
+    for (const perRow of editsMap.values()) {
+      for (const e of perRow.values()) if (!e.synced_to_qp) editCount++;
+    }
+    return `${removeCount}:${editCount}`;
+  }, [flags, editsMap]);
+
+  // Conteo de flags por color (sobre el set ya filtrado por tipo/decisión).
+  const colorCounts = useMemo(() => {
+    const c: Record<RuleColor, number> = { red: 0, orange: 0, yellow: 0, green: 0 };
+    for (const f of flags) c[flagColor(f)]++;
+    return c;
+  }, [flags]);
 
   // --- decisiones ---------------------------------------------------------
 
@@ -258,7 +399,12 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
   // --- edits --------------------------------------------------------------
 
   const handleSaveEdit = useCallback(
-    async (rowId: string, columnId: string, newValue: string, originalValue: unknown) => {
+    async (
+      rowId: string,
+      columnId: string,
+      newValue: string,
+      originalValue: unknown
+    ) => {
       try {
         const edit = await upsertRowEdit({
           rowId,
@@ -272,12 +418,11 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
           let perRow = next.get(rowId);
           if (!perRow) {
             perRow = new Map();
-            next.set(rowId, perRow);
           } else {
             perRow = new Map(perRow);
-            next.set(rowId, perRow);
           }
           perRow.set(columnId, edit);
+          next.set(rowId, perRow);
           return next;
         });
       } catch (err) {
@@ -321,20 +466,6 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
 
   // --- helpers UI ---------------------------------------------------------
 
-  const toggleRow = (id: string) =>
-    setExpandedRows((s) => {
-      const next = new Set(s);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-
-  const toggleSimilars = (id: string) =>
-    setExpandedSimilars((s) => {
-      const next = new Set(s);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-
   const toggleSelect = (id: string) =>
     setSelected((s) => {
       const next = new Set(s);
@@ -348,6 +479,13 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
     } else {
       setSelected(new Set(visibleFlags.map((f) => f.id)));
     }
+  };
+
+  const goRelative = (delta: number) => {
+    if (visibleFlags.length === 0) return;
+    const idx = selectedIndex < 0 ? 0 : selectedIndex;
+    const next = Math.max(0, Math.min(visibleFlags.length - 1, idx + delta));
+    setSelectedFlagId(visibleFlags[next].id);
   };
 
   // --- render -------------------------------------------------------------
@@ -383,27 +521,20 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
   }
 
   const editedRowsCount = editsMap.size;
+  const allFlagsCount = counts.red + counts.yellow;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex h-full flex-col gap-4">
       {/* Header */}
-      <div>
+      <div className="flex items-center justify-between gap-3">
         <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
           <ArrowLeft className="size-4" />
           Volver al proyecto
         </Button>
-      </div>
-
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight">
-            Revisar flags
-          </h2>
-          <p className="text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="hidden text-xs text-muted-foreground sm:inline">
             {version.filename} · v{version.version_number}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
+          </span>
           <Button
             variant="outline"
             size="sm"
@@ -413,6 +544,13 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
             <RotateCcw className="size-4" />
             Resetear todo
           </Button>
+          <SyncToQpButton
+            versionId={versionId}
+            refreshKey={syncRefreshKey}
+            onSynced={() => {
+              void loadAll();
+            }}
+          />
           <Button onClick={onGoToExport} size="sm" className="gap-2">
             <Download className="size-4" />
             Exportar limpio
@@ -420,142 +558,140 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Stats compactas */}
       <ReviewStats counts={counts} editedRows={editedRowsCount} />
 
-      {/* Filters + bulk */}
-      <Card>
-        <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Filter className="size-4 text-muted-foreground" />
-            <Select
-              value={filterType}
-              onValueChange={(v) => setFilterType(v as FilterType)}
-            >
-              <SelectTrigger className="w-36 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos los tipos</SelectItem>
-                <SelectItem value="red">Solo Red</SelectItem>
-                <SelectItem value="yellow">Solo Yellow</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={filterDecision}
-              onValueChange={(v) => setFilterDecision(v as FilterDecision)}
-            >
-              <SelectTrigger className="w-40 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas las decisiones</SelectItem>
-                <SelectItem value="pending">Pendientes</SelectItem>
-                <SelectItem value="keep">Mantener</SelectItem>
-                <SelectItem value="remove">Eliminar</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={filterRecommendation}
-              onValueChange={(v) =>
-                setFilterRecommendation(v as FilterRecommendation)
-              }
-            >
-              <SelectTrigger className="w-40 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Toda recomendación</SelectItem>
-                <SelectItem value="remove">Recomienda eliminar</SelectItem>
-                <SelectItem value="review">Recomienda revisar</SelectItem>
-                <SelectItem value="keep">Recomienda mantener</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+      {/* Heatmap de columnas con flags (idea 7) */}
+      <ColumnHeatmap
+        stats={columnFlagStats}
+        schemaById={schemaById}
+        activeColumn={filterColumn}
+        onPick={(colId) =>
+          setFilterColumn((cur) => (cur === colId ? null : colId))
+        }
+      />
 
-          {selected.size > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">
-                {selected.size} seleccionados
-              </span>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void handleBulkDecide("keep")}
-                className="gap-1"
-              >
-                <CheckCircle2 className="size-4 text-emerald-500" />
-                Mantener
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void handleBulkDecide("remove")}
-                className="gap-1"
-              >
-                <XCircle className="size-4 text-destructive" />
-                Eliminar
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Barra de filtros (chips) + leyenda de severidad */}
+      <FilterChipsBar
+        filterType={filterType}
+        filterDecision={filterDecision}
+        filterRecommendation={filterRecommendation}
+        filterColor={filterColor}
+        filterColumn={filterColumn}
+        filterColumnLabel={filterColumnLabel}
+        colorCounts={colorCounts}
+        onSetType={setFilterType}
+        onSetDecision={setFilterDecision}
+        onSetRecommendation={setFilterRecommendation}
+        onSetColor={setFilterColor}
+        onClearColumn={() => setFilterColumn(null)}
+      />
 
-      {/* Flag list */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-base">
-            Flags ({visibleFlags.length})
-          </CardTitle>
-          {visibleFlags.length > 0 && (
+      {/* Split-pane */}
+      <div className="flex min-h-[320px] flex-1 gap-4">
+        {/* Lista compacta */}
+        <div className="flex w-64 shrink-0 flex-col overflow-hidden rounded-lg border lg:w-72 xl:w-80">
+          <div className="flex items-center justify-between gap-2 border-b bg-muted/30 px-3 py-2">
             <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
               <Checkbox
                 checked={
-                  selected.size > 0 && selected.size === visibleFlags.length
+                  visibleFlags.length > 0 &&
+                  selected.size === visibleFlags.length
                 }
                 onCheckedChange={toggleSelectAll}
+                disabled={visibleFlags.length === 0}
               />
-              Seleccionar todos
+              {selected.size > 0
+                ? `${selected.size} sel.`
+                : `${visibleFlags.length} flag${visibleFlags.length === 1 ? "" : "s"}`}
             </label>
-          )}
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          {visibleFlags.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-10 text-center text-sm text-muted-foreground">
-              {counts.red + counts.yellow === 0 ? (
-                <>
-                  <CheckCircle2 className="size-10 text-emerald-500" />
-                  <p>No se encontraron flags. ¡Los datos parecen limpios!</p>
-                </>
-              ) : (
-                <>
-                  <Filter className="size-10 opacity-50" />
-                  <p>Ningún flag con los filtros seleccionados.</p>
-                </>
-              )}
-            </div>
+            {selected.size > 0 && (
+              <div className="flex items-center gap-1">
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  onClick={() => void handleBulkDecide("keep")}
+                  aria-label="Mantener seleccionados"
+                  title="Mantener seleccionados"
+                >
+                  <CheckCircle2 className="size-4 text-emerald-500" />
+                </Button>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  onClick={() => void handleBulkDecide("remove")}
+                  aria-label="Eliminar seleccionados"
+                  title="Eliminar seleccionados"
+                >
+                  <XCircle className="size-4 text-destructive" />
+                </Button>
+              </div>
+            )}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {visibleFlags.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 px-3 py-10 text-center text-xs text-muted-foreground">
+                {allFlagsCount === 0 ? (
+                  <>
+                    <CheckCircle2 className="size-8 text-emerald-500" />
+                    <p>No se encontraron flags. ¡Los datos parecen limpios!</p>
+                  </>
+                ) : (
+                  <>
+                    <Filter className="size-8 opacity-50" />
+                    <p>Ningún flag con los filtros aplicados.</p>
+                  </>
+                )}
+              </div>
+            ) : (
+              visibleFlags.map((flag) => (
+                <FlagListItem
+                  key={flag.id}
+                  flag={flag}
+                  schema={version.schema.columns}
+                  color={flagColor(flag)}
+                  active={flag.id === selectedFlagId}
+                  selected={selected.has(flag.id)}
+                  edited={flag.row ? editsMap.has(flag.row.id) : false}
+                  onSelect={() => setSelectedFlagId(flag.id)}
+                  onToggleSelect={() => toggleSelect(flag.id)}
+                />
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Panel de detalle */}
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border">
+          {selectedFlag ? (
+            <FlagDetailPanel
+              key={selectedFlag.id}
+              versionId={versionId}
+              flag={selectedFlag}
+              schema={version.schema.columns}
+              color={flagColor(selectedFlag)}
+              edits={selectedFlag.row ? editsMap.get(selectedFlag.row.id) : undefined}
+              updating={updating.has(selectedFlag.id)}
+              index={selectedIndex}
+              total={visibleFlags.length}
+              showFullRow={showFullRow}
+              showSimilars={showSimilars}
+              onPrev={() => goRelative(-1)}
+              onNext={() => goRelative(1)}
+              onToggleFullRow={() => setShowFullRow((v) => !v)}
+              onToggleSimilars={() => setShowSimilars((v) => !v)}
+              onDecide={(d) => void handleDecide(selectedFlag.id, d)}
+              onSaveEdit={handleSaveEdit}
+              onRevertEdit={handleRevertEdit}
+            />
           ) : (
-            visibleFlags.map((flag) => (
-              <FlagCard
-                key={flag.id}
-                flag={flag}
-                schema={version.schema.columns}
-                edits={flag.row ? editsMap.get(flag.row.id) : undefined}
-                selected={selected.has(flag.id)}
-                expandedFull={expandedRows.has(flag.id)}
-                expandedSimilars={expandedSimilars.has(flag.id)}
-                updating={updating.has(flag.id)}
-                onToggleSelect={() => toggleSelect(flag.id)}
-                onToggleFull={() => toggleRow(flag.id)}
-                onToggleSimilars={() => toggleSimilars(flag.id)}
-                onDecide={(d) => void handleDecide(flag.id, d)}
-                onSaveEdit={handleSaveEdit}
-                onRevertEdit={handleRevertEdit}
-              />
-            ))
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center text-sm text-muted-foreground">
+              <Info className="size-8 opacity-50" />
+              <p>Seleccioná un flag de la lista para revisarlo.</p>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
@@ -570,7 +706,7 @@ function ReviewStats({
   editedRows: number;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-7">
       <StatCard label="Red flags" value={counts.red} tone="red" />
       <StatCard label="Yellow flags" value={counts.yellow} tone="amber" />
       <StatCard label="Pendientes" value={counts.pending} />
@@ -611,18 +747,590 @@ function StatCard({
   );
 }
 
-// --- FlagCard ------------------------------------------------------------
+// --- FilterChipsBar ------------------------------------------------------
 
-interface FlagCardProps {
+const TYPE_LABEL: Record<Exclude<FilterType, "all">, string> = {
+  red: "Rojo",
+  yellow: "Amarillo",
+};
+const DECISION_LABEL: Record<Exclude<FilterDecision, "all">, string> = {
+  pending: "Pendiente",
+  keep: "Mantener",
+  remove: "Eliminar",
+};
+const RECOMMENDATION_LABEL: Record<
+  Exclude<FilterRecommendation, "all">,
+  string
+> = {
+  remove: "Eliminar",
+  review: "Revisar",
+  keep: "Mantener",
+};
+
+interface FilterChipsBarProps {
+  filterType: FilterType;
+  filterDecision: FilterDecision;
+  filterRecommendation: FilterRecommendation;
+  filterColor: FilterColor;
+  filterColumn: string | null;
+  filterColumnLabel: string;
+  colorCounts: Record<RuleColor, number>;
+  onSetType: (v: FilterType) => void;
+  onSetDecision: (v: FilterDecision) => void;
+  onSetRecommendation: (v: FilterRecommendation) => void;
+  onSetColor: (v: FilterColor) => void;
+  onClearColumn: () => void;
+}
+
+function FilterChipsBar({
+  filterType,
+  filterDecision,
+  filterRecommendation,
+  filterColor,
+  filterColumn,
+  filterColumnLabel,
+  colorCounts,
+  onSetType,
+  onSetDecision,
+  onSetRecommendation,
+  onSetColor,
+  onClearColumn,
+}: FilterChipsBarProps) {
+  const chips: Array<{ key: string; label: string; onRemove: () => void }> = [];
+  if (filterType !== "all") {
+    chips.push({
+      key: "type",
+      label: `Tipo: ${TYPE_LABEL[filterType]}`,
+      onRemove: () => onSetType("all"),
+    });
+  }
+  if (filterDecision !== "all") {
+    chips.push({
+      key: "decision",
+      label: `Decisión: ${DECISION_LABEL[filterDecision]}`,
+      onRemove: () => onSetDecision("all"),
+    });
+  }
+  if (filterRecommendation !== "all") {
+    chips.push({
+      key: "recommendation",
+      label: `Recomienda: ${RECOMMENDATION_LABEL[filterRecommendation]}`,
+      onRemove: () => onSetRecommendation("all"),
+    });
+  }
+  if (filterColor !== "all") {
+    chips.push({
+      key: "color",
+      label: `Severidad: ${RULE_COLOR_LABEL[filterColor]}`,
+      onRemove: () => onSetColor("all"),
+    });
+  }
+  if (filterColumn) {
+    const short =
+      filterColumnLabel.length > 40
+        ? `${filterColumnLabel.slice(0, 40)}…`
+        : filterColumnLabel;
+    chips.push({
+      key: "column",
+      label: `Pregunta: ${short}`,
+      onRemove: onClearColumn,
+    });
+  }
+
+  const hasAny = chips.length > 0;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Filter className="size-4 text-muted-foreground" />
+
+      {chips.map((c) => (
+        <span
+          key={c.key}
+          className="inline-flex items-center gap-1 rounded-full border bg-muted/40 py-0.5 pl-2 pr-1 text-xs"
+        >
+          {c.label}
+          <button
+            type="button"
+            onClick={c.onRemove}
+            aria-label={`Quitar filtro ${c.label}`}
+            className="rounded-full p-0.5 hover:bg-foreground/10"
+          >
+            <X className="size-3" />
+          </button>
+        </span>
+      ))}
+
+      {!hasAny && (
+        <span className="text-xs text-muted-foreground">Sin filtros</span>
+      )}
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" className="h-7 gap-1 text-xs">
+            <Plus className="size-3" />
+            Filtro
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="text-xs">
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>Tipo de flag</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuRadioGroup
+                value={filterType}
+                onValueChange={(v) => onSetType(v as FilterType)}
+              >
+                <DropdownMenuRadioItem value="all">Todos</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="red">Rojo</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="yellow">
+                  Amarillo
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>Decisión</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuRadioGroup
+                value={filterDecision}
+                onValueChange={(v) => onSetDecision(v as FilterDecision)}
+              >
+                <DropdownMenuRadioItem value="all">Todas</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="pending">
+                  Pendiente
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="keep">
+                  Mantener
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="remove">
+                  Eliminar
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>Recomendación</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuRadioGroup
+                value={filterRecommendation}
+                onValueChange={(v) =>
+                  onSetRecommendation(v as FilterRecommendation)
+                }
+              >
+                <DropdownMenuRadioItem value="all">Todas</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="remove">
+                  Recomienda eliminar
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="review">
+                  Recomienda revisar
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="keep">
+                  Recomienda mantener
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuSeparator />
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>Severidad</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <DropdownMenuRadioGroup
+                value={filterColor}
+                onValueChange={(v) => onSetColor(v as FilterColor)}
+              >
+                <DropdownMenuRadioItem value="all">Todas</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="red">
+                  Crítico ({colorCounts.red})
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="orange">
+                  Alto ({colorCounts.orange})
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="yellow">
+                  Medio ({colorCounts.yellow})
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="green">
+                  Bajo ({colorCounts.green})
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Leyenda de severidad, clickeable para filtrar por color. */}
+      <div className="ml-auto flex items-center gap-2">
+        {(["red", "orange", "yellow", "green"] as RuleColor[]).map((c) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => onSetColor(filterColor === c ? "all" : c)}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]",
+              filterColor === c
+                ? RULE_COLOR_PILL[c]
+                : "border-transparent text-muted-foreground hover:bg-muted/40"
+            )}
+            title={`${RULE_COLOR_LABEL[c]} — ${colorCounts[c]}`}
+          >
+            <span className={cn("size-2 rounded-full", RULE_COLOR_DOT[c])} />
+            {colorCounts[c]}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// --- ColumnHeatmap (idea 7) ----------------------------------------------
+
+interface ColumnHeatmapProps {
+  stats: Array<{ columnId: string; count: number; worst: RuleColor }>;
+  schemaById: Map<string, SchemaColumn>;
+  activeColumn: string | null;
+  onPick: (columnId: string) => void;
+}
+
+const HEATMAP_MAX = 50;
+const BAR_MIN_PX = 6;
+const BAR_MAX_PX = 40;
+
+function ColumnHeatmap({
+  stats,
+  schemaById,
+  activeColumn,
+  onPick,
+}: ColumnHeatmapProps) {
+  if (stats.length === 0) return null;
+  const shown = stats.slice(0, HEATMAP_MAX);
+  const max = shown[0]?.count ?? 1;
+
+  return (
+    <div className="rounded-lg border bg-card p-3">
+      <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <BarChart3 className="size-3.5" />
+        Columnas con flags ({stats.length})
+        {activeColumn && (
+          <button
+            type="button"
+            onClick={() => onPick(activeColumn)}
+            className="ml-auto inline-flex items-center gap-1 rounded-full border px-2 py-0.5 normal-case text-[10px] hover:bg-muted/40"
+          >
+            Limpiar filtro de columna <X className="size-2.5" />
+          </button>
+        )}
+      </div>
+      <div className="flex items-end gap-1 overflow-x-auto pb-1">
+        {shown.map((s) => {
+          const col = schemaById.get(s.columnId);
+          const label = col?.question || s.columnId;
+          const barPx =
+            BAR_MIN_PX +
+            Math.round((s.count / max) * (BAR_MAX_PX - BAR_MIN_PX));
+          const isActive = activeColumn === s.columnId;
+          return (
+            <button
+              key={s.columnId}
+              type="button"
+              onClick={() => onPick(s.columnId)}
+              title={`${label} — ${s.count} flag${s.count === 1 ? "" : "s"}`}
+              className={cn(
+                "flex w-7 shrink-0 flex-col items-center gap-0.5 rounded-sm p-0.5 outline-none transition-colors",
+                isActive ? "bg-foreground/10 ring-1 ring-foreground/30" : "hover:bg-muted/40"
+              )}
+            >
+              <span className="text-[9px] tabular-nums text-muted-foreground">
+                {s.count}
+              </span>
+              <span
+                className={cn("w-full rounded-t-sm", RULE_COLOR_DOT[s.worst])}
+                style={{ height: `${barPx}px` }}
+              />
+            </button>
+          );
+        })}
+        {stats.length > HEATMAP_MAX && (
+          <span className="ml-2 self-center text-[10px] text-muted-foreground">
+            +{stats.length - HEATMAP_MAX} más
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- SimilarResponsesList (idea 9) ---------------------------------------
+
+function SimilarResponsesList({
+  versionId,
+  ids,
+  schema,
+  affectedColumnIds,
+}: {
+  versionId: string;
+  ids: string[];
+  schema: SchemaColumn[];
+  affectedColumnIds: string[];
+}) {
+  const [rows, setRows] = useState<CleaningRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState<CleaningRow | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRows(null);
+    setError(null);
+    getSimilarRows(versionId, ids)
+      .then((r) => {
+        if (!cancelled) setRows(r);
+      })
+      .catch((err) => {
+        if (!cancelled)
+          setError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [versionId, ids]);
+
+  // Index por response_id y por id para resolver cada identificador.
+  const rowFor = (id: string): CleaningRow | undefined =>
+    rows?.find((r) => r.response_id === id || r.id === id);
+
+  const previewColumn = affectedColumnIds[0];
+
+  return (
+    <div className="mt-2 flex flex-col gap-1.5">
+      {error && (
+        <p className="text-[11px] text-destructive">
+          No se pudieron cargar las respuestas similares: {error}
+        </p>
+      )}
+      {!error && rows === null && (
+        <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <Loader2 className="size-3 animate-spin" />
+          Cargando…
+        </p>
+      )}
+      {rows !== null &&
+        ids.map((id) => {
+          const row = rowFor(id);
+          const raw = row && previewColumn ? row.data[previewColumn] : undefined;
+          const text =
+            raw === null || raw === undefined || String(raw).trim() === ""
+              ? null
+              : String(raw);
+          return (
+            <div
+              key={id}
+              className="flex items-start gap-2 rounded border bg-background/30 px-2 py-1"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <span>Fila #{row?.row_number ?? "?"}</span>
+                  <span className="font-mono">{id}</span>
+                  {!row && <span className="text-amber-400">(no encontrada)</span>}
+                </div>
+                {text ? (
+                  <p className="mt-0.5 line-clamp-3 text-xs">{text}</p>
+                ) : (
+                  <p className="mt-0.5 text-[11px] italic text-muted-foreground">
+                    {previewColumn
+                      ? "(sin texto en la columna afectada)"
+                      : "(sin columna específica)"}
+                  </p>
+                )}
+              </div>
+              {row && (
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  onClick={() => setSnapshot(row)}
+                  aria-label="Ver respuesta completa"
+                  title="Ver respuesta completa"
+                >
+                  <Maximize2 className="size-3" />
+                </Button>
+              )}
+            </div>
+          );
+        })}
+
+      <RowSnapshotDialog
+        row={snapshot}
+        schema={schema}
+        highlightColumnIds={affectedColumnIds}
+        onClose={() => setSnapshot(null)}
+      />
+    </div>
+  );
+}
+
+// --- RowSnapshotDialog ---------------------------------------------------
+
+function RowSnapshotDialog({
+  row,
+  schema,
+  highlightColumnIds,
+  onClose,
+}: {
+  row: CleaningRow | null;
+  schema: SchemaColumn[];
+  highlightColumnIds: string[];
+  onClose: () => void;
+}) {
+  const highlight = new Set(highlightColumnIds);
+  return (
+    <Dialog open={row !== null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            Respuesta · Fila #{row?.row_number ?? "?"}
+          </DialogTitle>
+          {row?.response_id && (
+            <DialogDescription className="font-mono text-[11px]">
+              {row.response_id}
+            </DialogDescription>
+          )}
+        </DialogHeader>
+        {row && (
+          <div className="max-h-[60vh] space-y-2 overflow-y-auto text-xs">
+            {schema.map((col) => {
+              const v = row.data[col.id];
+              const text =
+                v === null || v === undefined ? "" : String(v);
+              return (
+                <div
+                  key={col.id}
+                  className={cn(
+                    "rounded border p-2",
+                    highlight.has(col.id)
+                      ? "border-sky-500/40 bg-sky-500/5"
+                      : "border-border/60 bg-muted/20"
+                  )}
+                >
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-medium">{col.question || col.id}</span>
+                    {col.question && col.question !== col.id && (
+                      <span className="font-mono text-[10px] text-muted-foreground">
+                        {col.id}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 whitespace-pre-wrap break-words">
+                    {text || (
+                      <em className="text-muted-foreground">(vacío)</em>
+                    )}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// --- FlagListItem --------------------------------------------------------
+
+function flagTitle(flag: CleaningFlagWithRow, schema: SchemaColumn[]): string {
+  const affected = (flag.affected_question_ids ?? [])
+    .map((id) => schema.find((c) => c.id === id))
+    .find((c): c is SchemaColumn => Boolean(c));
+  if (affected?.question) return affected.question;
+  const text = flag.friendly_explanation || flag.reason;
+  if (text) return text;
+  return affected?.id ?? `Fila #${flag.row?.row_number ?? "?"}`;
+}
+
+function FlagListItem({
+  flag,
+  schema,
+  color,
+  active,
+  selected,
+  edited,
+  onSelect,
+  onToggleSelect,
+}: {
   flag: CleaningFlagWithRow;
   schema: SchemaColumn[];
-  edits: Map<string, CleaningRowEdit> | undefined;
+  color: RuleColor;
+  active: boolean;
   selected: boolean;
-  expandedFull: boolean;
-  expandedSimilars: boolean;
-  updating: boolean;
+  edited: boolean;
+  onSelect: () => void;
   onToggleSelect: () => void;
-  onToggleFull: () => void;
+}) {
+  const title = flagTitle(flag, schema);
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      className={cn(
+        "flex w-full cursor-pointer items-start gap-2 border-b border-l-2 border-l-transparent px-3 py-2 text-left outline-none transition-colors last:border-b-0 focus-visible:bg-muted/40",
+        active
+          ? cn("bg-muted/50", RULE_COLOR_ACCENT[color])
+          : "hover:bg-muted/30"
+      )}
+    >
+      <span
+        className="mt-0.5 flex items-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Checkbox checked={selected} onCheckedChange={onToggleSelect} />
+      </span>
+      <span className={cn("mt-1 size-2 shrink-0 rounded-full", RULE_COLOR_DOT[color])} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-medium leading-tight">
+          {title}
+        </span>
+        <span className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
+          <span>Fila #{flag.row?.row_number ?? "?"}</span>
+          {edited && (
+            <span className="inline-flex items-center gap-0.5 rounded bg-sky-500/20 px-1 text-sky-300">
+              <Edit3 className="size-2.5" />
+              ed.
+            </span>
+          )}
+          {flag.user_decision === "keep" && (
+            <span className="rounded bg-emerald-500/20 px-1 text-emerald-300">
+              mantener
+            </span>
+          )}
+          {flag.user_decision === "remove" && (
+            <span className="rounded bg-red-500/20 px-1 text-red-300">
+              eliminar
+            </span>
+          )}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+// --- FlagDetailPanel -----------------------------------------------------
+
+interface FlagDetailPanelProps {
+  versionId: string;
+  flag: CleaningFlagWithRow;
+  schema: SchemaColumn[];
+  color: RuleColor;
+  edits: Map<string, CleaningRowEdit> | undefined;
+  updating: boolean;
+  index: number;
+  total: number;
+  showFullRow: boolean;
+  showSimilars: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+  onToggleFullRow: () => void;
   onToggleSimilars: () => void;
   onDecide: (decision: "keep" | "remove") => void;
   onSaveEdit: (
@@ -634,200 +1342,215 @@ interface FlagCardProps {
   onRevertEdit: (rowId: string, columnId: string) => Promise<void>;
 }
 
-function FlagCard({
+function FlagDetailPanel({
+  versionId,
   flag,
   schema,
+  color,
   edits,
-  selected,
-  expandedFull,
-  expandedSimilars,
   updating,
-  onToggleSelect,
-  onToggleFull,
+  index,
+  total,
+  showFullRow,
+  showSimilars,
+  onPrev,
+  onNext,
+  onToggleFullRow,
   onToggleSimilars,
   onDecide,
   onSaveEdit,
   onRevertEdit,
-}: FlagCardProps) {
+}: FlagDetailPanelProps) {
   const row = flag.row;
-  const decisionTone =
-    flag.user_decision === "remove"
-      ? "border-red-500/40 bg-red-500/5"
-      : flag.user_decision === "keep"
-        ? "border-emerald-500/40 bg-emerald-500/5"
-        : "bg-card";
-
-  // Resolver columnas afectadas a partir del schema.
   const affectedColumns = (flag.affected_question_ids ?? [])
     .map((id) => schema.find((c) => c.id === id))
     .filter((c): c is SchemaColumn => Boolean(c));
-
   const mainText = flag.friendly_explanation || flag.reason;
 
   return (
-    <div className={cn("flex flex-col gap-3 rounded-lg border p-4", decisionTone)}>
-      {/* Top row: checkbox + recommendation badge + meta + decision buttons */}
-      <div className="flex items-start gap-3">
-        <Checkbox
-          checked={selected}
-          onCheckedChange={onToggleSelect}
-          className="mt-1"
-        />
-
-        <div className="min-w-0 flex-1 space-y-2">
-          {/* Recomendación destacada arriba */}
-          <div className="flex flex-wrap items-center gap-2">
-            <RecommendationBadge
-              recommendation={flag.recommendation}
-              flagType={flag.flag_type}
-            />
-            <span className="text-xs text-muted-foreground">
-              Fila #{row?.row_number ?? "?"}
-            </span>
-            {row?.response_id && (
-              <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">
-                {row.response_id}
-              </span>
-            )}
-            {typeof flag.confidence === "number" && (
-              <span className="text-xs text-muted-foreground">
-                Confianza: {Math.round(flag.confidence * 100)}%
-              </span>
-            )}
-            {flag.user_decision && (
-              <Badge
-                variant={flag.user_decision === "keep" ? "default" : "destructive"}
-                className="ml-auto"
-              >
-                {flag.user_decision === "keep" ? "Mantener" : "Eliminar"}
-              </Badge>
-            )}
-          </div>
-
-          {/* Texto principal: friendly_explanation o fallback a reason */}
-          {mainText && <p className="text-sm leading-relaxed">{mainText}</p>}
+    <div className="flex h-full flex-col">
+      {/* Barra superior: navegación + decisión */}
+      <div className="flex items-center justify-between gap-2 border-b bg-muted/30 px-3 py-2">
+        <div className="flex items-center gap-1">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            onClick={onPrev}
+            disabled={index <= 0}
+            aria-label="Flag anterior"
+          >
+            <ChevronLeft className="size-4" />
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            {total > 0 ? `${index + 1} / ${total}` : "—"}
+          </span>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            onClick={onNext}
+            disabled={index >= total - 1}
+            aria-label="Flag siguiente"
+          >
+            <ChevronRight className="size-4" />
+          </Button>
         </div>
-
-        {/* Decision buttons */}
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex items-center gap-1.5">
           {updating ? (
             <Loader2 className="size-4 animate-spin" />
           ) : (
             <>
               <Button
-                size="icon"
-                variant="ghost"
+                size="sm"
+                variant={flag.user_decision === "keep" ? "default" : "outline"}
                 onClick={() => onDecide("keep")}
-                aria-label="Mantener"
-                className={cn(
-                  "size-8",
-                  flag.user_decision === "keep" && "bg-emerald-500/20"
-                )}
+                className="h-7 gap-1.5"
               >
                 <CheckCircle2 className="size-4 text-emerald-500" />
+                Mantener
               </Button>
               <Button
-                size="icon"
-                variant="ghost"
+                size="sm"
+                variant={
+                  flag.user_decision === "remove" ? "destructive" : "outline"
+                }
                 onClick={() => onDecide("remove")}
-                aria-label="Eliminar"
-                className={cn(
-                  "size-8",
-                  flag.user_decision === "remove" && "bg-red-500/20"
-                )}
+                className="h-7 gap-1.5"
               >
-                <XCircle className="size-4 text-destructive" />
+                <XCircle className="size-4" />
+                Eliminar
               </Button>
             </>
           )}
         </div>
       </div>
 
-      {/* Affected questions con edit inline */}
-      {row && affectedColumns.length > 0 && (
-        <div className="flex flex-col gap-2 rounded-md border bg-muted/20 p-3">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Pregunta{affectedColumns.length > 1 ? "s" : ""} afectada
-            {affectedColumns.length > 1 ? "s" : ""}
-          </p>
-          {affectedColumns.map((col) => (
-            <AffectedQuestionRow
-              key={col.id}
-              column={col}
-              rowId={row.id}
-              originalValue={row.data[col.id]}
-              edit={edits?.get(col.id)}
-              onSave={(newValue) =>
-                onSaveEdit(row.id, col.id, newValue, row.data[col.id])
-              }
-              onRevert={() => onRevertEdit(row.id, col.id)}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Respuestas similares */}
-      {flag.similar_response_ids && flag.similar_response_ids.length > 0 && (
-        <div className="rounded-md border bg-muted/10 px-3 py-2 text-xs">
-          <button
-            type="button"
-            onClick={onToggleSimilars}
-            className="flex w-full items-center gap-2 text-left font-medium"
-          >
-            {expandedSimilars ? (
-              <ChevronDown className="size-3.5" />
-            ) : (
-              <ChevronRight className="size-3.5" />
+      {/* Cuerpo scrolleable */}
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        {/* Badges + meta */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+              RULE_COLOR_PILL[color]
             )}
-            <Info className="size-3.5 text-sky-400" />
-            {flag.similar_response_ids.length} respuesta
-            {flag.similar_response_ids.length === 1 ? "" : "s"} con texto similar
-          </button>
-          {expandedSimilars && (
-            <ul className="mt-2 ml-7 list-disc space-y-0.5 text-muted-foreground">
-              {flag.similar_response_ids.map((id) => (
-                <li key={id} className="font-mono">
-                  {id}
-                </li>
-              ))}
-            </ul>
+          >
+            <span className={cn("size-2 rounded-full", RULE_COLOR_DOT[color])} />
+            {RULE_COLOR_LABEL[color]}
+          </span>
+          <RecommendationBadge
+            recommendation={flag.recommendation}
+            flagType={flag.flag_type}
+          />
+          <span className="text-xs text-muted-foreground">
+            Fila #{row?.row_number ?? "?"}
+          </span>
+          {row?.response_id && (
+            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+              {row.response_id}
+            </span>
+          )}
+          {typeof flag.confidence === "number" && (
+            <span className="text-xs text-muted-foreground">
+              Confianza: {Math.round(flag.confidence * 100)}%
+            </span>
+          )}
+          {flag.user_decision && (
+            <Badge
+              variant={flag.user_decision === "keep" ? "default" : "destructive"}
+              className="ml-auto"
+            >
+              {flag.user_decision === "keep" ? "Mantener" : "Eliminar"}
+            </Badge>
           )}
         </div>
-      )}
 
-      {/* Toggle ver respuesta completa */}
-      {row && (
-        <div className="border-t pt-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onToggleFull}
-            className="h-7 gap-1 text-xs"
-          >
-            {expandedFull ? (
-              <>
-                <ChevronDown className="size-3" />
-                Ocultar respuesta completa
-              </>
-            ) : (
-              <>
-                <ChevronRight className="size-3" />
-                Ver respuesta completa
-              </>
+        {/* Texto principal */}
+        {mainText && <p className="text-sm leading-relaxed">{mainText}</p>}
+
+        {/* Preguntas afectadas con edición inline */}
+        {row && affectedColumns.length > 0 && (
+          <div className="flex flex-col gap-2 rounded-md border bg-muted/20 p-3">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Pregunta{affectedColumns.length > 1 ? "s" : ""} afectada
+              {affectedColumns.length > 1 ? "s" : ""}
+            </p>
+            {affectedColumns.map((col) => (
+              <AffectedQuestionRow
+                key={col.id}
+                column={col}
+                originalValue={row.data[col.id]}
+                edit={edits?.get(col.id)}
+                onSave={(newValue) =>
+                  onSaveEdit(row.id, col.id, newValue, row.data[col.id])
+                }
+                onRevert={() => onRevertEdit(row.id, col.id)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Respuestas similares (idea 9: snippet real + ver fila completa) */}
+        {flag.similar_response_ids && flag.similar_response_ids.length > 0 && (
+          <div className="rounded-md border bg-muted/10 px-3 py-2 text-xs">
+            <button
+              type="button"
+              onClick={onToggleSimilars}
+              className="flex w-full items-center gap-2 text-left font-medium"
+            >
+              {showSimilars ? (
+                <ChevronDown className="size-3.5" />
+              ) : (
+                <ChevronRight className="size-3.5" />
+              )}
+              <Info className="size-3.5 text-sky-400" />
+              {flag.similar_response_ids.length} respuesta
+              {flag.similar_response_ids.length === 1 ? "" : "s"} con texto similar
+            </button>
+            {showSimilars && (
+              <SimilarResponsesList
+                versionId={versionId}
+                ids={flag.similar_response_ids}
+                schema={schema}
+                affectedColumnIds={affectedColumns.map((c) => c.id)}
+              />
             )}
-          </Button>
-          {expandedFull && (
-            <FullRowGrid
-              rowId={row.id}
-              data={row.data}
-              schema={schema}
-              edits={edits}
-              onSaveEdit={onSaveEdit}
-              onRevertEdit={onRevertEdit}
-            />
-          )}
-        </div>
-      )}
+          </div>
+        )}
+
+        {/* Ver respuesta completa */}
+        {row && (
+          <div className="border-t pt-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onToggleFullRow}
+              className="h-7 gap-1 text-xs"
+            >
+              {showFullRow ? (
+                <>
+                  <ChevronDown className="size-3" />
+                  Ocultar respuesta completa
+                </>
+              ) : (
+                <>
+                  <ChevronRight className="size-3" />
+                  Ver respuesta completa
+                </>
+              )}
+            </Button>
+            {showFullRow && (
+              <FullRowGrid
+                rowId={row.id}
+                data={row.data}
+                schema={schema}
+                edits={edits}
+                onSaveEdit={onSaveEdit}
+                onRevertEdit={onRevertEdit}
+              />
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -879,7 +1602,6 @@ function RecommendationBadge({
 
 interface AffectedQuestionRowProps {
   column: SchemaColumn;
-  rowId: string;
   originalValue: unknown;
   edit: CleaningRowEdit | undefined;
   onSave: (newValue: string) => Promise<void>;
@@ -930,9 +1652,10 @@ function EditableCell({
   onRevert,
 }: EditableCellProps) {
   const displayedRaw = edit ? edit.new_value : originalValue;
-  const displayed = displayedRaw === null || displayedRaw === undefined
-    ? ""
-    : String(displayedRaw);
+  const displayed =
+    displayedRaw === null || displayedRaw === undefined
+      ? ""
+      : String(displayedRaw);
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -1024,7 +1747,9 @@ function EditableCell({
             Editado
           </span>
         )}
-        <span className="whitespace-pre-wrap">{displayed || <em className="text-muted-foreground">(vacío)</em>}</span>
+        <span className="whitespace-pre-wrap">
+          {displayed || <em className="text-muted-foreground">(vacío)</em>}
+        </span>
         {edit && (
           <p className="mt-1 line-through opacity-60">
             <span className="text-[10px] uppercase opacity-70">Original:</span>{" "}
@@ -1115,5 +1840,262 @@ function FullRowGrid({
         </p>
       )}
     </div>
+  );
+}
+
+// --- SyncToQpButton (5.C: sincronizar review → QuestionPro) --------------
+
+type SyncDialogPhase = "confirm" | "running" | "done" | "error";
+
+function SyncToQpButton({
+  versionId,
+  refreshKey,
+  onSynced,
+}: {
+  versionId: string;
+  /** Cambia desde el padre cuando hay algo distinto para sincronizar. */
+  refreshKey?: string | number;
+  onSynced: () => void;
+}) {
+  const [status, setStatus] = useState<ReviewSyncStatus | null>(null);
+  const [open, setOpen] = useState(false);
+  const [phase, setPhase] = useState<SyncDialogPhase>("confirm");
+  const [progress, setProgress] = useState<SyncToQPProgress | null>(null);
+  const [result, setResult] = useState<SyncToQPResult | null>(null);
+  const [errMessage, setErrMessage] = useState<string | null>(null);
+
+  const refreshStatus = useCallback(async () => {
+    try {
+      setStatus(await getReviewSyncStatus(versionId));
+    } catch {
+      setStatus(null);
+    }
+  }, [versionId]);
+
+  useEffect(() => {
+    void refreshStatus();
+  }, [refreshStatus, refreshKey]);
+
+  if (!status || !status.isQuestionPro) return null;
+
+  const pending = hasPendingSync(status);
+  const totalPending = status.pendingRemovals + status.pendingEdits;
+
+  const openConfirm = () => {
+    setPhase("confirm");
+    setProgress(null);
+    setResult(null);
+    setErrMessage(null);
+    setOpen(true);
+  };
+
+  const runSync = async () => {
+    setPhase("running");
+    setProgress({ phase: "deleting", processed: 0, total: status.pendingRemovals });
+    try {
+      const res = await syncReviewToQP(versionId, (e) => setProgress(e));
+      setResult(res);
+      setPhase("done");
+      await refreshStatus();
+      onSynced();
+    } catch (err) {
+      setErrMessage(err instanceof Error ? err.message : String(err));
+      setPhase("error");
+      await refreshStatus();
+    }
+  };
+
+  const closeDialog = () => {
+    if (phase === "running") return;
+    setOpen(false);
+  };
+
+  const failedCount =
+    (result?.removed.failed.length ?? 0) + (result?.edited.failed.length ?? 0);
+  const okCount = (result?.removed.ok ?? 0) + (result?.edited.ok ?? 0);
+
+  const progressValue =
+    progress && progress.total > 0
+      ? Math.round((progress.processed / progress.total) * 100)
+      : 0;
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={openConfirm}
+        disabled={!pending}
+        title={pending ? undefined : "No hay cambios pendientes de sincronizar"}
+        className="gap-2"
+      >
+        <CloudUpload className="size-4" />
+        Sincronizar con QuestionPro
+        {pending && (
+          <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-medium text-primary">
+            {totalPending}
+          </span>
+        )}
+      </Button>
+
+      <Dialog
+        open={open}
+        onOpenChange={(o) => {
+          if (!o) closeDialog();
+        }}
+      >
+        <DialogContent
+          showCloseButton={phase !== "running"}
+          onInteractOutside={(e) => {
+            if (phase === "running") e.preventDefault();
+          }}
+          onEscapeKeyDown={(e) => {
+            if (phase === "running") e.preventDefault();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CloudUpload className="size-4" />
+              Sincronizar con QuestionPro
+            </DialogTitle>
+            {phase === "confirm" && (
+              <DialogDescription>
+                Vas a aplicar tus cambios directamente sobre la encuesta en
+                QuestionPro. Esta acción no se puede deshacer.
+              </DialogDescription>
+            )}
+          </DialogHeader>
+
+          {phase === "confirm" && (
+            <div className="flex flex-col gap-3 text-sm">
+              <ul className="flex flex-col gap-2">
+                <li className="flex items-start gap-2">
+                  <XCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
+                  <span>
+                    Eliminar <strong>{status.pendingRemovals}</strong>{" "}
+                    respuesta{status.pendingRemovals === 1 ? "" : "s"} marcada
+                    {status.pendingRemovals === 1 ? "" : "s"} para remover.
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Edit3 className="mt-0.5 size-4 shrink-0 text-sky-400" />
+                  <span>
+                    Re-crear <strong>{status.pendingEdits}</strong> respuesta
+                    {status.pendingEdits === 1 ? "" : "s"} con tus ediciones —
+                    esto cambia su <code>responseID</code> en QuestionPro; el
+                    resto de la metadata se preserva.
+                  </span>
+                </li>
+              </ul>
+              <p className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs text-amber-300">
+                Las respuestas editadas se re-crean en dos pasos (se borra la
+                original y se vuelve a postear). Si la conexión falla en el
+                medio, podrías perder esas respuestas en QuestionPro — siempre
+                quedan en el XLSX limpio con tus ediciones.
+              </p>
+            </div>
+          )}
+
+          {phase === "running" && (
+            <div className="flex flex-col gap-3 text-sm">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                {progress?.phase === "editing"
+                  ? "Re-creando respuestas editadas…"
+                  : "Eliminando respuestas marcadas…"}
+              </div>
+              <Progress value={progressValue} />
+              <p className="text-xs text-muted-foreground">
+                {progress
+                  ? `${progress.processed} / ${progress.total}`
+                  : "Preparando…"}
+              </p>
+            </div>
+          )}
+
+          {phase === "done" && result && (
+            <div className="flex flex-col gap-3 text-sm">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="size-5 text-emerald-500" />
+                <span>
+                  {okCount} operación{okCount === 1 ? "" : "es"} aplicada
+                  {okCount === 1 ? "" : "s"} en QuestionPro
+                  {failedCount > 0 ? ` · ${failedCount} con error` : "."}
+                </span>
+              </div>
+              <ul className="text-xs text-muted-foreground">
+                <li>
+                  Eliminadas: {result.removed.ok}
+                  {result.removed.failed.length > 0 &&
+                    ` (${result.removed.failed.length} con error)`}
+                </li>
+                <li>
+                  Re-creadas: {result.edited.ok}
+                  {result.edited.failed.length > 0 &&
+                    ` (${result.edited.failed.length} con error)`}
+                </li>
+              </ul>
+
+              {(failedCount > 0 || result.warnings.length > 0) && (
+                <div className="max-h-48 overflow-y-auto rounded-md border bg-muted/20 p-2 text-xs">
+                  {result.removed.failed.map((f) => (
+                    <p key={`r-${f.rowId}`} className="text-destructive">
+                      Eliminar fila {f.rowId}: {f.reason}
+                    </p>
+                  ))}
+                  {result.edited.failed.map((f) => (
+                    <p key={`e-${f.rowId}`} className="text-destructive">
+                      Re-crear fila {f.rowId}: {f.reason}
+                    </p>
+                  ))}
+                  {result.warnings.map((w) => (
+                    <p key={`w-${w.rowId}`} className="text-amber-400">
+                      Fila {w.rowId}: {w.reason}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {phase === "error" && (
+            <div className="flex flex-col gap-2 text-sm">
+              <div className="flex items-center gap-2 text-destructive">
+                <AlertCircle className="size-4" />
+                No se pudo sincronizar
+              </div>
+              <pre className="whitespace-pre-wrap rounded-md border bg-muted/20 p-2 font-mono text-xs text-muted-foreground">
+                {errMessage}
+              </pre>
+            </div>
+          )}
+
+          <DialogFooter>
+            {phase === "confirm" && (
+              <>
+                <Button variant="outline" size="sm" onClick={closeDialog}>
+                  Cancelar
+                </Button>
+                <Button size="sm" onClick={() => void runSync()} className="gap-2">
+                  <CloudUpload className="size-4" />
+                  Sincronizar ({totalPending})
+                </Button>
+              </>
+            )}
+            {phase === "running" && (
+              <Button size="sm" disabled className="gap-2">
+                <Loader2 className="size-4 animate-spin" />
+                Sincronizando…
+              </Button>
+            )}
+            {(phase === "done" || phase === "error") && (
+              <Button size="sm" onClick={() => setOpen(false)}>
+                Cerrar
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

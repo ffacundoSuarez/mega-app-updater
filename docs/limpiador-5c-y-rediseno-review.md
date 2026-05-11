@@ -16,12 +16,12 @@ Este documento estructura las tres áreas: **5.C es ejecutable ya** (el usuario 
 
 - **Migraciones presentes**: `docs/migrations/2026-05-paso4-flags-enriched.sql` y `docs/migrations/2026-05-paso5a-row-edits.sql`. Verificar que estén aplicadas en el Supabase corporativo antes de probar 5.C (la del 5.A está como untracked en el repo — ver `git status`).
 - **Settings**: `questionpro.api_key` ya integrada en `src/lib/settings.ts` y la card en `src/tools/settings/SettingsView.tsx`.
-- **`src/lib/questionpro.ts`**: tiene `validateSurvey`, `getSurveyQuestions`, `matchExcelColumnsToQuestionpro`. **No tiene** `getResponse`, `deleteResponse`, `createResponse` — hay que agregarlos.
-- **`src/lib/cleaning/row-edits-repository.ts`**: `upsertRowEdit/revertRowEdit/getVersionEdits/getCleanedRows/countEditedRows` listos. Campos `synced_to_qp` y `synced_at` reservados, sin uso todavía.
-- **`src/lib/cleaning/flags-repository.ts`**: list/count/decide single y bulk + reset.
-- **`Review.tsx`**: friendly_explanation, recommendation badge, affected questions con edit inline, similar_response_ids collapsable, FullRowGrid expandible, 3 filtros, bulk decisions. Mucho ya construido.
-- **`Export.tsx`**: XLSX 2 hojas con edits ya mergeados; sin sync a QP.
-- **`ProjectDetail.tsx`**: "Ejecutar/Reanudar QC" con progress live + cancel.
+- `**src/lib/questionpro.ts`**: tiene `validateSurvey`, `getSurveyQuestions`, `matchExcelColumnsToQuestionpro`. **No tiene** `getResponse`, `deleteResponse`, `createResponse` — hay que agregarlos.
+- `**src/lib/cleaning/row-edits-repository.ts`**: `upsertRowEdit/revertRowEdit/getVersionEdits/getCleanedRows/countEditedRows` listos. Campos `synced_to_qp` y `synced_at` reservados, sin uso todavía.
+- `**src/lib/cleaning/flags-repository.ts**`: list/count/decide single y bulk + reset.
+- `**Review.tsx**`: friendly_explanation, recommendation badge, affected questions con edit inline, similar_response_ids collapsable, FullRowGrid expandible, 3 filtros, bulk decisions. Mucho ya construido.
+- `**Export.tsx**`: XLSX 2 hojas con edits ya mergeados; sin sync a QP.
+- `**ProjectDetail.tsx**`: "Ejecutar/Reanudar QC" con progress live + cancel.
 
 ---
 
@@ -96,14 +96,14 @@ Lógica interna:
 1. Leer `cleaning_versions` + `cleaning_projects` para obtener `qp_survey_id`. Si `source !== 'questionpro'` o no hay `qp_survey_id` → tirar error.
 2. Leer `getQuestionproApiKey()` de settings. Si vacía → `MissingQuestionproKeyError`.
 3. **Fase deletes** (recorre flags con `user_decision='remove'` y `cleaning_rows.response_id`):
-   - Por cada fila: `deleteResponse(surveyId, response_id, apiKey)`.
-   - Marcar localmente algo como `qp_deleted=true` — alternativa: agregar un campo nuevo `removed_from_qp_at` en `cleaning_flags` (migración chiquita) o derivarlo desde un contador. **Decisión simple**: nueva columna `removed_from_qp_at TIMESTAMPTZ` en `cleaning_flags` (única migración nueva del 5.C).
+  - Por cada fila: `deleteResponse(surveyId, response_id, apiKey)`.
+  - Marcar localmente algo como `qp_deleted=true` — alternativa: agregar un campo nuevo `removed_from_qp_at` en `cleaning_flags` (migración chiquita) o derivarlo desde un contador. **Decisión simple**: nueva columna `removed_from_qp_at TIMESTAMPTZ` en `cleaning_flags` (única migración nueva del 5.C).
 4. **Fase edits** (recorre filas con edits + `synced_to_qp=false`, ignora las que ya se borraron en fase 1):
-   - `getResponse(surveyId, response_id, apiKey)`.
-   - Mergear edits sobre `responseSet` (mapear `column_id` ↔ `qp_question_id` vía el `version.schema`).
-   - Mapeo de campos traducidos al hacer POST: `Estado` Completada→Completed, Iniciada→Started, Terminada→Terminated; `Duplicado` Sí→true, No→false (tomar de `docs/limpiador-plan.md` línea 388-390).
-   - `deleteResponse` original → `createResponse` con payload mergeado → recibo `nuevoResponseID`.
-   - `markRowEditsSynced(rowId, nuevoResponseID)`: actualiza `cleaning_row_edits.synced_to_qp=true, synced_at=now()` para todos los edits de esa fila + `cleaning_rows.response_id = nuevoResponseID`.
+  - `getResponse(surveyId, response_id, apiKey)`.
+  - Mergear edits sobre `responseSet` (mapear `column_id` ↔ `qp_question_id` vía el `version.schema`).
+  - Mapeo de campos traducidos al hacer POST: `Estado` Completada→Completed, Iniciada→Started, Terminada→Terminated; `Duplicado` Sí→true, No→false (tomar de `docs/limpiador-plan.md` línea 388-390).
+  - `deleteResponse` original → `createResponse` con payload mergeado → recibo `nuevoResponseID`.
+  - `markRowEditsSynced(rowId, nuevoResponseID)`: actualiza `cleaning_row_edits.synced_to_qp=true, synced_at=now()` para todos los edits de esa fila + `cleaning_rows.response_id = nuevoResponseID`.
 5. Robustez: si una fila falla, registrar en `failed[]` y seguir con la siguiente. No abortar todo el batch.
 
 ### A.3 — Migración mínima
@@ -120,14 +120,17 @@ Sólo eso. Los campos `synced_to_qp/synced_at` ya existen en `cleaning_row_edits
 ### A.4 — Repositorio: ajustes
 
 `src/lib/cleaning/row-edits-repository.ts`:
+
 - Nueva función `markRowEditsSynced(rowId, newResponseId, txClient?)` que setea `synced_to_qp=true, synced_at=now()` para todos los edits de la fila **y** actualiza `cleaning_rows.response_id`. Si el cliente Supabase no soporta tx en JS, hacer las dos updates secuenciales y aceptar el riesgo (es desktop single-user, idempotente).
 
 `src/lib/cleaning/flags-repository.ts`:
+
 - Nueva función `markFlagRemovedFromQP(flagId)` para setear `removed_from_qp_at`.
 
 ### A.5 — UI
 
-**`Review.tsx`**:
+`**Review.tsx`**:
+
 - Nuevo botón en el header del review: **"Sincronizar con QuestionPro"**. Visible sólo si `project.source === 'questionpro'` y hay (a) flags con decision=remove sin `removed_from_qp_at`, **o** (b) edits con `synced_to_qp=false`. Si no hay nada que sincronizar, queda deshabilitado con tooltip "No hay cambios pendientes".
 - Click → modal de confirmación con preview:
   > Vas a aplicar a QuestionPro:
@@ -137,7 +140,8 @@ Sólo eso. Los campos `synced_to_qp/synced_at` ya existen en `cleaning_row_edits
 - Resultado → toast con `removed.ok + edited.ok` exitosas y, si hubo fallos, panel expandible con la lista de errores por rowId.
 - Badge sutil al lado de cada flag o fila ya sincronizada (icono de nube + check) — opcional, lift bajo.
 
-**`Export.tsx`**:
+`**Export.tsx`**:
+
 - Banner pasivo (no bloqueante) si `project.source === 'questionpro'` y hay edits/removes sin sincronizar:
   > Tenés N cambios que sólo se aplicaron al XLSX. Para impactarlos también en QuestionPro, sincronizá desde la pantalla de Revisión.
 - Link al review.
@@ -149,13 +153,13 @@ Sólo eso. Los campos `synced_to_qp/synced_at` ya existen en `cleaning_row_edits
 3. En el review: marcar 1 fila remove + editar 1 celda en otra fila + dejar 1 fila intacta.
 4. Click "Sincronizar con QuestionPro" → confirmar el modal.
 5. Verificar en QP:
-   - La fila marcada remove **no** aparece.
-   - La fila editada **no** aparece con su `responseID` original; aparece una nueva con el valor editado y mismo `timestamp/ipAddress/duplicate/timeTaken`.
-   - La fila intacta sigue como estaba.
+  - La fila marcada remove **no** aparece.
+  - La fila editada **no** aparece con su `responseID` original; aparece una nueva con el valor editado y mismo `timestamp/ipAddress/duplicate/timeTaken`.
+  - La fila intacta sigue como estaba.
 6. Verificar en DB:
-   - El flag de la fila eliminada tiene `removed_from_qp_at` no-null.
-   - Los edits de la fila editada tienen `synced_to_qp=true, synced_at=...`.
-   - `cleaning_rows.response_id` de esa fila se actualizó al nuevo `responseID` que devolvió QP.
+  - El flag de la fila eliminada tiene `removed_from_qp_at` no-null.
+  - Los edits de la fila editada tienen `synced_to_qp=true, synced_at=...`.
+  - `cleaning_rows.response_id` de esa fila se actualizó al nuevo `responseID` que devolvió QP.
 7. Probar happy-failure: apagar internet → "Sincronizar" → error claro, sin estado corrupto en DB.
 8. Probar key inválida → mensaje "API key de QuestionPro inválida o sin permisos para esta encuesta".
 
@@ -185,42 +189,51 @@ Sólo eso. Los campos `synced_to_qp/synced_at` ya existen en `cleaning_row_edits
 El review ya tiene mucho (filtros, friendly_explanation, edit inline, bulk, FullRowGrid). El problema es que es **estático y monolítico** — todo en una página, sin jerarquía visual fuerte, sin atajos, sin alternativas de vista.
 
 ### Idea 1 — Layout split-pane tipo "Inbox"
+
 **Cambio**: lista compacta de flags a la izquierda (1 línea por flag: severidad + pregunta + respondente), panel de detalle a la derecha que cambia al click. Estilo Outlook/Linear/Gmail.
 **Beneficio**: pasás 10× más rápido entre flags. Decidís sin scroll. Selección múltiple persiste mientras navegás.
 **Costo**: refactor mediano de Review.tsx (separar `FlagListItem` compacto + `FlagDetailPanel`). La lógica actual se conserva.
 
 ### Idea 2 — Severidad por color con score acumulado (de qc-survey-app)
+
 **Cambio**: cada flag tiene un color (verde/amarillo/naranja/rojo) por `scoreToRuleColor(confidence × peso_recomendación)`. La lista se ordena por severidad. El stats card pasa a tabs por color.
 **Beneficio**: jerarquía visual al toque — "primero los rojos, después amarillos". No hay que pensar.
 **Costo**: utility `scoreToRuleColor` + refactor de StatsCard. Sin cambios de DB.
 
 ### Idea 3 — Vista "Por respondente" (toggle)
+
 **Cambio**: switch arriba que cambia entre **Por flag** (actual) y **Por respondente** (tabla con filas = respondentes, columnas = nivel_máximo, count de flags, columnas afectadas, decisión global). Click en respondente → expande con sus flags.
-**Beneficio**: cuando un respondente tiene 5 flags, hoy decidís uno por uno. La vista por respondente te deja decidir "este respondente entero out" en un click.
+**Beneficio**: cuando un respondente tiene 5 flags, hoy decidís uno por uno. La vista por respondente te deja decidir "este respondente entero out" en un click.  
 **Costo**: medio. Nueva agregación en `flags-repository.ts` (`groupFlagsByRespondent`). Render nuevo de tabla.
 
 ### Idea 4 — Filtros como chips removibles
+
 **Cambio**: los 3 dropdowns actuales (tipo/decisión/recomendación) pasan a chips encima de la lista, estilo Notion/GitHub: `🔴 red ×  ⏳ pendiente ×  + Agregar filtro`. Removibles individuales. Botón "+" abre menú con todos los filtros disponibles, incluyendo nuevos: por respondente, por pregunta afectada, por confianza, por fecha.
 **Beneficio**: visible qué filtros hay aplicados. Removible al toque. Cabe expandir filtros sin saturar la barra.
 **Costo**: bajo. Lógica de filtrado ya existe; sólo cambia el control.
 
 ### Idea 5 — Drawer de comparación al editar
+
 **Cambio**: al editar una celda, en vez del input que reemplaza el valor, abre un Sheet a la derecha con: valor original (gris), valor nuevo (editable), y si hay similar_response_ids → preview de las respuestas similares también editadas (para mantener coherencia entre ediciones).
 **Beneficio**: editás con contexto, no a ciegas. También sirve para ver "qué cambió" después.
 **Costo**: bajo-medio. Componente nuevo `EditDrawer`, reutiliza Sheet de shadcn.
 
 ### Idea 6 — Paleta de comandos (Cmd+K)
+
 **Cambio**: Cmd+K abre un input que ofrece "ir al flag #N", "decidir keep/remove sobre la selección", "filtrar por pregunta X", "saltar al siguiente flag pendiente".
 **Beneficio**: power-user de un dataset largo decide en segundos.
 **Costo**: medio. Implementar con `cmdk` (shadcn). Vale la pena si los datasets crecen.
 
 ### Idea 7 — Heatmap de columnas problemáticas
+
 **Cambio**: arriba del review, una barrita por columna mostrando cuántos flags tiene cada pregunta. Click una columna → filtra el listado a esa pregunta.
 **Beneficio**: ves de un vistazo qué pregunta concentra el ruido (ej: una abierta mal redactada). Habilita decisiones macro.
 **Costo**: bajo. Una barra HTML/CSS sobre `groupBy(flags, affected_question_id)`.
 
 ### Idea 8 — Stats card narrativo
+
 **Cambio**: el panel actual (8 números en grilla 4×2) pasa a un párrafo + barra:
+
 > Detectamos **23 problemas** en **187 respuestas** (12%). Recomendamos eliminar **8** (4%) y revisar **15** (8%). Llevás **6 / 23 decisiones** tomadas.
 
 Click en cualquier número → filtra. Barra de progreso de decisiones.
@@ -228,11 +241,13 @@ Click en cualquier número → filtra. Barra de progreso de decisiones.
 **Costo**: bajo. Refactor del componente, lógica igual.
 
 ### Idea 9 — Inspector de respuesta similar inline
+
 **Cambio**: en lugar de mostrar `response_id`s en `similar_response_ids`, mostrar el snippet real (de `cleaning_rows.data` para la columna afectada). Click → modal con la respuesta entera.
 **Beneficio**: hoy los IDs son inutilizables sin saber qué dice cada uno. Mostrar el texto crudo permite entender el cluster.
 **Costo**: bajo. Lookup en `cleaning_rows` ya disponible.
 
 ### Idea 10 — Kanban de decisiones
+
 **Cambio**: vista alternativa con 3 columnas (Pendientes / A mantener / A eliminar) y drag-drop entre ellas. Cada flag es una card.
 **Beneficio**: muy visual e intuitivo para datasets chicos.
 **Costo**: medio-alto. Lib de drag-drop (`dnd-kit`). Probablemente no escala con muchos flags. Mencionable como concepto, no recomendado.
@@ -253,15 +268,17 @@ Las tres son refactors acotados que no tocan DB, no rompen lógica existente y v
 
 (Evaluados según el contexto desktop single-user con datasets chicos.)
 
-| Patrón | Por qué no |
-|---|---|
-| `usage_events` + tracking de adopción | Single-user, no aporta. |
-| `sharing_mode` | No hay colaboración entre operadores. |
-| Modelo question-centric (`project_question_rules`) | Cambio de schema enorme; reglas globales funcionan bien con datasets chicos. |
-| Tabla `cleaning_rule_overrides` con `instruccion_hash` | Útil si las reglas se regeneran solas; en este flujo son mostly manuales. |
-| Schema rico con `FlowRule` + `Section` | Requiere descargar más data de la API QP. Útil sólo si se integra con módulo Validador post-MVP. |
-| Match IA como fallback determinístico | El match por texto normalizado cubre 90%+. Overengineering. |
-| Prompt caching | gpt-4o-mini ya es barato; vale con volúmenes mucho mayores. |
+
+| Patrón                                                 | Por qué no                                                                                       |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `usage_events` + tracking de adopción                  | Single-user, no aporta.                                                                          |
+| `sharing_mode`                                         | No hay colaboración entre operadores.                                                            |
+| Modelo question-centric (`project_question_rules`)     | Cambio de schema enorme; reglas globales funcionan bien con datasets chicos.                     |
+| Tabla `cleaning_rule_overrides` con `instruccion_hash` | Útil si las reglas se regeneran solas; en este flujo son mostly manuales.                        |
+| Schema rico con `FlowRule` + `Section`                 | Requiere descargar más data de la API QP. Útil sólo si se integra con módulo Validador post-MVP. |
+| Match IA como fallback determinístico                  | El match por texto normalizado cubre 90%+. Overengineering.                                      |
+| Prompt caching                                         | gpt-4o-mini ya es barato; vale con volúmenes mucho mayores.                                      |
+
 
 ### Patrones de qc-survey-app que vale la pena considerar **más adelante** (no ahora)
 
@@ -319,3 +336,4 @@ Funciona — el usuario aclaró que **parece** que funciona. La calidad es acept
 4. Test de fallos: red caída → mensaje claro, sin estado corrupto.
 5. Test de re-sync: correr sincronizar de nuevo después del primero → debería decir "no hay cambios pendientes" (botón deshabilitado o toast explicativo).
 6. Banner de Export aparece sólo si quedan cambios sin sincronizar; desaparece después del sync.
+

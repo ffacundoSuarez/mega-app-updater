@@ -191,3 +191,41 @@ export async function countEditedRows(versionId: string): Promise<number> {
   const edits = await getVersionEdits(versionId);
   return edits.size;
 }
+
+/**
+ * Paso 5.C: marca todos los edits de una fila como sincronizados a QuestionPro
+ * y actualiza el `response_id` de la fila al nuevo ID que devolvió QP (porque
+ * re-crear la respuesta cambia su ID interno).
+ *
+ * Son dos updates secuenciales (Supabase JS no expone transacciones): si la
+ * segunda fallara, los edits quedarían marcados como synced pero `response_id`
+ * stale. Es un escenario aceptable en una app desktop single-user: re-correr
+ * el sync vuelve a leer desde QP por el `response_id` actual y, si éste ya no
+ * existe, el DELETE devuelve 404 (tratado como OK) y se re-crea de nuevo.
+ */
+export async function markRowEditsSynced(
+  rowId: string,
+  newResponseId: string
+): Promise<void> {
+  const client = await getCleaningSupabaseClient();
+
+  const { error: editErr } = await client
+    .from("cleaning_row_edits")
+    .update({ synced_to_qp: true, synced_at: new Date().toISOString() })
+    .eq("row_id", rowId);
+  if (editErr) {
+    throw new Error(
+      `No se pudieron marcar los edits como sincronizados: ${editErr.message}`
+    );
+  }
+
+  const { error: rowErr } = await client
+    .from("cleaning_rows")
+    .update({ response_id: newResponseId })
+    .eq("id", rowId);
+  if (rowErr) {
+    throw new Error(
+      `No se pudo actualizar el response_id de la fila: ${rowErr.message}`
+    );
+  }
+}

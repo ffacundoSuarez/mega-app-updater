@@ -186,6 +186,12 @@ export function LimpiadorView({ onOpenSettings }: LimpiadorViewProps) {
               versionId: selectedVersionId,
             })
           }
+          onGoToReview={() =>
+            navigate("review", {
+              projectId: selectedProjectId,
+              versionId: selectedVersionId,
+            })
+          }
         />
       )}
     </div>

@@ -20,6 +20,7 @@ import {
   AlertCircle,
   ArrowLeft,
   CheckCircle2,
+  CloudUpload,
   Download,
   FileSpreadsheet,
   Info,
@@ -42,6 +43,11 @@ import {
 } from "@/lib/cleaning/row-edits-repository";
 import { getReviewFlagCounts } from "@/lib/cleaning/flags-repository";
 import { getProject } from "@/lib/cleaning/projects-repository";
+import {
+  getReviewSyncStatus,
+  hasPendingSync,
+  type ReviewSyncStatus,
+} from "@/lib/cleaning/sync-to-questionpro";
 import type {
   CleaningProject,
   CleaningRow,
@@ -62,14 +68,17 @@ export interface ExportProps {
   projectId: string;
   versionId: string;
   onBack: () => void;
+  /** Volver al review (para el banner de cambios sin sincronizar a QP). */
+  onGoToReview?: () => void;
 }
 
-export function Export({ projectId, versionId, onBack }: ExportProps) {
+export function Export({ projectId, versionId, onBack, onGoToReview }: ExportProps) {
   const [project, setProject] = useState<CleaningProject | null>(null);
   const [version, setVersion] = useState<CleaningVersion | null>(null);
   const [counts, setCounts] = useState<ReviewFlagCounts>(EMPTY_COUNTS);
   const [cleanedRows, setCleanedRows] = useState<CleaningRow[]>([]);
   const [editedCount, setEditedCount] = useState(0);
+  const [syncStatus, setSyncStatus] = useState<ReviewSyncStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,18 +88,20 @@ export function Export({ projectId, versionId, onBack }: ExportProps) {
     setError(null);
     try {
       const client = await getCleaningSupabaseClient();
-      const [p, v, c, rows, edited] = await Promise.all([
+      const [p, v, c, rows, edited, sync] = await Promise.all([
         getProject(projectId),
         getVersion(client, versionId),
         getReviewFlagCounts(versionId),
         getCleanedRows(versionId),
         countEditedRows(versionId),
+        getReviewSyncStatus(versionId).catch(() => null),
       ]);
       setProject(p);
       setVersion(v);
       setCounts(c);
       setCleanedRows(rows);
       setEditedCount(edited);
+      setSyncStatus(sync);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -190,6 +201,10 @@ export function Export({ projectId, versionId, onBack }: ExportProps) {
   const hasPending = counts.pending > 0;
   const noFlagsCount =
     version.total_rows - counts.red - counts.yellow;
+  const unsyncedToQp =
+    syncStatus && hasPendingSync(syncStatus)
+      ? syncStatus.pendingRemovals + syncStatus.pendingEdits
+      : 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -223,6 +238,36 @@ export function Export({ projectId, versionId, onBack }: ExportProps) {
                 pendientes <strong>se incluirán</strong> en la exportación tal
                 cual están.
               </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {unsyncedToQp > 0 && (
+        <Card className="border-sky-500/40 bg-sky-500/5">
+          <CardContent className="flex items-start gap-3 pt-6">
+            <CloudUpload className="mt-0.5 size-5 shrink-0 text-sky-400" />
+            <div className="flex flex-col gap-1">
+              <p className="font-medium text-sky-300">
+                Cambios sin sincronizar a QuestionPro
+              </p>
+              <p className="text-sm text-muted-foreground">
+                Tenés {unsyncedToQp} cambio{unsyncedToQp === 1 ? "" : "s"} que
+                por ahora sólo se aplican al XLSX. Para impactarlos también en
+                QuestionPro, sincronizá desde la pantalla de Revisión.
+              </p>
+              {onGoToReview && (
+                <div>
+                  <Button
+                    variant="link"
+                    size="sm"
+                    onClick={onGoToReview}
+                    className="h-auto p-0 text-sky-300"
+                  >
+                    Ir a Revisión
+                  </Button>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

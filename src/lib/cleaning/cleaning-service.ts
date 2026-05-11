@@ -25,6 +25,21 @@ import type {
 
 const OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
 
+/** Entrada que recibe `debugPromptLogger` por cada batch enviado a OpenAI. */
+export interface PromptDebugEntry {
+  /** Índice de batch dentro del job (0-based), si el caller lo provee. */
+  batchIndex?: number;
+  model: string;
+  /** Cantidad de filas en el batch. */
+  rowCount: number;
+  /** Prompt completo del mensaje `system`. */
+  systemPrompt: string;
+  /** Prompt completo del mensaje `user`. */
+  userPrompt: string;
+  /** Respuesta cruda del modelo (string del `content`), o null si vino vacía. */
+  rawResponse: string | null;
+}
+
 export interface AnalyzeOptions {
   /** Override del modelo. Default: "gpt-4o-mini". */
   model?: string;
@@ -36,6 +51,14 @@ export interface AnalyzeOptions {
   retryBaseDelayMs?: number;
   /** Logger opcional (si no se pasa, se usa console). */
   onLog?: (level: "info" | "warn" | "error", message: string) => void;
+  /**
+   * Modo debug: si se pasa, se invoca con el prompt enviado y la respuesta
+   * cruda del modelo para cada batch (incluso si el parseo falla después).
+   * No se invoca cuando OpenAI devuelve un HTTP de error (no hubo respuesta).
+   */
+  debugPromptLogger?: (entry: PromptDebugEntry) => void;
+  /** Índice de batch propagado tal cual a `debugPromptLogger`. */
+  batchIndex?: number;
 }
 
 export interface AnalyzeBatchInput {
@@ -125,6 +148,50 @@ function serializeRowData(
 }
 
 /**
+ * Bloque de ejemplos (few-shot) inyectado en el prompt. Incluye casos a
+ * flaguear Y casos legítimos que NO se deben flaguear (respuestas cortas pero
+ * correctas) — esto último es clave para que el modelo no se ancle en "es
+ * corta → flag" y deje de repetir siempre el mismo razonamiento.
+ *
+ * Son ejemplos genéricos de encuestas de mercado (rioplatense); no dependen
+ * de ninguna encuesta puntual.
+ */
+const FEW_SHOT_BLOCK = `EJEMPLOS (sólo de referencia — NO son parte de las filas a analizar; los IDs de pregunta en los ejemplos son ilustrativos):
+
+Ejemplo A — galimatías en pregunta abierta → FLAG "red"
+  Q3 (¿Qué mejorarías del servicio?): "asdkjh asd lkj"
+  → flag: "red", recommendation: "remove", reason: "La respuesta es texto sin sentido (caracteres al azar), no aporta información.", affected_question_ids: ["Q3"]
+
+Ejemplo B — misma respuesta literal repetida en varias abiertas → FLAG "yellow"
+  Q5 (¿Por qué elegiste esa marca?): "porque sí"  |  Q6 (¿Qué opinás del precio?): "porque sí"  |  Q7 (¿Qué le falta al producto?): "porque sí"
+  → flag: "yellow", recommendation: "review", reason: "Repite la misma frase genérica en todas las preguntas abiertas, sugiere respuesta sin atención.", affected_question_ids: ["Q5", "Q6", "Q7"]
+
+Ejemplo C — vaga en pregunta que pide desarrollo → FLAG "yellow"
+  Q4 (Contanos en al menos una oración tu experiencia con el producto): "bien"
+  → flag: "yellow", recommendation: "review", reason: "La pregunta pide desarrollo y la respuesta es una sola palabra vaga.", affected_question_ids: ["Q4"]
+
+Ejemplo D — contradicción interna → FLAG "yellow"
+  Q1 (¿Qué edad tenés?): 18  |  Q22 (Comentarios): "ya estoy jubilado hace años"
+  → flag: "yellow", recommendation: "review", reason: "La edad declarada (18) contradice el comentario sobre estar jubilado.", affected_question_ids: ["Q1", "Q22"]
+
+Ejemplo E — respuesta corta pero CORRECTA → NO flaguear
+  Q1 (¿Qué edad tenés?): "32"
+  → flag: "none"  (es corta porque la pregunta así lo pide; está bien)
+
+Ejemplo F — respuesta codificada de pregunta cerrada → NO flaguear
+  Q8 [single — opciones: 1=Muy malo, 2=Malo, 3=Regular, 4=Bueno, 5=Muy bueno]: 5
+  → flag: "none"  (es un answerID válido, no texto faltante)
+
+Ejemplo G — comentario opcional dejado en "no" → NO flaguear
+  Q30 (¿Algún comentario adicional? (opcional)): "no"
+  → flag: "none"  (la pregunta es opcional; "no" es una respuesta legítima)
+
+Ejemplo H — respuesta breve y concreta en abierta → NO flaguear
+  Q12 (¿Qué marca de gaseosa tomás más seguido?): "Coca-Cola"
+  → flag: "none"  (responde la pregunta, aunque sea corta)
+`;
+
+/**
  * Construye el prompt de análisis (en español). Excluye metadata, enriquece
  * el schema con tipo+opciones de QP y filtra valores vacíos del input.
  */
@@ -169,6 +236,7 @@ PATRONES ADICIONALES A DETECTAR (sé conservador — flagueá sólo si clarament
 - Contradicciones internas (ej: edad dice 25 pero menciona nietos)
 - Respuestas excesivamente cortas o vagas ("bien", "ok", "sí") en preguntas que piden desarrollo
 
+${FEW_SHOT_BLOCK}
 REGLAS IMPORTANTES DE INTERPRETACIÓN:
 - Si una columna NO aparece en una fila, esa pregunta quedó sin responder. NO inventes que falta un campo si está presente con un valor.
 - Para preguntas tipo single/multi/rating, los valores numéricos representan answerIDs — usá la lista de opciones del schema para decodificar antes de juzgar.
@@ -227,11 +295,18 @@ export async function analyzeBatch(
   options: AnalyzeOptions = {}
 ): Promise<AnalyzeResult[]> {
   const {
+    // TODO(modelo GPT-5): cuando se cambie a la familia GPT-5 (gpt-5-mini, …),
+    // ojo: esos modelos van por la Responses API (`POST /v1/responses`), NO por
+    // `/v1/chat/completions`, y la semántica de `temperature`/`seed` cambia
+    // (los de razonamiento no aceptan `temperature`). No alcanza con cambiar el
+    // string del modelo: hay que re-apuntar el `fetch` y revisar el body.
     model = "gpt-4o-mini",
     maxCompletionTokens = 4000,
     retries = 2,
     retryBaseDelayMs = 1000,
     onLog,
+    debugPromptLogger,
+    batchIndex,
   } = options;
 
   const log = onLog ?? defaultLogger;
@@ -239,15 +314,29 @@ export async function analyzeBatch(
 
   log("info", `CleaningService: Analyzing ${rows.length} rows...`);
   const prompt = buildPrompt(rows, schema, rules);
+  const systemPrompt =
+    "Sos un analista de calidad de datos. Respondé sólo con arrays JSON válidos. Sé conservador: flagueá únicamente respuestas claramente problemáticas.";
+
+  const emitDebug = (rawResponse: string | null): void => {
+    if (!debugPromptLogger) return;
+    try {
+      debugPromptLogger({
+        batchIndex,
+        model,
+        rowCount: rows.length,
+        systemPrompt,
+        userPrompt: prompt,
+        rawResponse,
+      });
+    } catch {
+      /* el logger de debug nunca debe romper el job */
+    }
+  };
 
   const body = {
     model,
     messages: [
-      {
-        role: "system",
-        content:
-          "Sos un analista de calidad de datos. Respondé sólo con arrays JSON válidos. Sé conservador: flagueá únicamente respuestas claramente problemáticas.",
-      },
+      { role: "system", content: systemPrompt },
       { role: "user", content: prompt },
     ],
     max_completion_tokens: maxCompletionTokens,
@@ -292,6 +381,7 @@ export async function analyzeBatch(
 
       const json = (await res.json()) as OpenAIResponse;
       const content = json.choices?.[0]?.message?.content?.trim();
+      emitDebug(content ?? null);
       if (!content) {
         log("error", "Empty response from OpenAI");
         return getFallbackResults(rows);

@@ -31,6 +31,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { getLimpiadorDebugPrompts } from "@/lib/settings";
 import { getProject } from "@/lib/cleaning/projects-repository";
 import {
   deleteVersion,
@@ -79,6 +80,14 @@ export function ProjectDetail({
     jobError: string | null;
   } | null>(null);
   const jobControllerRef = useRef<CleaningJobController | null>(null);
+  // Modo debug del Limpiador (Ajustes): si está activo, el QC vuelca prompts a
+  // la consola. Lo leemos una vez al montar; al lanzar un job miramos el ref.
+  const debugPromptsRef = useRef(false);
+  useEffect(() => {
+    void getLimpiadorDebugPrompts().then((v) => {
+      debugPromptsRef.current = v;
+    });
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -115,6 +124,21 @@ export function ProjectDetail({
               : curr
           );
         },
+        debugPromptLogger: debugPromptsRef.current
+          ? (entry) => {
+              // console.log (no console.debug): devtools oculta el nivel
+              // "Verbose" por defecto y el usuario que activó el modo debug
+              // quiere ver estos volcados sin tocar configuración de la consola.
+              console.log(
+                `%c[limpiador:debug] batch #${entry.batchIndex ?? "?"} ` +
+                  `(${entry.rowCount} filas, modelo ${entry.model})`,
+                "color:#0ea5e9;font-weight:bold",
+                `\n--- SYSTEM ---\n${entry.systemPrompt}\n` +
+                  `--- USER ---\n${entry.userPrompt}\n` +
+                  `--- RESPONSE ---\n${entry.rawResponse ?? "(vacía)"}`
+              );
+            }
+          : undefined,
       });
       jobControllerRef.current = controller;
 

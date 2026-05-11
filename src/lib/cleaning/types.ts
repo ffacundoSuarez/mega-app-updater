@@ -144,6 +144,11 @@ export interface CleaningFlag {
   friendly_explanation: string | null;
   affected_question_ids: string[];
   similar_response_ids: string[];
+  /**
+   * Paso 5.C: timestamp en que esta respuesta (flag `user_decision = 'remove'`)
+   * se eliminó efectivamente de QuestionPro. NULL = todavía no sincronizada.
+   */
+  removed_from_qp_at: string | null;
 }
 
 /** `CleaningFlag` con la fila join'ada. Lo que devuelve `listFlags`. */

@@ -14,6 +14,10 @@ const KEY_SUPABASE_ANON_KEY = "supabase.anon_key";
 const KEY_OPENAI_API_KEY = "openai.api_key";
 const KEY_QUESTIONPRO_API_KEY = "questionpro.api_key";
 const KEY_ENCRYPTION_KEY = "encryption.key";
+// Flag booleano (no secreto): cuando está en true, el motor de QC del Limpiador
+// vuelca a la consola del WebView el prompt enviado a OpenAI y la respuesta cruda
+// de cada batch. Sirve para iterar el prompt sin volar a ciegas.
+const KEY_LIMPIADOR_DEBUG_PROMPTS = "limpiador.debug_prompts";
 
 let storePromise: Promise<Store> | null = null;
 
@@ -108,6 +112,27 @@ export async function setEncryptionKeySetting(
   key: string | null
 ): Promise<void> {
   await setOrDelete(KEY_ENCRYPTION_KEY, key);
+}
+
+/**
+ * Modo debug del Limpiador: si está activo, el motor de QC loguea a la consola
+ * del WebView el prompt + la respuesta de OpenAI por cada batch. Default: false.
+ */
+export async function getLimpiadorDebugPrompts(): Promise<boolean> {
+  const store = await getStore();
+  const value = await store.get<boolean>(KEY_LIMPIADOR_DEBUG_PROMPTS);
+  return value === true;
+}
+
+/** Activa/desactiva el modo debug del Limpiador. */
+export async function setLimpiadorDebugPrompts(enabled: boolean): Promise<void> {
+  const store = await getStore();
+  if (enabled) {
+    await store.set(KEY_LIMPIADOR_DEBUG_PROMPTS, true);
+  } else {
+    await store.delete(KEY_LIMPIADOR_DEBUG_PROMPTS);
+  }
+  await store.save();
 }
 
 /** Estado persistido relevante para el futuro módulo Limpiador (lectura al montar Ajustes). */

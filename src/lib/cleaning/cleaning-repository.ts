@@ -21,6 +21,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { DETERMINISTIC_RULE_IDS } from "./field-checks";
 import type {
   AnalyzeResult,
   CleaningFlagInsert,
@@ -113,10 +114,22 @@ export async function getRows(
   return (data ?? []) as CleaningRow[];
 }
 
+/** True si el flag proviene SÓLO de chequeos determinísticos (capa pre-IA). */
+function isPurelyDeterministicFlag(matchedRules: unknown): boolean {
+  if (!Array.isArray(matchedRules) || matchedRules.length === 0) return false;
+  return matchedRules.every(
+    (r) => typeof r === "string" && DETERMINISTIC_RULE_IDS.has(r)
+  );
+}
+
 /**
- * Mayor `row_number` ya flagueado en la versión. Se usa para reconciliar el
- * cursor cuando un job se reanuda y `processed_rows` quedó atrás respecto de
- * los flags realmente guardados.
+ * Mayor `row_number` ya procesado **por la IA** en la versión. Se usa para
+ * reconciliar el cursor cuando un job se reanuda y `processed_rows` quedó atrás.
+ *
+ * Excluye los flags puramente determinísticos (capa pre-IA): esos pueden caer
+ * en cualquier `row_number` (p. ej. una IP duplicada en la fila 500) y NO
+ * implican que las filas previas hayan pasado por la IA — contarlos haría que
+ * el resume saltee filas sin analizar.
  */
 export async function getMaxProcessedRow(
   client: SupabaseClient,
@@ -124,7 +137,7 @@ export async function getMaxProcessedRow(
 ): Promise<number> {
   const { data, error } = await client
     .from("cleaning_flags")
-    .select("row_id, cleaning_rows!inner(row_number)")
+    .select("matched_rules, cleaning_rows!inner(row_number)")
     .eq("version_id", versionId);
 
   if (error) {
@@ -134,10 +147,12 @@ export async function getMaxProcessedRow(
   if (!data || data.length === 0) return 0;
 
   const rows = data as Array<{
+    matched_rules: unknown;
     cleaning_rows: { row_number: number } | { row_number: number }[] | null;
   }>;
 
   const maxRow = rows
+    .filter((f) => !isPurelyDeterministicFlag(f.matched_rules))
     .map((f) => {
       const cr = f.cleaning_rows;
       if (!cr) return 0;
@@ -151,14 +166,71 @@ export async function getMaxProcessedRow(
 }
 
 /**
+ * Trae TODAS las filas de la versión (paginadas internamente). Lo necesita la
+ * capa pre-IA, que corre chequeos cross-row (IPs duplicadas, percentiles de
+ * duración) sobre el set completo antes del bucle de la IA.
+ */
+export async function getAllRows(
+  client: SupabaseClient,
+  versionId: string
+): Promise<CleaningRow[]> {
+  const PAGE = 1000;
+  const all: CleaningRow[] = [];
+  let cursor = 0;
+  for (;;) {
+    const page = await getRows(client, versionId, cursor, PAGE);
+    if (page.length === 0) break;
+    all.push(...page);
+    if (page.length < PAGE) break;
+    cursor = page[page.length - 1].row_number;
+  }
+  return all;
+}
+
+/**
+ * IDs de fila (`row_id`) que ya tienen un flag **puramente determinístico** en
+ * la versión. Se usa al reanudar un job para no re-mandar esas filas a la IA.
+ */
+export async function getDeterministicFlaggedRowIds(
+  client: SupabaseClient,
+  versionId: string
+): Promise<Set<string>> {
+  const { data, error } = await client
+    .from("cleaning_flags")
+    .select("row_id, matched_rules")
+    .eq("version_id", versionId);
+  if (error || !data) {
+    if (error) console.warn("Could not load deterministic flags:", error.message);
+    return new Set();
+  }
+  const result = new Set<string>();
+  for (const f of data as Array<{ row_id: string; matched_rules: unknown }>) {
+    if (isPurelyDeterministicFlag(f.matched_rules)) result.add(f.row_id);
+  }
+  return result;
+}
+
+export interface SaveFlagsOptions {
+  /**
+   * Si es true, los flags que colisionen con uno existente para
+   * (`version_id`,`row_id`) **no** se pisan (INSERT ... ON CONFLICT DO NOTHING).
+   * Lo usa la capa pre-IA: un flag determinístico nunca debe pisar un juicio ya
+   * tomado (de la IA o de una corrida previa). Por defecto false → upsert.
+   */
+  ignoreConflicts?: boolean;
+}
+
+/**
  * Persiste los flags del batch (sólo los `flag !== "none"`).
- * Usa upsert por (`version_id`, `row_id`) para que reintentos no dupliquen.
- * Devuelve cuántos flags se guardaron.
+ * Por defecto upsert por (`version_id`, `row_id`) para que reintentos no
+ * dupliquen; con `ignoreConflicts` los existentes ganan.
+ * Devuelve cuántos flags se intentaron guardar (no descuenta los ignorados).
  */
 export async function saveFlags(
   client: SupabaseClient,
   versionId: string,
-  results: AnalyzeResult[]
+  results: AnalyzeResult[],
+  options: SaveFlagsOptions = {}
 ): Promise<number> {
   const flagged = results.filter(
     (r): r is AnalyzeResult & { flag: "red" | "yellow" } => r.flag !== "none"
@@ -179,9 +251,10 @@ export async function saveFlags(
     similar_response_ids: [],
   }));
 
-  const { error } = await client
-    .from("cleaning_flags")
-    .upsert(inserts, { onConflict: "version_id,row_id" });
+  const { error } = await client.from("cleaning_flags").upsert(inserts, {
+    onConflict: "version_id,row_id",
+    ignoreDuplicates: options.ignoreConflicts === true,
+  });
 
   if (error) {
     throw new Error(`Failed to save flags: ${error.message}`);
