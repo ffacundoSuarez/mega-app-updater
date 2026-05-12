@@ -6,6 +6,7 @@ import { Toolbar, type ViewId } from "@/components/Toolbar";
 import { UpdateDialog } from "@/components/UpdateDialog";
 import { HomeView } from "@/tools/home/HomeView";
 import { BrandAuditView } from "@/tools/brand-audit/BrandAuditView";
+import { LimpiadorView } from "@/tools/limpiador/LimpiadorView";
 import { SettingsView } from "@/tools/settings/SettingsView";
 import { checkForUpdate, type Update } from "@/lib/updater";
 
@@ -56,6 +57,9 @@ function App() {
             <HomeView appVersion={APP_VERSION} onOpenTool={setActiveView} />
           )}
           {activeView === "brand-audit" && <BrandAuditView />}
+          {activeView === "limpiador" && (
+            <LimpiadorView onOpenSettings={() => setActiveView("settings")} />
+          )}
           {activeView === "settings" && <SettingsView />}
         </main>
       </div>

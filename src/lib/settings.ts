@@ -1,13 +1,23 @@
-// Helpers para persistir settings del usuario (API key de Gemini, preferencias).
-// Usa tauri-plugin-store → guarda un JSON en %APPDATA%\Mega App\settings.json.
+// Helpers para persistir settings del usuario (Gemini, Limpiador / integraciones).
+// Usa tauri-plugin-store → base: app_data_dir de Tauri (en Windows típico:
+// %APPDATA%\<identifier> — ver identifier en src-tauri/tauri.conf.json).
 // El archivo es local al usuario, no se sincroniza ni se sube al repo.
 
 import { load, type Store } from "@tauri-apps/plugin-store";
 
 const STORE_FILE = "settings.json";
 
-// Keys usadas en el store.
+// Keys usadas en el store (instalador sin valores por defecto sensibles).
 const KEY_GEMINI_API = "gemini.api_key";
+const KEY_SUPABASE_URL = "supabase.url";
+const KEY_SUPABASE_ANON_KEY = "supabase.anon_key";
+const KEY_OPENAI_API_KEY = "openai.api_key";
+const KEY_QUESTIONPRO_API_KEY = "questionpro.api_key";
+const KEY_ENCRYPTION_KEY = "encryption.key";
+// Flag booleano (no secreto): cuando está en true, el motor de QC del Limpiador
+// vuelca a la consola del WebView el prompt enviado a OpenAI y la respuesta cruda
+// de cada batch. Sirve para iterar el prompt sin volar a ciegas.
+const KEY_LIMPIADOR_DEBUG_PROMPTS = "limpiador.debug_prompts";
 
 let storePromise: Promise<Store> | null = null;
 
@@ -19,26 +29,183 @@ function getStore(): Promise<Store> {
   return storePromise;
 }
 
+async function getTrimmed(key: string): Promise<string | null> {
+  const store = await getStore();
+  const value = await store.get<string>(key);
+  if (value === undefined || value === null) return null;
+  const t = String(value).trim();
+  return t.length ? t : null;
+}
+
+async function setOrDelete(key: string, value: string | null): Promise<void> {
+  const store = await getStore();
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    await store.delete(key);
+  } else {
+    await store.set(key, trimmed);
+  }
+  await store.save();
+}
+
+// --- Gemini ---
+
 /** Lee la API key de Gemini guardada localmente. Devuelve null si no está seteada. */
 export async function getGeminiApiKey(): Promise<string | null> {
-  const store = await getStore();
-  const value = await store.get<string>(KEY_GEMINI_API);
-  return value ?? null;
+  return getTrimmed(KEY_GEMINI_API);
 }
 
 /** Guarda la API key. Pasar null/'' la borra. */
 export async function setGeminiApiKey(key: string | null): Promise<void> {
-  const store = await getStore();
-  if (!key || !key.trim()) {
-    await store.delete(KEY_GEMINI_API);
-  } else {
-    await store.set(KEY_GEMINI_API, key.trim());
-  }
-  await store.save();
+  await setOrDelete(KEY_GEMINI_API, key);
 }
 
 /** True si hay una key guardada (no chequea validez, sólo existencia). */
 export async function hasGeminiApiKey(): Promise<boolean> {
   const key = await getGeminiApiKey();
   return !!key;
+}
+
+// --- Limpiador / integraciones corporativas ---
+
+export async function getSupabaseUrl(): Promise<string | null> {
+  return getTrimmed(KEY_SUPABASE_URL);
+}
+
+export async function setSupabaseUrl(value: string | null): Promise<void> {
+  await setOrDelete(KEY_SUPABASE_URL, value);
+}
+
+export async function getSupabaseAnonKey(): Promise<string | null> {
+  return getTrimmed(KEY_SUPABASE_ANON_KEY);
+}
+
+export async function setSupabaseAnonKey(key: string | null): Promise<void> {
+  await setOrDelete(KEY_SUPABASE_ANON_KEY, key);
+}
+
+export async function getOpenaiApiKey(): Promise<string | null> {
+  return getTrimmed(KEY_OPENAI_API_KEY);
+}
+
+export async function setOpenaiApiKey(key: string | null): Promise<void> {
+  await setOrDelete(KEY_OPENAI_API_KEY, key);
+}
+
+export async function getQuestionproApiKey(): Promise<string | null> {
+  return getTrimmed(KEY_QUESTIONPRO_API_KEY);
+}
+
+export async function setQuestionproApiKey(key: string | null): Promise<void> {
+  await setOrDelete(KEY_QUESTIONPRO_API_KEY, key);
+}
+
+/**
+ * Opcional: misma cadena que ENCRYPTION_KEY en Supabase RPC encrypt_text/decrypt_text,
+ * sólo si se persiste contenido encriptado en la base (no necesario si la API key de QuestionPro vive sólo en Ajustes).
+ */
+export async function getEncryptionKeySetting(): Promise<string | null> {
+  return getTrimmed(KEY_ENCRYPTION_KEY);
+}
+
+export async function setEncryptionKeySetting(
+  key: string | null
+): Promise<void> {
+  await setOrDelete(KEY_ENCRYPTION_KEY, key);
+}
+
+/**
+ * Modo debug del Limpiador: si está activo, el motor de QC loguea a la consola
+ * del WebView el prompt + la respuesta de OpenAI por cada batch. Default: false.
+ */
+export async function getLimpiadorDebugPrompts(): Promise<boolean> {
+  const store = await getStore();
+  const value = await store.get<boolean>(KEY_LIMPIADOR_DEBUG_PROMPTS);
+  return value === true;
+}
+
+/** Activa/desactiva el modo debug del Limpiador. */
+export async function setLimpiadorDebugPrompts(enabled: boolean): Promise<void> {
+  const store = await getStore();
+  if (enabled) {
+    await store.set(KEY_LIMPIADOR_DEBUG_PROMPTS, true);
+  } else {
+    await store.delete(KEY_LIMPIADOR_DEBUG_PROMPTS);
+  }
+  await store.save();
+}
+
+/** Estado persistido relevante para el futuro módulo Limpiador (lectura al montar Ajustes). */
+export async function getLimpiadorConnectionSettings(): Promise<{
+  supabaseUrl: string | null;
+  supabaseAnonKey: string | null;
+  openaiApiKey: string | null;
+  questionproApiKey: string | null;
+  encryptionKey: string | null;
+}> {
+  const [
+    supabaseUrl,
+    supabaseAnonKey,
+    openaiApiKey,
+    questionproApiKey,
+    encryptionKey,
+  ] = await Promise.all([
+    getSupabaseUrl(),
+    getSupabaseAnonKey(),
+    getOpenaiApiKey(),
+    getQuestionproApiKey(),
+    getEncryptionKeySetting(),
+  ]);
+  return {
+    supabaseUrl,
+    supabaseAnonKey,
+    openaiApiKey,
+    questionproApiKey,
+    encryptionKey,
+  };
+}
+
+/** Guarda todas las claves Limpiador de una vez; campos vacíos se borran del store (un único guardado). */
+export async function setLimpiadorConnectionSettings(patch: {
+  supabaseUrl: string | null;
+  supabaseAnonKey: string | null;
+  openaiApiKey: string | null;
+  questionproApiKey: string | null;
+  encryptionKey: string | null;
+}): Promise<void> {
+  const store = await getStore();
+
+  async function upsert(storeKey: string, value: string | null): Promise<void> {
+    const trimmed = value?.trim();
+    if (!trimmed) {
+      await store.delete(storeKey);
+    } else {
+      await store.set(storeKey, trimmed);
+    }
+  }
+
+  await upsert(KEY_SUPABASE_URL, patch.supabaseUrl);
+  await upsert(KEY_SUPABASE_ANON_KEY, patch.supabaseAnonKey);
+  await upsert(KEY_OPENAI_API_KEY, patch.openaiApiKey);
+  await upsert(KEY_QUESTIONPRO_API_KEY, patch.questionproApiKey);
+  await upsert(KEY_ENCRYPTION_KEY, patch.encryptionKey);
+
+  await store.save();
+}
+
+/** True si hay algo guardado en el bloque Limpiador (cualquier campo). */
+export async function hasAnyLimpiadorSettings(): Promise<boolean> {
+  const s = await getLimpiadorConnectionSettings();
+  return Object.values(s).some(Boolean);
+}
+
+/** Borra del store todos los valores del bloque Limpiador / integraciones. */
+export async function clearLimpiadorConnectionSettings(): Promise<void> {
+  await setLimpiadorConnectionSettings({
+    supabaseUrl: null,
+    supabaseAnonKey: null,
+    openaiApiKey: null,
+    questionproApiKey: null,
+    encryptionKey: null,
+  });
 }
