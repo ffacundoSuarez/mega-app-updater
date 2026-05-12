@@ -5,7 +5,7 @@
 
 ## Resumen
 
-Módulo independiente que permite analizar la calidad estructural y semántica de un cuestionario **antes de lanzar la encuesta**. El usuario sube el cuestionario en distintos formatos (Word, PDF, texto pegado, o conectándose directo a QuestionPro/Qualtrics), la IA lo parsea a un JSON canónico, ejecuta checks deterministicos + checks semánticos con IA, y devuelve un reporte con severidades por pregunta para que el usuario corrija el cuestionario antes de programarlo.
+Módulo independiente que permite analizar la calidad estructural y semántica de un cuestionario **antes de lanzar la encuesta**. El usuario sube el cuestionario en distintos formatos (Word, PDF, texto pegado, o conectándose directo a QuestionPro/Qualtrics), la IA lo parsea a un JSON canónico, ejecuta checks deterministicos + checks semánticos con IA, y devuelve un reporte con severidades por pregunta para que el usuario corrija el cuestionario antes de programarlo. Cuando el cuestionario queda limpio, con un botón puede **publicarse directo en QuestionPro vía API** (crea la encuesta con sus preguntas, opciones y flujo, lista para programar).
 
 **Objetivo:** detectar problemas (preguntas redundantes, escalas invertidas, flujos rotos, wording sesgado, etc.) **mientras todavía se pueden arreglar**, no después de tener respuestas recolectadas.
 
@@ -31,6 +31,7 @@ flowchart LR
     Edit --> Checks["Checks deterministicos +<br/>checks IA semanticos"]
     Checks --> Report["Reporte con severidades<br/>error/advertencia/sugerencia"]
     Report --> Export["Exportar JSON canonico<br/>para usar en limpiador"]
+    Report --> Publish["Publicar en QuestionPro<br/>via API (crea la encuesta)"]
     Input -.->|opciones de input| I1["Subir .docx"]
     Input -.-> I2["Subir .pdf"]
     Input -.-> I3["Pegar texto"]
@@ -194,6 +195,46 @@ UI renderiza:
 - Filtros por severidad y categoría.
 - Botón "exportar JSON canónico" (descarga `Questionnaire`).
 - Botón "exportar reporte" (descarga PDF o XLSX legible).
+- Botón "publicar en QuestionPro" (ver sección siguiente). Deshabilitado mientras haya issues de severidad `error` sin resolver; con `advertencia`/`sugerencia` pide confirmación.
+
+---
+
+## Publicación en QuestionPro
+
+Una vez que el cuestionario está validado y limpio, el usuario puede empujarlo a QuestionPro sin tener que recrearlo a mano en su panel. Es la contraparte "de ida" del input "Conectar API QP" (que es el de "vuelta").
+
+### Flujo
+
+1. El usuario abre `/cuestionario/[id]`, ve el reporte sin errores, y hace click en **"Publicar en QuestionPro"**.
+2. Modal de confirmación: elige/confirma la API key de QP (reusa la del input `questionpro_api` si existe, o la pide), opcionalmente un nombre para la encuesta, e idioma. Muestra un resumen de qué se va a crear (N preguntas, M con flujo, etc.) y advierte que se crea una encuesta nueva en estado borrador (no se publica/activa automáticamente).
+3. `POST /api/cuestionario/publish-to-qp` con `{ questionnaire_id, apiKey, nombre? }`:
+   - Crea la encuesta (`POST /surveys`) → obtiene `surveyId`.
+   - Mapea cada `Question` canónica al payload de QP (tipo de pregunta, opciones con su `codigo`/`texto`, `aleatorizar`, `min`/`max`, enunciados de matriz) y la agrega (`POST /surveys/{id}/questions`), respetando el orden de `preguntas[]` y agrupando por `secciones`.
+   - Traduce `condicion` y `flujo[]` a la skip logic / branching de QP en una segunda pasada (necesita que todas las preguntas existan para resolver los `destino`).
+   - Devuelve `{ qp_survey_id, qp_survey_url, warnings: string[] }` — `warnings` lista lo que no se pudo mapear 1:1 (ej. un tipo de pregunta sin equivalente exacto, una regla de flujo que QP no soporta así).
+4. UI: muestra el link a la encuesta en QP, los warnings, y persiste `qp_published_survey_id` en la fila `questionnaires`. Si ya estaba publicada, el botón pasa a "Ver en QuestionPro" + "Re-publicar" (re-publicar crea otra encuesta nueva; QP no tiene un upsert limpio).
+
+### Mapeo de tipos (canónico → QuestionPro)
+
+| Canónico | QuestionPro |
+|---|---|
+| `cerrada_unica` | Single Select (Radio Button) |
+| `cerrada_multiple` | Multiple Select (Checkbox) |
+| `escala` | Numeric Slider / Net Promoter / Rating según `min`/`max` |
+| `matriz` | Matrix (filas = `enunciados`, columnas = `opciones`) |
+| `abierta_texto` | Text - Single Row / Multiple Row |
+| `abierta_marca` | Text - Single Row con validación |
+| `numerica` | Numeric - Text Box |
+| `ranking` | Rank Order |
+| `fecha` | Date |
+
+> El mapeo exacto de subtipos de QP hay que confirmarlo contra la doc de la API (`POST /surveys/{id}/questions`) en la Iteración 8 — el catálogo de arriba es la primera aproximación. Donde no haya equivalente, el endpoint elige el más cercano y lo reporta en `warnings`.
+
+### Implementación
+
+- Helper nuevo en la capa de QP del Limpiador (la misma donde viven `validateSurvey` / `getSurveyQuestions`): `createSurveyFromQuestionnaire(questionnaire, apiKey, opts)`. Mantiene todo el contacto con la API de QP en un solo módulo.
+- La API key de QP se pasa como en el resto del módulo (encriptada si se persiste; nunca en logs ni en query string). Reusar el mismo helper de encriptación del Limpiador.
+- No se activa/publica la encuesta automáticamente: se deja en borrador para que el usuario revise en el panel de QP antes de lanzarla. (Decisión pendiente: ofrecer un checkbox "activar al crear".)
 
 ---
 
@@ -208,7 +249,9 @@ CREATE TABLE questionnaires (
   nombre TEXT NOT NULL,
   origen TEXT NOT NULL CHECK (origen IN ('texto', 'docx', 'pdf', 'questionpro_api')),
   archivo_nombre TEXT,
-  qp_survey_id TEXT,
+  qp_survey_id TEXT,               -- survey de origen si origen='questionpro_api'
+  qp_published_survey_id TEXT,     -- survey creada al publicar en QP (Iteracion 8)
+  qp_published_at TIMESTAMPTZ,
   qp_api_key_encrypted TEXT,
   questionnaire_json JSONB,        -- Questionnaire canonico
   created_at TIMESTAMPTZ DEFAULT now(),
@@ -235,7 +278,7 @@ Cada validación queda persistida → si el usuario edita el cuestionario y re-v
 |---|---|
 | `/cuestionario` | Lista de cuestionarios del usuario, con stats (total, validados, con errores). |
 | `/cuestionario/nuevo` | Wizard: nombre → tipo de input → upload/paste/connect → parse → validar. |
-| `/cuestionario/[id]` | Vista del cuestionario: muestra preguntas + último reporte de validación. Permite editar JSON, re-validar, exportar. |
+| `/cuestionario/[id]` | Vista del cuestionario: muestra preguntas + último reporte de validación. Permite editar JSON, re-validar, exportar, y **publicar en QuestionPro**. |
 | `/cuestionario/[id]/editar` | Editor del JSON canónico (interface más rica que un textarea, con UI tipada por tipo de pregunta). |
 
 ---
@@ -249,6 +292,7 @@ Cada validación queda persistida → si el usuario edita el cuestionario y re-v
 | `/api/cuestionario/parse-pdf` | POST | Recibe FormData con .pdf, extrae texto, devuelve `Questionnaire`. |
 | `/api/cuestionario/from-qp` | POST | Recibe `{ surveyId, apiKey }`, descarga estructura completa, devuelve `Questionnaire`. |
 | `/api/cuestionario/validate` | POST | Recibe `{ questionnaire_id }` o `{ questionnaire }`, ejecuta checks deterministicos + IA, devuelve `QuestionnaireValidationReport`. Usa SSE para streaming de progreso. |
+| `/api/cuestionario/publish-to-qp` | POST | Recibe `{ questionnaire_id, apiKey, nombre? }`, crea la encuesta en QuestionPro (preguntas + opciones + flujo), persiste `qp_published_survey_id`, devuelve `{ qp_survey_id, qp_survey_url, warnings }`. |
 
 ---
 
@@ -302,6 +346,15 @@ Cada validación queda persistida → si el usuario edita el cuestionario y re-v
 ### Iteración 7 (opcional) — Export del reporte
 - Botón "exportar reporte" que genera PDF o XLSX legible para compartir con clientes/diseñadores.
 
+### Iteración 8 — Publicar en QuestionPro
+- Helper `createSurveyFromQuestionnaire(questionnaire, apiKey, opts)` en la capa de QP (junto a `validateSurvey` / `getSurveyQuestions`): crea la encuesta, agrega preguntas + opciones, y en una segunda pasada traduce `condicion`/`flujo[]` a la skip logic de QP.
+- Tabla del mapeo de tipos canónico → QP confirmado contra la doc de la API; lo no mapeable se reporta en `warnings`.
+- API route `/api/cuestionario/publish-to-qp`.
+- Migración SQL: columnas `qp_published_survey_id`, `qp_published_at` en `questionnaires`.
+- UI en `/cuestionario/[id]`: botón "Publicar en QuestionPro" (deshabilitado con errores pendientes), modal de confirmación (API key + nombre + idioma + resumen de lo que se crea), y, tras publicar, link a la encuesta + lista de warnings. Si ya está publicada → "Ver en QuestionPro" + "Re-publicar".
+
+**Resultado:** el ciclo completo sin salir de la app: pegar/subir cuestionario → parsear → validar → corregir → publicar en QP listo para programar.
+
 ---
 
 ## Patrones reusables de survey-qc-app
@@ -325,6 +378,7 @@ Cada validación queda persistida → si el usuario edita el cuestionario y re-v
 - **Costo de IA en validate**: si un cuestionario tiene 100 preguntas y se corren 6 categorías de checks IA, son 600 evaluaciones. Mitigación: agrupar por categoría en una sola llamada (procesar todas las preguntas en batch), prompt caching, modelo `gpt-4o-mini` por defecto.
 - **PDFs complejos**: layouts multi-columna o con tablas pueden romper la extracción de texto. Mitigación: fallback a vision con gpt-4o (más caro pero más robusto).
 - **API de QP no expone toda la skip logic** en `/surveys/{id}/questions`. Verificar antes de la Iteración 5 si hay que llamar también a `/surveys/{id}/blocks` o similar.
+- **Crear encuestas vía API de QP (Iteración 8)**: confirmar que la API permite `POST /surveys` + `POST /surveys/{id}/questions` con la skip logic completa, y qué subtipos de pregunta acepta cada `questionType`. Si la API no soporta crear branching complejo, el endpoint crea las preguntas igual y deja la skip logic en `warnings` para que el usuario la termine en el panel. La encuesta se crea siempre en borrador (no se activa) para no exponer una encuesta a medio mapear.
 - **Migración futura del concepto a Qualtrics**: el schema canónico está pensado para ser provider-agnostic. Si se agrega Qualtrics, solo hay que escribir un nuevo `from-qsf` (parser del export de Qualtrics) sin tocar nada más.
 
 ---
@@ -334,4 +388,6 @@ Cada validación queda persistida → si el usuario edita el cuestionario y re-v
 - **Modelo IA por defecto**: `gpt-4o` (mejor calidad, más caro) o `gpt-4o-mini` (más barato, suficiente para checks simples). Posiblemente: mini por defecto, opción de cambiar a 4o para checks complejos.
 - **Catálogo de reglas editable vs hardcoded**: survey-qc-app tiene tabla `questionnaire_structure_rules` con `prompt_ia` editable. Es más flexible pero suma complejidad. Recomendación: arrancar hardcoded en Iteración 2-3, migrar a tabla solo si el usuario quiere customizar.
 - **¿El validador requiere autenticación?** En survey-qc-app sí (Supabase Auth + Google OAuth). En el mega-dashboard ya hay auth, así que es directo reusarla.
-- **Persistencia de `qp_api_key`**: si se guarda al usar input "questionpro_api", aplica la misma decisión de encriptación que en el limpiador. Reusar el mismo helper.
+- **Persistencia de `qp_api_key`**: si se guarda al usar input "questionpro_api" o al publicar en QP, aplica la misma decisión de encriptación que en el limpiador. Reusar el mismo helper.
+- **¿Activar la encuesta al publicar?** Por defecto se crea en borrador. Posible checkbox "activar al crear" en el modal de publicación; arrancar sin él (más seguro).
+- **¿Bloquear publicación con `error` pendiente?** Recomendación: sí, deshabilitar el botón si hay issues de severidad `error`; permitir con `advertencia`/`sugerencia` previa confirmación.
