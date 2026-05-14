@@ -93,16 +93,35 @@ const RULE_SPEC: Record<string, RuleSpec> = {
 // Detección de columnas
 // ---------------------------------------------------------------------------
 
-const TEXT_TYPE_RE = /text|essay|comment|paragraph|open|abiert/i;
+/**
+ * Tipos QP que son genuinamente "long-form" (donde esperamos al menos una
+ * oración como respuesta). Acotado a propósito: `text_single_row` queda fuera
+ * porque QP lo usa para edad, nombre, email, teléfono — campos donde una sola
+ * palabra ES la respuesta correcta. El heurístico "menos de 3 palabras" sobre
+ * ese tipo generaba falsos positivos garrafales (ej.: edad "45" se marcaba
+ * como sospechosa).
+ *
+ * Tipos QP cubiertos:
+ *  - `text_multiple_row` (Comment Box) — el único realmente long-form en QP.
+ *
+ * También cubrimos algunos nombres semánticos comunes en otros orígenes
+ * (Qualtrics suele venir sin tipo así que no entra acá; estos matchean si
+ * algún día se enriquece schema con esos tipos):
+ *  - `essay`, `paragraph`, `open_ended`, `comment_box`, "abierta".
+ *
+ * Sin tipo (caso Qualtrics) NO asumimos long-form: evita falsos positivos
+ * sobre cerradas.
+ */
+const LONG_FORM_TYPE_RE =
+  /text_multiple_row|essay|paragraph|open_ended|comment_box|^comment$|abiert/i;
 
-/** True si la columna es una pregunta abierta de la que estamos seguros. */
+/** True si la columna es una pregunta abierta long-form de la que estamos seguros. */
 export function isConfidentOpenEndedColumn(col: SchemaColumn): boolean {
   if (col.is_metadata || col.id.startsWith("META_")) return false;
-  // Sólo si el schema fue enriquecido con QP y el tipo es de texto. Sin tipo
-  // no asumimos abierta (en Qualtrics ninguna columna trae tipo → no corremos
-  // el check de abiertas ahí, que es lo correcto: evita falsos positivos sobre
-  // preguntas cerradas).
-  return typeof col.qp_question_type === "string" && TEXT_TYPE_RE.test(col.qp_question_type);
+  return (
+    typeof col.qp_question_type === "string" &&
+    LONG_FORM_TYPE_RE.test(col.qp_question_type)
+  );
 }
 
 /** Columna que contiene la IP del encuestado, o null si no la identificamos. */

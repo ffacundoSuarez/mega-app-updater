@@ -410,9 +410,22 @@ function mergeEditsIntoResponse(
 
 /**
  * Mete `newValue` en el `answerValues` de la pregunta `questionID`, preservando
- * la estructura existente (QP usa shapes distintos por tipo de pregunta). Si la
- * pregunta no estaba en el `responseSet` (no respondida), la agrega como mejor
- * intento `[{ value }]`.
+ * la estructura existente (QP usa shapes distintos por tipo de pregunta).
+ *
+ * Shape real que QP devuelve y espera para preguntas de texto
+ * (`text_single_row`, `text_multiple_row`, etc.):
+ *
+ *     { answerID, answerText, value: { text, scale, ord, other, ... } }
+ *
+ * El texto editable vive en `value.text`. Antes esta función seteaba
+ * `value = "<string>"` directamente, lo que rompía el shape y hacía que el POST
+ * de re-creación fallara con 400 o llegara a QP con la celda vacía.
+ *
+ * Para preguntas single-choice (`multiplechoice_radio`) editar el texto desde
+ * el review no remapea a un `answerID` válido — eso requiere lógica aparte
+ * (`qp_options` del schema). Acá sólo actualizamos `value.text`, lo cual es
+ * inocuo para QP pero no cambia la opción seleccionada. Esa traducción
+ * texto→answerID es feature pendiente del paso 5.C.
  */
 function setAnswerValue(
   byQid: Map<number, QPResponseSetItem>,
@@ -420,22 +433,37 @@ function setAnswerValue(
   questionID: number,
   newValue: unknown
 ) {
-  const v = newValue === null || newValue === undefined ? "" : String(newValue);
+  const text = newValue === null || newValue === undefined ? "" : String(newValue);
   const existing = byQid.get(questionID);
+
   if (!existing) {
+    // Pregunta nunca respondida → agregar con shape mínimo válido para QP.
+    // Falta `answerID` porque no lo tenemos en este path; QP lo asigna o lo
+    // ignora según el tipo. Best effort.
     const item: QPResponseSetItem = {
       questionID,
-      answerValues: [{ value: v }],
+      answerValues: [{ value: { text } }],
     };
     byQid.set(questionID, item);
     responseSet.push(item);
     return;
   }
+
   const first = existing.answerValues[0];
   if (first && typeof first === "object") {
-    (first as Record<string, unknown>).value = v;
+    const av = first as Record<string, unknown>;
+    const currentValue = av.value;
+    if (currentValue && typeof currentValue === "object") {
+      // Preservar la estructura (scale, ord, other, weight, …) — sólo
+      // actualizar el `text`, que es donde QP guarda el contenido editable.
+      (currentValue as Record<string, unknown>).text = text;
+    } else {
+      // `value` venía como string o ausente → crear el objeto mínimo.
+      av.value = { text };
+    }
   } else {
-    existing.answerValues = [v];
+    // answerValues[0] no era un objeto (caso degenerado) — reconstruir.
+    existing.answerValues = [{ value: { text } }];
   }
 }
 
