@@ -6,6 +6,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Bug,
   CheckCircle2,
+  ClipboardCheck,
   Eye,
   EyeOff,
   Globe,
@@ -30,21 +31,28 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import {
+  CUESTIONARIO_MODELS,
+  DEFAULT_CUESTIONARIO_MODEL,
+  getCuestionarioModel,
   getEncryptionKeySetting,
   getGeminiApiKey,
   getLimpiadorDebugPrompts,
   getOpenaiApiKey,
   getQuestionproApiKey,
+  getQuestionproUserId,
   getSupabaseAnonKey,
   getSupabaseUrl,
   hasGeminiApiKey,
+  setCuestionarioModel,
   setEncryptionKeySetting,
   setGeminiApiKey,
   setLimpiadorDebugPrompts,
   setOpenaiApiKey,
   setQuestionproApiKey,
+  setQuestionproUserId,
   setSupabaseAnonKey,
   setSupabaseUrl,
+  type CuestionarioModel,
 } from "@/lib/settings";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
@@ -203,23 +211,33 @@ export function SettingsView() {
   const [hasQp, setHasQp] = useState(false);
   const [qpSave, setQpSave] = useState<SaveState>("idle");
 
+  const [qpUserId, setQpUserId] = useState("");
+  const [hasQpUserId, setHasQpUserId] = useState(false);
+  const [qpUserIdSave, setQpUserIdSave] = useState<SaveState>("idle");
+
   const [enc, setEnc] = useState("");
   const [hasEnc, setHasEnc] = useState(false);
   const [encSave, setEncSave] = useState<SaveState>("idle");
 
   const [debugPrompts, setDebugPromptsState] = useState(false);
 
+  // Modelo IA del Validador de Cuestionarios.
+  const [cuestionarioModel, setCuestionarioModelState] =
+    useState<CuestionarioModel>(DEFAULT_CUESTIONARIO_MODEL);
+
   useEffect(() => {
     (async () => {
       try {
-        const [g, url, anon, oai, qpk, ek, dbg] = await Promise.all([
+        const [g, url, anon, oai, qpk, qpuid, ek, dbg, cm] = await Promise.all([
           getGeminiApiKey(),
           getSupabaseUrl(),
           getSupabaseAnonKey(),
           getOpenaiApiKey(),
           getQuestionproApiKey(),
+          getQuestionproUserId(),
           getEncryptionKeySetting(),
           getLimpiadorDebugPrompts(),
+          getCuestionarioModel(),
         ]);
         if (g) setGemini(g);
         setHasGemini(await hasGeminiApiKey());
@@ -231,9 +249,12 @@ export function SettingsView() {
         setHasOpenai(!!oai);
         if (qpk) setQp(qpk);
         setHasQp(!!qpk);
+        if (qpuid) setQpUserId(qpuid);
+        setHasQpUserId(!!qpuid);
         if (ek) setEnc(ek);
         setHasEnc(!!ek);
         setDebugPromptsState(dbg);
+        setCuestionarioModelState(cm);
       } finally {
         setLoading(false);
       }
@@ -340,6 +361,26 @@ export function SettingsView() {
     setQpSave("idle");
   }, []);
 
+  const saveQpUserId = useCallback(async () => {
+    setQpUserIdSave("saving");
+    try {
+      await setQuestionproUserId(qpUserId.trim() || null);
+      setHasQpUserId(!!qpUserId.trim());
+      setQpUserIdSave("saved");
+      setTimeout(() => setQpUserIdSave("idle"), 2000);
+    } catch (e) {
+      console.error(e);
+      setQpUserIdSave("error");
+    }
+  }, [qpUserId]);
+
+  const clearQpUserId = useCallback(async () => {
+    await setQuestionproUserId(null);
+    setQpUserId("");
+    setHasQpUserId(false);
+    setQpUserIdSave("idle");
+  }, []);
+
   const saveEnc = useCallback(async () => {
     setEncSave("saving");
     try {
@@ -370,6 +411,20 @@ export function SettingsView() {
       setDebugPromptsState(!next);
     }
   }, []);
+
+  const changeCuestionarioModel = useCallback(
+    async (next: CuestionarioModel) => {
+      const prev = cuestionarioModel;
+      setCuestionarioModelState(next);
+      try {
+        await setCuestionarioModel(next);
+      } catch (e) {
+        console.error(e);
+        setCuestionarioModelState(prev);
+      }
+    },
+    [cuestionarioModel]
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
@@ -488,6 +543,38 @@ export function SettingsView() {
       />
 
       <IntegrationCard
+        title="QuestionPro User ID (sólo publicar)"
+        icon={KeyRound}
+        description={
+          <>
+            ID numérico de tu usuario en QuestionPro. Sólo se usa para{" "}
+            <span className="font-medium">publicar</span> cuestionarios desde
+            el Validador (endpoint{" "}
+            <span className="font-mono">/users/&#123;id&#125;/surveys</span>).
+            Si nunca vas a publicar, no hace falta.
+          </>
+        }
+        fieldLabel="User ID"
+        inputId="qp-user-id"
+        placeholder="9587462"
+        value={qpUserId}
+        onChange={setQpUserId}
+        loading={loading}
+        maskValue={false}
+        footnote={
+          <>
+            Se encuentra en el panel de QP, en{" "}
+            <span className="font-mono">My Account → Account Settings</span>{" "}
+            o pidiéndoselo a un admin.
+          </>
+        }
+        saveState={qpUserIdSave}
+        hasStored={hasQpUserId}
+        onSave={saveQpUserId}
+        onClear={clearQpUserId}
+      />
+
+      <IntegrationCard
         title="Clave de encriptación (opcional)"
         icon={Lock}
         description={
@@ -507,6 +594,51 @@ export function SettingsView() {
         onSave={saveEnc}
         onClear={clearEnc}
       />
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-start gap-3">
+            <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <ClipboardCheck className="size-4" />
+            </div>
+            <div className="flex-1">
+              <CardTitle className="text-base">
+                Validador de Cuestionarios — Modelo IA
+              </CardTitle>
+              <CardDescription>
+                Modelo de OpenAI usado para parsear cuestionarios y correr los
+                checks semánticos. <span className="font-mono">gpt-4o-mini</span>{" "}
+                es más barato y suficiente para la mayoría de los casos;{" "}
+                <span className="font-mono">gpt-4o</span> rinde mejor en
+                cuestionarios largos o con texto ambiguo.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap items-center gap-2">
+            {CUESTIONARIO_MODELS.map((m) => {
+              const active = cuestionarioModel === m;
+              return (
+                <Button
+                  key={m}
+                  type="button"
+                  size="sm"
+                  variant={active ? "default" : "outline"}
+                  disabled={loading}
+                  onClick={() => void changeCuestionarioModel(m)}
+                  className="font-mono"
+                >
+                  {m}
+                  {m === DEFAULT_CUESTIONARIO_MODEL && (
+                    <span className="ml-1 text-[10px] opacity-70">(default)</span>
+                  )}
+                </Button>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

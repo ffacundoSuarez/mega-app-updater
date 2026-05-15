@@ -23,6 +23,8 @@ import {
 import {
   AlertCircle,
   ArrowLeft,
+  CheckCircle2,
+  ClipboardCheck,
   Filter,
   GripVertical,
   Info,
@@ -50,14 +52,23 @@ import {
   deleteRule,
   listRules,
 } from "@/lib/cleaning/rules-repository";
-import { listVersions } from "@/lib/cleaning/versions-repository";
+import {
+  listVersions,
+  updateVersionSchema,
+} from "@/lib/cleaning/versions-repository";
 import { suggestRules } from "@/lib/cleaning/suggest-rules";
+import { applyQuestionnaireToVersionSchema } from "@/lib/cleaning/cuestionario-bridge";
+import { findValidatedQuestionnaireByQpSurveyId } from "@/lib/cuestionario/questionnaire-repository";
 import type {
   CleaningRule,
   CleaningProject,
   CleaningVersion,
 } from "@/lib/cleaning/types";
 import type { CleaningRuleSuggestion } from "@/lib/cleaning/rule-suggestions";
+import type {
+  QuestionnaireRow,
+  QuestionnaireValidationReport,
+} from "@/lib/cuestionario/types";
 
 export interface RulesProps {
   projectId: string;
@@ -96,6 +107,20 @@ export function Rules({ projectId, onBack, onGoToUpload }: RulesProps) {
   const [mentionPosition, setMentionPosition] = useState({ top: 0, left: 0 });
   const [cursorPosition, setCursorPosition] = useState(0);
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
+
+  // Integración con el Validador de Cuestionarios (Iteración 6 del plan):
+  // si el proyecto apunta a una encuesta QP y existe un cuestionario canónico
+  // validado para esa misma encuesta, ofrecemos importarlo como atajo para
+  // enriquecer el VersionSchema. La búsqueda corre al cargar y vuelve a
+  // correr después de aplicar para refrescar contadores.
+  const [questionnaireMatch, setQuestionnaireMatch] = useState<{
+    questionnaire: QuestionnaireRow;
+    validation: QuestionnaireValidationReport;
+  } | null>(null);
+  const [importingQuestionnaire, setImportingQuestionnaire] = useState(false);
+  const [questionnaireImportInfo, setQuestionnaireImportInfo] = useState<
+    string | null
+  >(null);
 
   // Sugerencias.
   const [pendingSuggestions, setPendingSuggestions] = useState<
@@ -141,7 +166,68 @@ export function Rules({ projectId, onBack, onGoToUpload }: RulesProps) {
     void loadAll();
   }, [loadAll]);
 
+  // Buscar cuestionario validado matcheando qp_survey_id. Sólo aplica a
+  // proyectos QuestionPro con survey id cargado.
+  useEffect(() => {
+    if (!project?.qp_survey_id) {
+      setQuestionnaireMatch(null);
+      return;
+    }
+    let cancelled = false;
+    findValidatedQuestionnaireByQpSurveyId(project.qp_survey_id)
+      .then((match) => {
+        if (!cancelled) setQuestionnaireMatch(match);
+      })
+      .catch(() => {
+        // Falla silenciosa: la integración es un "nice to have", no debería
+        // romper la pantalla de reglas si Supabase del Validador no responde.
+        if (!cancelled) setQuestionnaireMatch(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.qp_survey_id]);
+
   const hasNoVersions = versions.length === 0;
+
+  /**
+   * Aplica el cuestionario validado sobre el schema de la última versión:
+   * matchea columnas por texto normalizado y pisa `qp_question_type` /
+   * `qp_options` con los datos del canónico. Idempotente — re-clicks no rompen.
+   */
+  const handleImportQuestionnaire = useCallback(async () => {
+    if (!questionnaireMatch || versions.length === 0) return;
+    const latest = versions[0];
+    const qjson = questionnaireMatch.questionnaire.questionnaire_json;
+    if (!qjson) {
+      setQuestionnaireImportInfo(
+        "El cuestionario validado no tiene JSON canónico (vacío)."
+      );
+      return;
+    }
+    setImportingQuestionnaire(true);
+    setQuestionnaireImportInfo(null);
+    try {
+      const { schema, summary } = applyQuestionnaireToVersionSchema(
+        qjson,
+        latest.schema
+      );
+      await updateVersionSchema(latest.id, schema);
+      setQuestionnaireImportInfo(
+        `Importado: ${summary.matched}/${summary.totalQuestionColumns} columnas matcheadas` +
+          (summary.unmatched > 0
+            ? ` (${summary.unmatched} sin match — revisá los textos en el editor del cuestionario).`
+            : ".")
+      );
+      await loadAll();
+    } catch (err) {
+      setQuestionnaireImportInfo(
+        `No se pudo importar: ${err instanceof Error ? err.message : String(err)}`
+      );
+    } finally {
+      setImportingQuestionnaire(false);
+    }
+  }, [questionnaireMatch, versions, loadAll]);
 
   // --- manual rules ---
 
@@ -399,6 +485,68 @@ export function Rules({ projectId, onBack, onGoToUpload }: RulesProps) {
                 </Button>
               </div>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Cuestionario validado (Iteración 6): atajo cuando existe un
+          Questionnaire canónico para esta misma encuesta de QP. Enriquece el
+          VersionSchema con tipos + opciones canónicas para que las sugerencias
+          heurísticas tengan mejor data. */}
+      {!hasNoVersions && questionnaireMatch && (
+        <Card className="border-emerald-500/40 bg-emerald-500/5">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+            <CardTitle className="flex items-center gap-2 text-base text-emerald-300">
+              <ClipboardCheck className="size-4" />
+              Cuestionario validado disponible
+            </CardTitle>
+            <Button
+              size="sm"
+              onClick={() => void handleImportQuestionnaire()}
+              disabled={importingQuestionnaire}
+              className="gap-2"
+            >
+              {importingQuestionnaire ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Importando…
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="size-4" />
+                  Importar cuestionario validado
+                </>
+              )}
+            </Button>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2 text-sm">
+            <p>
+              Existe un cuestionario canónico validado para esta encuesta:{" "}
+              <span className="font-medium">
+                {questionnaireMatch.questionnaire.nombre}
+              </span>{" "}
+              <span className="text-muted-foreground">
+                ({questionnaireMatch.validation.resumen.errors} errores,{" "}
+                {questionnaireMatch.validation.resumen.advertencias} advertencias,{" "}
+                {questionnaireMatch.validation.resumen.sugerencias} sugerencias).
+              </span>
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Al importar se enriquecen los tipos + opciones de las columnas del
+              último Excel, lo que hace que las sugerencias automáticas sean más
+              precisas. La operación es idempotente.
+            </p>
+            {questionnaireMatch.validation.resumen.errors > 0 && (
+              <p className="text-xs text-amber-300">
+                Ojo: el cuestionario todavía tiene errores pendientes. Conviene
+                resolverlos en el Validador antes de importar.
+              </p>
+            )}
+            {questionnaireImportInfo && (
+              <p className="rounded-md border bg-background px-3 py-2 text-xs">
+                {questionnaireImportInfo}
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
