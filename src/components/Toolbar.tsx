@@ -1,12 +1,12 @@
 // Sidebar / toolbar principal de la app.
 // Inicio + lista de herramientas disponibles + acceso a Ajustes.
 
-import { BarChart3, Home, Settings2, Sparkles } from "lucide-react";
+import { BarChart3, ClipboardCheck, Home, Settings2, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** Vistas navegables desde el sidebar. "home" es la landing page. */
 export type ViewId = "home" | "settings" | ToolId;
-export type ToolId = "brand-audit" | "limpiador";
+export type ToolId = "brand-audit" | "limpiador" | "cuestionario";
 
 interface NavItem {
   id: ViewId;
@@ -32,6 +32,11 @@ const TOOLS: NavItem[] = [
     id: "limpiador",
     label: "Limpiador",
     icon: Sparkles,
+  },
+  {
+    id: "cuestionario",
+    label: "Cuestionarios QPro",
+    icon: ClipboardCheck,
   },
 ];
 

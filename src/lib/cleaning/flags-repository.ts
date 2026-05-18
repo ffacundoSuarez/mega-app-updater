@@ -60,6 +60,48 @@ export async function getSimilarRows(
   return (data ?? []) as unknown as CleaningRow[];
 }
 
+/**
+ * Trae las filas de la versión que NO tienen ningún flag en `cleaning_flags`.
+ * Las usa el review para mostrar respuestas "OK" cuando el usuario activa el
+ * toggle "Mostrar todas las filas".
+ *
+ * Implementación: bajamos todos los row_ids con flag y todas las filas, y
+ * restamos en memoria. Suficiente para los volúmenes que maneja la herramienta
+ * (encuestas de market research, no big data).
+ */
+export async function listUnflaggedRows(
+  versionId: string
+): Promise<CleaningRow[]> {
+  const client = await getCleaningSupabaseClient();
+
+  const [{ data: flagged, error: flagsErr }, { data: allRows, error: rowsErr }] =
+    await Promise.all([
+      client
+        .from("cleaning_flags")
+        .select("row_id")
+        .eq("version_id", versionId),
+      client
+        .from("cleaning_rows")
+        .select("*")
+        .eq("version_id", versionId)
+        .order("row_number", { ascending: true }),
+    ]);
+
+  if (flagsErr) {
+    throw new Error(`No se pudieron leer los flags: ${flagsErr.message}`);
+  }
+  if (rowsErr) {
+    throw new Error(`No se pudieron leer las filas: ${rowsErr.message}`);
+  }
+
+  const flaggedIds = new Set(
+    ((flagged ?? []) as Array<{ row_id: string }>).map((f) => f.row_id)
+  );
+  return ((allRows ?? []) as unknown as CleaningRow[]).filter(
+    (r) => !flaggedIds.has(r.id)
+  );
+}
+
 export interface ListFlagsFilters {
   flagType?: FlagType;
   /**
@@ -196,6 +238,66 @@ export async function markFlagRemovedFromQP(flagId: string): Promise<void> {
       `No se pudo marcar el flag como eliminado de QuestionPro: ${error.message}`
     );
   }
+}
+
+/**
+ * Crea un flag "manual" para una fila que la IA no flagueó, marcado directamente
+ * como `remove`. Lo usa el review cuando el usuario decide eliminar una fila
+ * que originalmente estaba auto-marcada como "keep" (toggle "Mostrar todas las
+ * filas").
+ *
+ * `flag_type: 'yellow'` porque la enum sólo permite red/yellow y "yellow"
+ * representa mejor "decisión humana sin evidencia clara de problema".
+ *
+ * Idempotente: si ya existía un flag para esa fila (carrera o llamada doble),
+ * actualiza la decisión a 'remove' en lugar de insertar duplicado (la tabla
+ * tiene UNIQUE(version_id, row_id)).
+ */
+export async function createManualRemoveFlag(
+  versionId: string,
+  rowId: string
+): Promise<string> {
+  const client = await getCleaningSupabaseClient();
+
+  const { data: existing } = await client
+    .from("cleaning_flags")
+    .select("id")
+    .eq("version_id", versionId)
+    .eq("row_id", rowId)
+    .maybeSingle();
+
+  if (existing) {
+    const id = (existing as { id: string }).id;
+    await updateFlagDecision(id, "remove");
+    return id;
+  }
+
+  const { data, error } = await client
+    .from("cleaning_flags")
+    .insert({
+      version_id: versionId,
+      row_id: rowId,
+      flag_type: "yellow",
+      reason: "Marcada manualmente para eliminar (no detectada por la IA).",
+      matched_rules: ["manual_override"],
+      confidence: 1.0,
+      user_decision: "remove",
+      decided_at: new Date().toISOString(),
+      friendly_explanation:
+        "El revisor decidió eliminar esta respuesta aunque la IA no la había flagueado.",
+      recommendation: "remove",
+      affected_question_ids: [],
+      similar_response_ids: [],
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) {
+    throw new Error(
+      `No se pudo crear el flag manual: ${error?.message ?? "vacío"}`
+    );
+  }
+  return (data as { id: string }).id;
 }
 
 /** Resetea todas las decisiones de la versión (las vuelve a "pending"). */

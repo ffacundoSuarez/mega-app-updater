@@ -13,11 +13,23 @@ const KEY_SUPABASE_URL = "supabase.url";
 const KEY_SUPABASE_ANON_KEY = "supabase.anon_key";
 const KEY_OPENAI_API_KEY = "openai.api_key";
 const KEY_QUESTIONPRO_API_KEY = "questionpro.api_key";
+// QP user ID — sólo necesario para crear encuestas vía POST /users/{user-id}/surveys
+// (publicar desde el Validador). Para los flujos del Limpiador y de import sólo
+// hace falta la API key. Lo guardamos separado para que el usuario lo cargue
+// recién cuando lo necesite.
+const KEY_QUESTIONPRO_USER_ID = "questionpro.user_id";
 const KEY_ENCRYPTION_KEY = "encryption.key";
 // Flag booleano (no secreto): cuando está en true, el motor de QC del Limpiador
 // vuelca a la consola del WebView el prompt enviado a OpenAI y la respuesta cruda
 // de cada batch. Sirve para iterar el prompt sin volar a ciegas.
 const KEY_LIMPIADOR_DEBUG_PROMPTS = "limpiador.debug_prompts";
+// Modelo IA usado por el Validador de Cuestionarios para parser y checks
+// semánticos. Si está vacío, se asume el default exportado abajo.
+const KEY_CUESTIONARIO_MODEL = "cuestionario.model";
+// Drafts de reglas manuales sin guardar de la pantalla "Reglas" del Limpiador.
+// Estructurado como `{ [projectId]: string[] }` para no perder lo escrito al
+// volver al proyecto sin apretar "Guardar cambios".
+const KEY_LIMPIADOR_RULE_DRAFTS = "limpiador.rule_drafts";
 
 let storePromise: Promise<Store> | null = null;
 
@@ -100,6 +112,15 @@ export async function setQuestionproApiKey(key: string | null): Promise<void> {
   await setOrDelete(KEY_QUESTIONPRO_API_KEY, key);
 }
 
+/** ID numérico del usuario de QuestionPro. Sólo se usa al publicar (Iteración 8). */
+export async function getQuestionproUserId(): Promise<string | null> {
+  return getTrimmed(KEY_QUESTIONPRO_USER_ID);
+}
+
+export async function setQuestionproUserId(value: string | null): Promise<void> {
+  await setOrDelete(KEY_QUESTIONPRO_USER_ID, value);
+}
+
 /**
  * Opcional: misma cadena que ENCRYPTION_KEY en Supabase RPC encrypt_text/decrypt_text,
  * sólo si se persiste contenido encriptado en la base (no necesario si la API key de QuestionPro vive sólo en Ajustes).
@@ -112,6 +133,30 @@ export async function setEncryptionKeySetting(
   key: string | null
 ): Promise<void> {
   await setOrDelete(KEY_ENCRYPTION_KEY, key);
+}
+
+/**
+ * Modelos válidos para el Validador de Cuestionarios. La app permite cambiar
+ * sólo entre estos para evitar typos que rompan las llamadas a OpenAI.
+ */
+export const CUESTIONARIO_MODELS = ["gpt-4o-mini", "gpt-4o"] as const;
+export type CuestionarioModel = (typeof CUESTIONARIO_MODELS)[number];
+export const DEFAULT_CUESTIONARIO_MODEL: CuestionarioModel = "gpt-4o-mini";
+
+/** Devuelve el modelo configurado o el default si no hay nada guardado / es inválido. */
+export async function getCuestionarioModel(): Promise<CuestionarioModel> {
+  const value = await getTrimmed(KEY_CUESTIONARIO_MODEL);
+  if (value && (CUESTIONARIO_MODELS as readonly string[]).includes(value)) {
+    return value as CuestionarioModel;
+  }
+  return DEFAULT_CUESTIONARIO_MODEL;
+}
+
+/** Guarda el modelo (debe ser uno de CUESTIONARIO_MODELS). Pasar null restaura el default. */
+export async function setCuestionarioModel(
+  model: CuestionarioModel | null
+): Promise<void> {
+  await setOrDelete(KEY_CUESTIONARIO_MODEL, model);
 }
 
 /**
@@ -208,4 +253,47 @@ export async function clearLimpiadorConnectionSettings(): Promise<void> {
     questionproApiKey: null,
     encryptionKey: null,
   });
+}
+
+// --- Drafts de reglas manuales (Limpiador) ---
+//
+// El usuario puede escribir varias reglas manuales en la pantalla "Reglas" sin
+// apretar "Guardar cambios". Antes se perdían al volver al proyecto; ahora se
+// persisten por proyecto para poder recuperarlas al volver.
+
+/** Devuelve los drafts guardados para un proyecto (lista de strings). */
+export async function getRuleDrafts(projectId: string): Promise<string[]> {
+  const store = await getStore();
+  const all = await store.get<Record<string, string[]>>(
+    KEY_LIMPIADOR_RULE_DRAFTS
+  );
+  const value = all?.[projectId];
+  return Array.isArray(value) ? value : [];
+}
+
+/**
+ * Persiste los drafts del proyecto. Si `drafts` está vacío o es null, se
+ * remueve la entrada del proyecto. Si después el map queda vacío, se borra la
+ * key entera del store.
+ */
+export async function setRuleDrafts(
+  projectId: string,
+  drafts: string[] | null
+): Promise<void> {
+  const store = await getStore();
+  const current =
+    (await store.get<Record<string, string[]>>(KEY_LIMPIADOR_RULE_DRAFTS)) ??
+    {};
+  const filtered = (drafts ?? []).filter((d) => d.trim().length > 0);
+  if (filtered.length === 0) {
+    delete current[projectId];
+  } else {
+    current[projectId] = filtered;
+  }
+  if (Object.keys(current).length === 0) {
+    await store.delete(KEY_LIMPIADOR_RULE_DRAFTS);
+  } else {
+    await store.set(KEY_LIMPIADOR_RULE_DRAFTS, current);
+  }
+  await store.save();
 }

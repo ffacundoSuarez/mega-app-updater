@@ -10,9 +10,16 @@
  *     fallback "todo none" (el original caía al primer fallo de red)
  *   - Tipos estrictos para el response parseado
  *   - Logging via callback opcional (`onLog`) para no acoplar a `console.log`
- *   - Prompt en español, temperature=0 + seed para determinismo, metadata
- *     filtrada del input, schema enriquecido con tipo+opciones de QP, nulls/
- *     vacíos eliminados de la fila (reduce ruido y falsos positivos).
+ *   - Prompt en español, metadata filtrada del input, schema enriquecido con
+ *     tipo+opciones de QP, nulls/vacíos eliminados de la fila (reduce ruido y
+ *     falsos positivos).
+ *
+ * Modelo: gpt-5-mini (familia de razonamiento) vía Chat Completions. Esta
+ * familia NO acepta `temperature` ni `seed` custom (la API tira 400). Forzamos
+ * `reasoning_effort: "minimal"` — la tarea es clasificación deterministica
+ * con prompt + few-shot, no necesita razonamiento profundo, y reasoning
+ * tokens descuentan de `max_completion_tokens`. `max_completion_tokens` queda
+ * holgado (16000) para que el JSON de salida no se trunque.
  */
 
 import type {
@@ -41,9 +48,17 @@ export interface PromptDebugEntry {
 }
 
 export interface AnalyzeOptions {
-  /** Override del modelo. Default: "gpt-4o-mini". */
+  /** Override del modelo. Default: "gpt-5-mini". */
   model?: string;
-  /** Tope de tokens en la respuesta. Default: 4000. */
+  /**
+   * Tope de tokens en la respuesta. Default: 16000.
+   *
+   * Ojo: en modelos de razonamiento (gpt-5-*), los reasoning tokens también
+   * descuentan de acá. Aunque pidamos `reasoning_effort: "minimal"`,
+   * conviene tenerlo holgado para no quedarse cortos en batches grandes —
+   * cuando el budget se acaba, el modelo devuelve `content` vacío y caemos
+   * silenciosamente al fallback (todo "none").
+   */
   maxCompletionTokens?: number;
   /** Reintentos ante 429/5xx antes de caer al fallback. Default: 2 (3 attempts total). */
   retries?: number;
@@ -70,9 +85,17 @@ export interface AnalyzeBatchInput {
 
 interface OpenAIResponseChoice {
   message?: { content?: string };
+  finish_reason?: string;
+}
+interface OpenAIResponseUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  completion_tokens_details?: { reasoning_tokens?: number };
 }
 interface OpenAIResponse {
   choices?: OpenAIResponseChoice[];
+  usage?: OpenAIResponseUsage;
 }
 
 interface RawAiRowResult {
@@ -171,8 +194,8 @@ Ejemplo C — vaga en pregunta que pide desarrollo → FLAG "yellow"
   → flag: "yellow", recommendation: "review", reason: "La pregunta pide desarrollo y la respuesta es una sola palabra vaga.", affected_question_ids: ["Q4"]
 
 Ejemplo D — contradicción interna → FLAG "yellow"
-  Q1 (¿Qué edad tenés?): 18  |  Q22 (Comentarios): "ya estoy jubilado hace años"
-  → flag: "yellow", recommendation: "review", reason: "La edad declarada (18) contradice el comentario sobre estar jubilado.", affected_question_ids: ["Q1", "Q22"]
+  Q1 (¿Qué edad tenés?): 15  |  Q22 (Comentarios): "ayer firmé la hipoteca de mi tercera casa"
+  → flag: "yellow", recommendation: "review", reason: "La edad declarada (15) contradice el comentario sobre tener una hipoteca.", affected_question_ids: ["Q1", "Q22"]
 
 Ejemplo E — respuesta corta pero CORRECTA → NO flaguear
   Q1 (¿Qué edad tenés?): "32"
@@ -194,6 +217,10 @@ Ejemplo H — respuesta breve y concreta en abierta → NO flaguear
 /**
  * Construye el prompt de análisis (en español). Excluye metadata, enriquece
  * el schema con tipo+opciones de QP y filtra valores vacíos del input.
+ *
+ * Las reglas del usuario se expanden: cualquier `@COLUMN_ID` mencionado en la
+ * descripción se reemplaza por `@COLUMN_ID ("texto de la pregunta")` para que
+ * el modelo no tenga que adivinar a qué columna refiere.
  */
 export function buildPrompt(
   rows: CleaningRow[],
@@ -208,8 +235,8 @@ export function buildPrompt(
 
   const rulesDescription =
     rules.length > 0
-      ? rules.map((rule, i) => describeRule(rule, i)).join("\n")
-      : "No hay reglas definidas — usar sólo detección general de calidad.";
+      ? rules.map((rule, i) => describeRule(rule, i, schema)).join("\n")
+      : "(No hay reglas definidas — usar sólo detección general de calidad.)";
 
   const rowsData = rows
     .map((row, i) => {
@@ -225,10 +252,18 @@ export function buildPrompt(
 ESQUEMA DE LA ENCUESTA (columnId [tipo]: "pregunta" — opciones si aplica):
 ${schemaDescription}
 
-REGLAS DEFINIDAS POR EL USUARIO:
+REGLAS DEFINIDAS POR EL USUARIO (AUTORITATIVAS — leelas primero):
 ${rulesDescription}
 
-PATRONES ADICIONALES A DETECTAR (sé conservador — flagueá sólo si claramente hay problema):
+CÓMO APLICAR LAS REGLAS DEL USUARIO:
+- Las reglas del usuario son OBLIGATORIAS y tienen prioridad sobre los patrones generales y sobre la directiva de ser conservador.
+- Si una regla aplica claramente a una fila, flagueala según indique la regla — incluso si la respuesta no parece "claramente problemática" por sí sola.
+- Si la regla dice "eliminar" / "excluir" / "descartar" / "borrar" → flag "red", recommendation "remove".
+- Si la regla dice "marcar" / "revisar" / "verificar" / "sospechoso" → flag "yellow", recommendation "review".
+- "@COLUMN_ID" en una regla refiere a esa columna del schema (ej: "@Q2" = columna Q2). La regla aplica al CONTENIDO de esa columna.
+- Cuando aplique una regla, incluí su número (ej: "rule_1") en "matched_rules" y mencioná la regla en el "reason".
+
+PATRONES ADICIONALES A DETECTAR (sólo si NO hay regla del usuario que aplique; sé conservador acá):
 - Respuestas copy-paste o templateadas a través de varias preguntas
 - Galimatías, caracteres random, golpes de teclado
 - Respuestas sospechosamente generadas por IA (gramática perfecta, genéricas, sin contenido personal)
@@ -243,25 +278,29 @@ REGLAS IMPORTANTES DE INTERPRETACIÓN:
 - Las preguntas con tipo [text] o sin tipo son abiertas; las cerradas no necesitan texto largo.
 - Si el row dice "(sin respuestas)" significa que la fila entera está vacía.
 
-SÉ CONSERVADOR: flagueá sólo respuestas CLARAMENTE problemáticas. Ante la duda, no flaguees.
+PRIORIDAD: primero verificá las reglas del usuario fila por fila. Recién después, evaluá los patrones generales con criterio conservador (ante la duda, no flaguees).
 
 FILAS A ANALIZAR:
 ${rowsData}
 
-Para cada fila respondé un objeto JSON. Devolvé un array JSON con un objeto por fila:
-[
-  {
-    "row_number": 1,
-    "flag": "red" | "yellow" | "none",
-    "reason": "Explicación breve en español (sólo si está flagueada)",
-    "matched_rules": ["rule_id_1"] o ["pattern_detected"],
-    "confidence": 0.85,
-    "recommendation": "remove" | "review" | "keep",
-    "friendly_explanation": "Texto en español dirigido al revisor humano. Formato: 'Recomiendo {accion} porque en \\\\'{textoPregunta}\\\\' la respuesta {motivo}.'",
-    "affected_question_ids": ["Q1", "Q22"]
-  },
-  ...
-]
+Para cada fila respondé un objeto JSON. Devolvé un OBJETO JSON con una sola
+clave "results" cuyo valor sea el array (un elemento por fila, en el mismo
+orden que las filas a analizar):
+{
+  "results": [
+    {
+      "row_number": 1,
+      "flag": "red" | "yellow" | "none",
+      "reason": "Explicación breve en español (sólo si está flagueada)",
+      "matched_rules": ["rule_id_1"] o ["pattern_detected"],
+      "confidence": 0.85,
+      "recommendation": "remove" | "review" | "keep",
+      "friendly_explanation": "Texto en español dirigido al revisor humano. Formato: 'Recomiendo {accion} porque en \\\\'{textoPregunta}\\\\' la respuesta {motivo}.'",
+      "affected_question_ids": ["Q1", "Q22"]
+    },
+    ...
+  ]
+}
 
 Significado de los flags:
 - "red": respuesta claramente inválida/bot — recomendar eliminación
@@ -273,16 +312,47 @@ Detalles de los campos:
 - "reason" y "friendly_explanation": ambos en español. "friendly_explanation" debe referenciar la columna por el texto de su pregunta, no por el ID. Omitilo si flag es "none".
 - "affected_question_ids": lista los column IDs (Q1, Q22, …) cuyos valores dispararon el flag. Array vacío si no aplica.
 
-Respondé SÓLO con el array JSON, sin texto adicional.`;
+Respondé SÓLO con el objeto JSON ({ "results": [...] }), sin texto adicional.`;
 }
 
-/** Texto en lenguaje natural de la regla, tal como lo lee el prompt. */
-export function describeRule(rule: CleaningRule, index: number): string {
+/**
+ * Texto en lenguaje natural de la regla, tal como lo lee el prompt.
+ *
+ * Si se pasa el schema, expande cualquier `@COLUMN_ID` a `@COLUMN_ID ("texto
+ * de la pregunta")` para que el modelo no tenga que adivinar a qué columna
+ * refiere la regla. Si la columna no existe en el schema, deja el `@id` tal
+ * cual (el modelo lo va a tomar como string literal, comportamiento previo).
+ */
+export function describeRule(
+  rule: CleaningRule,
+  index: number,
+  schema?: VersionSchema
+): string {
   const text =
     rule.description ||
     rule.rule_config?.description ||
     "Regla sin descripción";
-  return `${index + 1}. ${text}`;
+
+  const expanded = schema ? expandMentions(text, schema) : text;
+  return `rule_${index + 1}. ${expanded}`;
+}
+
+/**
+ * Reemplaza `@COLUMN_ID` por `@COLUMN_ID ("texto de la pregunta")` usando el
+ * schema. Match case-insensitive sobre el id de columna, preservando el case
+ * original en el output. Sólo expande IDs que existan en el schema.
+ */
+function expandMentions(text: string, schema: VersionSchema): string {
+  const byIdLower = new Map<string, SchemaColumn>();
+  for (const col of schema.columns) byIdLower.set(col.id.toLowerCase(), col);
+
+  return text.replace(/@(\w+)/g, (full, id: string) => {
+    const col = byIdLower.get(id.toLowerCase());
+    if (!col) return full;
+    const q = col.question?.trim();
+    if (!q || q === col.id) return `@${col.id}`;
+    return `@${col.id} ("${q}")`;
+  });
 }
 
 /**
@@ -295,13 +365,8 @@ export async function analyzeBatch(
   options: AnalyzeOptions = {}
 ): Promise<AnalyzeResult[]> {
   const {
-    // TODO(modelo GPT-5): cuando se cambie a la familia GPT-5 (gpt-5-mini, …),
-    // ojo: esos modelos van por la Responses API (`POST /v1/responses`), NO por
-    // `/v1/chat/completions`, y la semántica de `temperature`/`seed` cambia
-    // (los de razonamiento no aceptan `temperature`). No alcanza con cambiar el
-    // string del modelo: hay que re-apuntar el `fetch` y revisar el body.
-    model = "gpt-4o-mini",
-    maxCompletionTokens = 4000,
+    model = "gpt-5-mini",
+    maxCompletionTokens = 16000,
     retries = 2,
     retryBaseDelayMs = 1000,
     onLog,
@@ -314,8 +379,13 @@ export async function analyzeBatch(
 
   log("info", `CleaningService: Analyzing ${rows.length} rows...`);
   const prompt = buildPrompt(rows, schema, rules);
+  // El body manda `response_format: { type: "json_object" }`, que fuerza al
+  // modelo a devolver un OBJETO JSON (no un array suelto). gpt-5-mini razona
+  // y se traba si el prompt le pide "un array" mientras el response_format
+  // le exige "un objeto". Por eso instruimos explícitamente: `{ "results":
+  // [...] }`. El parser ya extrae `obj.results`.
   const systemPrompt =
-    "Sos un analista de calidad de datos. Respondé sólo con arrays JSON válidos. Sé conservador: flagueá únicamente respuestas claramente problemáticas.";
+    "Sos un analista de calidad de datos. Respondé únicamente con un objeto JSON válido de la forma { \"results\": [...] }. Sé conservador: flagueá sólo respuestas claramente problemáticas.";
 
   const emitDebug = (rawResponse: string | null): void => {
     if (!debugPromptLogger) return;
@@ -333,6 +403,12 @@ export async function analyzeBatch(
     }
   };
 
+  // Nota: gpt-5-mini es un modelo de razonamiento. No acepta `temperature`
+  // ni `seed` custom (la API tira 400). `reasoning_effort: "minimal"` es lo
+  // más cercano en costo/latencia a gpt-4o-mini para esta tarea (clasificación
+  // con prompt + few-shot). Si en el futuro hace falta más cabeza, subir a
+  // "low" o "medium" — pero entonces también hay que subir
+  // `max_completion_tokens` porque los reasoning tokens descuentan de ahí.
   const body = {
     model,
     messages: [
@@ -341,10 +417,7 @@ export async function analyzeBatch(
     ],
     max_completion_tokens: maxCompletionTokens,
     response_format: { type: "json_object" },
-    // Determinismo: clasificación binaria, no creatividad. Seed para que dos
-    // corridas sobre los mismos datos sean reproducibles.
-    temperature: 0,
-    seed: 42,
+    reasoning_effort: "minimal",
   };
 
   let attempt = 0;
@@ -380,10 +453,24 @@ export async function analyzeBatch(
       }
 
       const json = (await res.json()) as OpenAIResponse;
-      const content = json.choices?.[0]?.message?.content?.trim();
+      const choice = json.choices?.[0];
+      const content = choice?.message?.content?.trim();
       emitDebug(content ?? null);
       if (!content) {
-        log("error", "Empty response from OpenAI");
+        // Mensaje detallado para diagnosticar el fallback silencioso. En
+        // gpt-5-* la causa más común de content vacío es
+        // finish_reason="length": el budget se gastó en reasoning_tokens y
+        // no quedó espacio para el JSON. Si pasa, subí maxCompletionTokens.
+        const usage = json.usage;
+        const reasoningTokens = usage?.completion_tokens_details?.reasoning_tokens;
+        log(
+          "error",
+          `Empty response from OpenAI (finish_reason="${
+            choice?.finish_reason ?? "?"
+          }", reasoning_tokens=${reasoningTokens ?? "?"}, completion_tokens=${
+            usage?.completion_tokens ?? "?"
+          }). Falling back to "none" for all ${rows.length} rows.`
+        );
         return getFallbackResults(rows);
       }
 

@@ -402,6 +402,142 @@ export async function createResponse(
   return { responseID: id };
 }
 
+// ===========================================================================
+// Creación de encuestas y preguntas (Iteración 8 del Validador)
+// ===========================================================================
+
+/**
+ * Payload de creación de una encuesta. Sólo `name` es realmente obligatorio en
+ * QP; el resto se omite si el caller no lo pasa.
+ */
+export interface QPCreateSurveyInput {
+  name: string;
+  folderID?: number;
+  saveAndContinue?: boolean;
+}
+
+export interface QPCreatedSurvey {
+  surveyID: number;
+  name: string;
+  url: string;
+  status: string;
+}
+
+/**
+ * Crea una encuesta vacía bajo el usuario `userId`. La API de QP la crea con
+ * `status: "Active"` según la doc, pero **sin preguntas**, así que en la
+ * práctica funciona como borrador hasta que el cliente publique el link.
+ *
+ * Endpoint: `POST /users/{user-id}/surveys` (no `/surveys` — confirmado en
+ * la doc de la API V2).
+ */
+export async function createSurvey(
+  userId: string,
+  apiKey: string,
+  input: QPCreateSurveyInput
+): Promise<QPCreatedSurvey> {
+  if (!userId.trim()) {
+    throw new Error("Falta el User ID de QuestionPro");
+  }
+  if (!input.name.trim()) {
+    throw new Error("El nombre de la encuesta no puede estar vacío");
+  }
+  const body: Record<string, unknown> = { name: input.name.trim() };
+  if (input.folderID != null) body.folderID = input.folderID;
+  if (input.saveAndContinue != null) body.saveAndContinue = input.saveAndContinue;
+
+  const res = await fetch(`${QP_API_BASE}/users/${userId}/surveys`, {
+    method: "POST",
+    headers: { "api-key": apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw qpResponseError(res, await safeText(res));
+  }
+  const data = (await res.json()) as {
+    response?: { surveyID?: number; name?: string; url?: string; status?: string };
+  };
+  const r = data.response;
+  if (!r || typeof r.surveyID !== "number") {
+    throw new Error("QuestionPro no devolvió surveyID al crear la encuesta");
+  }
+  return {
+    surveyID: r.surveyID,
+    name: r.name ?? input.name,
+    url: r.url ?? "",
+    status: r.status ?? "Unknown",
+  };
+}
+
+/**
+ * Payload genérico para `POST /surveys/{id}/questions`.
+ *
+ * Es deliberadamente abierto: cada tipo de pregunta de QP tiene su propio
+ * shape (`answers[]`, `rows[]`, `columns[]`, `minValue`/`maxValue`, etc.). El
+ * caller (`qp-publish.ts`) arma el shape correcto y nosotros sólo lo POST'eamos.
+ */
+export interface QPCreateQuestionPayload {
+  type: string;
+  text: string;
+  code?: string;
+  orderNumber?: number;
+  required?: boolean;
+  answers?: Array<{ text: string; orderNumber?: number }>;
+  rows?: Array<{
+    text: string;
+    required?: boolean;
+    columns?: Array<{ text?: string; isDefault?: boolean }>;
+    prefix?: string;
+    suffix?: string;
+  }>;
+  columns?: Array<{ text: string }>;
+  minValue?: number;
+  maxValue?: number;
+  step?: number;
+  anchor?: { leftAnchor?: string; rightAnchor?: string };
+}
+
+export interface QPCreatedQuestion {
+  questionID: number;
+  blockID?: number;
+  orderNumber?: number;
+}
+
+/**
+ * Crea una pregunta en la encuesta. Devuelve sólo los IDs útiles para el caller
+ * (que después puede setear branching o rastrear orden); el cuerpo completo
+ * de la API queda en el wire si hace falta para debug.
+ */
+export async function createQuestion(
+  surveyId: string,
+  payload: QPCreateQuestionPayload,
+  apiKey: string
+): Promise<QPCreatedQuestion> {
+  const res = await fetch(
+    `${QP_API_BASE}/surveys/${surveyId}/questions`,
+    {
+      method: "POST",
+      headers: { "api-key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  );
+  if (!res.ok) {
+    throw qpResponseError(res, await safeText(res));
+  }
+  const data = (await res.json()) as {
+    response?: { questionID?: number; blockID?: number; orderNumber?: number };
+  };
+  const r = data.response;
+  if (!r || typeof r.questionID !== "number") {
+    throw new Error("QuestionPro no devolvió questionID al crear la pregunta");
+  }
+  return {
+    questionID: r.questionID,
+    blockID: r.blockID,
+    orderNumber: r.orderNumber,
+  };
+}
+
 function qpResponseError(res: Response, body: string, responseId?: string): Error {
   if (res.status === 401 || res.status === 403) {
     return new Error(

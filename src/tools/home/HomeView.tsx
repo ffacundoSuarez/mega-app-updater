@@ -7,6 +7,7 @@ import {
   ArrowRight,
   BarChart3,
   CheckCircle2,
+  ClipboardCheck,
   Loader2,
   Sparkles,
   XCircle,
@@ -52,6 +53,14 @@ const QUICK_TOOLS: QuickTool[] = [
     description:
       "Identificá respuestas inválidas o sospechosas en tus encuestas Qualtrics o QuestionPro con IA.",
     icon: Sparkles,
+    status: "available",
+  },
+  {
+    id: "cuestionario",
+    label: "Crea tu cuestionario",
+    description:
+      "Construí o importá un cuestionario, validalo con IA y publicalo en QuestionPro con un click.",
+    icon: ClipboardCheck,
     status: "available",
   },
 ];

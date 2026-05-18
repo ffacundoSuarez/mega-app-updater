@@ -139,6 +139,32 @@ export async function insertRows(input: InsertRowsInput): Promise<number> {
   return inserted;
 }
 
+/**
+ * Sobreescribe el `schema` de una versión existente.
+ *
+ * Usado por la integración con el Validador (Iteración 6): cuando el usuario
+ * importa un cuestionario canónico validado, el schema de la última versión
+ * se enriquece con `qp_question_type` y `qp_options` provenientes del JSON
+ * canónico (ver `src/lib/cleaning/cuestionario-bridge.ts`).
+ *
+ * No toca filas, flags ni reglas: sólo actualiza el JSON del schema.
+ */
+export async function updateVersionSchema(
+  versionId: string,
+  schema: VersionSchema
+): Promise<void> {
+  const client = await getCleaningSupabaseClient();
+  const { error } = await client
+    .from("cleaning_versions")
+    .update({ schema })
+    .eq("id", versionId);
+  if (error) {
+    throw new Error(
+      `No se pudo actualizar el schema de la versión: ${error.message}`
+    );
+  }
+}
+
 /** Borra la versión. Cascade en DB se lleva filas + flags. */
 export async function deleteVersion(versionId: string): Promise<void> {
   const client = await getCleaningSupabaseClient();
