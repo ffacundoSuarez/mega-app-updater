@@ -108,8 +108,10 @@ interface OpenAIResponse {
  * Pide al modelo reglas de coherencia entre preguntas. Devuelve un array
  * (puede ser vacío si el modelo no detecta relaciones claras).
  *
- * Mismo prompt y mismo modelo (gpt-4o-mini, temperature 0.25) que el
- * endpoint original en mega-dashboard.
+ * Modelo: gpt-5-mini (familia de razonamiento). No acepta `temperature` —
+ * antes el endpoint Next.js original usaba `gpt-4o-mini` con `temperature
+ * 0.25`; al migrar a gpt-5-mini queda sin tunear y con `reasoning_effort`
+ * default (`medium`), suficiente para una salida JSON estructurada.
  */
 async function fetchCoherenceSuggestions(
   questions: Array<{ id: string; text: string }>,
@@ -137,7 +139,7 @@ Si no hay relaciones claras, devuelve {"rules":[]}.`;
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: "gpt-5-mini",
       messages: [
         {
           role: "system",
@@ -146,8 +148,9 @@ Si no hay relaciones claras, devuelve {"rules":[]}.`;
         },
         { role: "user", content: prompt },
       ],
-      max_completion_tokens: 1800,
-      temperature: 0.25,
+      // Holgura para que los reasoning tokens no consuman todo el budget
+      // antes de emitir el JSON final.
+      max_completion_tokens: 3000,
     }),
   });
 

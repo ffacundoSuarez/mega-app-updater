@@ -4,9 +4,12 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
+  ArrowLeft,
   Bug,
   CheckCircle2,
+  ChevronRight,
   ClipboardCheck,
+  Database,
   Eye,
   EyeOff,
   Globe,
@@ -188,8 +191,99 @@ function IntegrationCard({
   );
 }
 
+type SectionId = "questionpro" | "supabase" | "apikeys" | "tools";
+
+/**
+ * Tarjetón clickeable para la vista principal de Ajustes: al apretarlo se
+ * abre la sección con las cards de configuración correspondientes.
+ */
+function SectionTile({
+  title,
+  description,
+  icon: Icon,
+  configured,
+  total,
+  onClick,
+}: {
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  configured: number;
+  total: number;
+  onClick: () => void;
+}) {
+  const allSet = configured === total;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex w-full items-center gap-4 rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent"
+    >
+      <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <Icon className="size-5" />
+      </div>
+      <div className="flex-1">
+        <h3 className="text-base font-semibold tracking-tight">{title}</h3>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <span
+          className={
+            allSet
+              ? "text-xs font-medium text-emerald-500"
+              : "text-xs text-muted-foreground"
+          }
+        >
+          {configured}/{total}
+        </span>
+        <ChevronRight className="size-5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+      </div>
+    </button>
+  );
+}
+
+/**
+ * Encabezado interno de una sección (cuando ya se entró). Muestra el botón
+ * "Volver" y el título/descripción de la sección abierta.
+ */
+function SectionDetailHeader({
+  title,
+  description,
+  icon: Icon,
+  onBack,
+}: {
+  title: string;
+  description: ReactNode;
+  icon: LucideIcon;
+  onBack: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onBack}
+        className="-ml-2 gap-2 self-start text-muted-foreground"
+      >
+        <ArrowLeft className="size-4" />
+        Volver a Ajustes
+      </Button>
+      <div className="flex items-start gap-3">
+        <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Icon className="size-5" />
+        </div>
+        <div className="flex-1">
+          <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
+          <p className="text-sm text-muted-foreground">{description}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsView() {
   const [loading, setLoading] = useState(true);
+  const [section, setSection] = useState<SectionId | null>(null);
 
   const [gemini, setGemini] = useState("");
   const [hasGemini, setHasGemini] = useState(false);
@@ -426,251 +520,349 @@ export function SettingsView() {
     [cuestionarioModel]
   );
 
+  // Cantidad de campos configurados por sección, para mostrar X/Y en el tarjetón.
+  const qpConfigured = (hasQp ? 1 : 0) + (hasQpUserId ? 1 : 0);
+  const sbConfigured =
+    (hasSbUrl ? 1 : 0) + (hasSbAnon ? 1 : 0) + (hasEnc ? 1 : 0);
+  const apiKeysConfigured = (hasOpenai ? 1 : 0) + (hasGemini ? 1 : 0);
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
       <Header />
       <Separator />
 
-      <IntegrationCard
-        title="Gemini API Key"
-        icon={KeyRound}
-        description={
-          <>
-            Usada en Brand Audit (títulos y executive summary). Se guarda en{" "}
-            {STORE_PATH}. No se sube al repositorio.
-          </>
-        }
-        fieldLabel="API Key"
-        inputId="gemini-key"
-        placeholder="AIza…"
-        value={gemini}
-        onChange={setGemini}
-        loading={loading}
-        footnote={
-          <>
-            Obtenela en{" "}
-            <span className="font-mono">aistudio.google.com/app/apikey</span>.
-          </>
-        }
-        saveState={gemSave}
-        hasStored={hasGemini}
-        onSave={saveGemini}
-        onClear={clearGemini}
-        savedLabel="Guardada"
-      />
+      {section === null && (
+        <div className="flex flex-col gap-3">
+          <SectionTile
+            title="QuestionPro"
+            description="User ID y API key"
+            icon={ClipboardCheck}
+            configured={qpConfigured}
+            total={2}
+            onClick={() => setSection("questionpro")}
+          />
+          <SectionTile
+            title="Supabase"
+            description="URL del proyecto, anon key y clave de encriptación"
+            icon={Database}
+            configured={sbConfigured}
+            total={3}
+            onClick={() => setSection("supabase")}
+          />
+          <SectionTile
+            title="API Keys"
+            description="OpenAI y Gemini"
+            icon={Sparkles}
+            configured={apiKeysConfigured}
+            total={2}
+            onClick={() => setSection("apikeys")}
+          />
+          <SectionTile
+            title="Configuración Herramientas"
+            description="Validador de cuestionarios y modo debug del Limpiador"
+            icon={Settings2}
+            configured={0}
+            total={0}
+            onClick={() => setSection("tools")}
+          />
+        </div>
+      )}
 
-      <IntegrationCard
-        title="Supabase — URL del proyecto"
-        icon={Globe}
-        description={
-          <>
-            URL del proyecto para el futuro módulo Limpiador. Misma persistencia
-            en {STORE_PATH}.
-          </>
-        }
-        fieldLabel="URL"
-        inputId="sb-url"
-        placeholder="https://….supabase.co"
-        value={sbUrl}
-        onChange={setSbUrl}
-        loading={loading}
-        maskValue={false}
-        saveState={sbUrlSave}
-        hasStored={hasSbUrl}
-        onSave={saveSbUrl}
-        onClear={clearSbUrl}
-      />
+      {section === "questionpro" && (
+        <>
+          <SectionDetailHeader
+            title="QuestionPro"
+            icon={ClipboardCheck}
+            description="Credenciales para la API de QuestionPro (import del Limpiador y publicación desde el Validador)."
+            onBack={() => setSection(null)}
+          />
 
-      <IntegrationCard
-        title="Supabase — anon / public key"
-        icon={KeyRound}
-        description={
-          <>
-            Clave pública del cliente (anon). Se guarda en {STORE_PATH}.
-          </>
-        }
-        fieldLabel="Anon key"
-        inputId="sb-anon"
-        placeholder="eyJ…"
-        value={sbAnon}
-        onChange={setSbAnon}
-        loading={loading}
-        saveState={sbAnonSave}
-        hasStored={hasSbAnon}
-        onSave={saveSbAnon}
-        onClear={clearSbAnon}
-      />
+          <IntegrationCard
+            title="QuestionPro User ID (sólo publicar)"
+            icon={KeyRound}
+            description={
+              <>
+                ID numérico de tu usuario en QuestionPro. Sólo se usa para{" "}
+                <span className="font-medium">publicar</span> cuestionarios
+                desde el Validador (endpoint{" "}
+                <span className="font-mono">
+                  /users/&#123;id&#125;/surveys
+                </span>
+                ). Si nunca vas a publicar, no hace falta.
+              </>
+            }
+            fieldLabel="User ID"
+            inputId="qp-user-id"
+            placeholder="9587462"
+            value={qpUserId}
+            onChange={setQpUserId}
+            loading={loading}
+            maskValue={false}
+            footnote={
+              <>
+                Se encuentra en el panel de QP, en{" "}
+                <span className="font-mono">My Account → Account Settings</span>{" "}
+                o pidiéndoselo a un admin.
+              </>
+            }
+            saveState={qpUserIdSave}
+            hasStored={hasQpUserId}
+            onSave={saveQpUserId}
+            onClear={clearQpUserId}
+          />
 
-      <IntegrationCard
-        title="OpenAI API key"
-        icon={Sparkles}
-        description={
-          <>
-            Para reglas asistidas por IA en el Limpiador. {STORE_PATH}.
-          </>
-        }
-        fieldLabel="API Key"
-        inputId="openai-key"
-        placeholder="sk-…"
-        value={openai}
-        onChange={setOpenai}
-        loading={loading}
-        saveState={openaiSave}
-        hasStored={hasOpenai}
-        onSave={saveOpenai}
-        onClear={clearOpenai}
-      />
+          <IntegrationCard
+            title="QuestionPro API key"
+            icon={KeyRound}
+            description={
+              <>
+                Key corporativa para la API de QuestionPro (un solo valor por
+                máquina). {STORE_PATH}.
+              </>
+            }
+            fieldLabel="API Key"
+            inputId="qp-key"
+            placeholder="API key"
+            value={qp}
+            onChange={setQp}
+            loading={loading}
+            saveState={qpSave}
+            hasStored={hasQp}
+            onSave={saveQp}
+            onClear={clearQp}
+          />
+        </>
+      )}
 
-      <IntegrationCard
-        title="QuestionPro API key"
-        icon={KeyRound}
-        description={
-          <>
-            Key corporativa para la API de QuestionPro (un solo valor por
-            máquina). {STORE_PATH}.
-          </>
-        }
-        fieldLabel="API Key"
-        inputId="qp-key"
-        placeholder="API key"
-        value={qp}
-        onChange={setQp}
-        loading={loading}
-        saveState={qpSave}
-        hasStored={hasQp}
-        onSave={saveQp}
-        onClear={clearQp}
-      />
+      {section === "supabase" && (
+        <>
+          <SectionDetailHeader
+            title="Supabase"
+            icon={Database}
+            description="Conexión al proyecto corporativo de Supabase usado por el Limpiador."
+            onBack={() => setSection(null)}
+          />
 
-      <IntegrationCard
-        title="QuestionPro User ID (sólo publicar)"
-        icon={KeyRound}
-        description={
-          <>
-            ID numérico de tu usuario en QuestionPro. Sólo se usa para{" "}
-            <span className="font-medium">publicar</span> cuestionarios desde
-            el Validador (endpoint{" "}
-            <span className="font-mono">/users/&#123;id&#125;/surveys</span>).
-            Si nunca vas a publicar, no hace falta.
-          </>
-        }
-        fieldLabel="User ID"
-        inputId="qp-user-id"
-        placeholder="9587462"
-        value={qpUserId}
-        onChange={setQpUserId}
-        loading={loading}
-        maskValue={false}
-        footnote={
-          <>
-            Se encuentra en el panel de QP, en{" "}
-            <span className="font-mono">My Account → Account Settings</span>{" "}
-            o pidiéndoselo a un admin.
-          </>
-        }
-        saveState={qpUserIdSave}
-        hasStored={hasQpUserId}
-        onSave={saveQpUserId}
-        onClear={clearQpUserId}
-      />
+          <IntegrationCard
+            title="Supabase — URL del proyecto"
+            icon={Globe}
+            description={
+              <>
+                URL del proyecto para el módulo Limpiador. Se guarda en{" "}
+                {STORE_PATH}.
+              </>
+            }
+            fieldLabel="URL"
+            inputId="sb-url"
+            placeholder="https://….supabase.co"
+            value={sbUrl}
+            onChange={setSbUrl}
+            loading={loading}
+            maskValue={false}
+            saveState={sbUrlSave}
+            hasStored={hasSbUrl}
+            onSave={saveSbUrl}
+            onClear={clearSbUrl}
+          />
 
-      <IntegrationCard
-        title="Clave de encriptación (opcional)"
-        icon={Lock}
-        description={
-          <>
-            Solo si en el futuro usás <span className="font-mono">encrypt_text</span>{" "}
-            en Supabase. {STORE_PATH}.
-          </>
-        }
-        fieldLabel="Encryption key"
-        inputId="enc-key"
-        placeholder="Opcional"
-        value={enc}
-        onChange={setEnc}
-        loading={loading}
-        saveState={encSave}
-        hasStored={hasEnc}
-        onSave={saveEnc}
-        onClear={clearEnc}
-      />
+          <IntegrationCard
+            title="Supabase — anon / public key"
+            icon={KeyRound}
+            description={
+              <>Clave pública del cliente (anon). Se guarda en {STORE_PATH}.</>
+            }
+            fieldLabel="Anon key"
+            inputId="sb-anon"
+            placeholder="eyJ…"
+            value={sbAnon}
+            onChange={setSbAnon}
+            loading={loading}
+            saveState={sbAnonSave}
+            hasStored={hasSbAnon}
+            onSave={saveSbAnon}
+            onClear={clearSbAnon}
+          />
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-start gap-3">
-            <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <ClipboardCheck className="size-4" />
-            </div>
-            <div className="flex-1">
-              <CardTitle className="text-base">
-                Validador de Cuestionarios — Modelo IA
-              </CardTitle>
-              <CardDescription>
-                Modelo de OpenAI usado para parsear cuestionarios y correr los
-                checks semánticos. <span className="font-mono">gpt-4o-mini</span>{" "}
-                es más barato y suficiente para la mayoría de los casos;{" "}
-                <span className="font-mono">gpt-4o</span> rinde mejor en
-                cuestionarios largos o con texto ambiguo.
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap items-center gap-2">
-            {CUESTIONARIO_MODELS.map((m) => {
-              const active = cuestionarioModel === m;
-              return (
-                <Button
-                  key={m}
-                  type="button"
-                  size="sm"
-                  variant={active ? "default" : "outline"}
+          <IntegrationCard
+            title="Clave de encriptación (opcional)"
+            icon={Lock}
+            description={
+              <>
+                Solo si en el futuro usás{" "}
+                <span className="font-mono">encrypt_text</span> en Supabase.{" "}
+                {STORE_PATH}.
+              </>
+            }
+            fieldLabel="Encryption key"
+            inputId="enc-key"
+            placeholder="Opcional"
+            value={enc}
+            onChange={setEnc}
+            loading={loading}
+            saveState={encSave}
+            hasStored={hasEnc}
+            onSave={saveEnc}
+            onClear={clearEnc}
+          />
+        </>
+      )}
+
+      {section === "apikeys" && (
+        <>
+          <SectionDetailHeader
+            title="API Keys"
+            icon={Sparkles}
+            description="Claves de los proveedores de IA usados por las herramientas."
+            onBack={() => setSection(null)}
+          />
+
+          <IntegrationCard
+            title="OpenAI API key"
+            icon={Sparkles}
+            description={
+              <>
+                Para reglas asistidas por IA en el Limpiador y el Validador de
+                Cuestionarios. {STORE_PATH}.
+              </>
+            }
+            fieldLabel="API Key"
+            inputId="openai-key"
+            placeholder="sk-…"
+            value={openai}
+            onChange={setOpenai}
+            loading={loading}
+            saveState={openaiSave}
+            hasStored={hasOpenai}
+            onSave={saveOpenai}
+            onClear={clearOpenai}
+          />
+
+          <IntegrationCard
+            title="Gemini API Key"
+            icon={KeyRound}
+            description={
+              <>
+                Usada en Brand Audit (títulos y executive summary). Se guarda
+                en {STORE_PATH}. No se sube al repositorio.
+              </>
+            }
+            fieldLabel="API Key"
+            inputId="gemini-key"
+            placeholder="AIza…"
+            value={gemini}
+            onChange={setGemini}
+            loading={loading}
+            footnote={
+              <>
+                Obtenela en{" "}
+                <span className="font-mono">
+                  aistudio.google.com/app/apikey
+                </span>
+                .
+              </>
+            }
+            saveState={gemSave}
+            hasStored={hasGemini}
+            onSave={saveGemini}
+            onClear={clearGemini}
+            savedLabel="Guardada"
+          />
+        </>
+      )}
+
+      {section === "tools" && (
+        <>
+          <SectionDetailHeader
+            title="Configuración Herramientas"
+            icon={Settings2}
+            description="Ajustes específicos del comportamiento de cada herramienta."
+            onBack={() => setSection(null)}
+          />
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-start gap-3">
+                <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <ClipboardCheck className="size-4" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-base">
+                    Validador de Cuestionarios — Modelo IA
+                  </CardTitle>
+                  <CardDescription>
+                    Modelo de OpenAI usado para parsear cuestionarios y correr
+                    los checks semánticos.{" "}
+                    <span className="font-mono">gpt-4o-mini</span> es más
+                    barato y suficiente para la mayoría de los casos;{" "}
+                    <span className="font-mono">gpt-4o</span> rinde mejor en
+                    cuestionarios largos o con texto ambiguo.
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap items-center gap-2">
+                {CUESTIONARIO_MODELS.map((m) => {
+                  const active = cuestionarioModel === m;
+                  return (
+                    <Button
+                      key={m}
+                      type="button"
+                      size="sm"
+                      variant={active ? "default" : "outline"}
+                      disabled={loading}
+                      onClick={() => void changeCuestionarioModel(m)}
+                      className="font-mono"
+                    >
+                      {m}
+                      {m === DEFAULT_CUESTIONARIO_MODEL && (
+                        <span className="ml-1 text-[10px] opacity-70">
+                          (default)
+                        </span>
+                      )}
+                    </Button>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex items-start gap-3">
+                <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Bug className="size-4" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-base">
+                    Modo debug del Limpiador
+                  </CardTitle>
+                  <CardDescription>
+                    Cuando está activo, el motor de QC vuelca a la consola del
+                    WebView el prompt enviado a OpenAI y la respuesta cruda de
+                    cada batch. Útil para iterar el prompt. Abrí la consola
+                    con devtools (en <span className="font-mono">tauri dev</span>
+                    ) para verlo.
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between gap-4">
+                <Label htmlFor="limpiador-debug" className="text-sm font-normal">
+                  Loguear prompts del QC
+                </Label>
+                <Switch
+                  id="limpiador-debug"
+                  checked={debugPrompts}
+                  onCheckedChange={(v) => void toggleDebugPrompts(v)}
                   disabled={loading}
-                  onClick={() => void changeCuestionarioModel(m)}
-                  className="font-mono"
-                >
-                  {m}
-                  {m === DEFAULT_CUESTIONARIO_MODEL && (
-                    <span className="ml-1 text-[10px] opacity-70">(default)</span>
-                  )}
-                </Button>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-start gap-3">
-            <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Bug className="size-4" />
-            </div>
-            <div className="flex-1">
-              <CardTitle className="text-base">Modo debug del Limpiador</CardTitle>
-              <CardDescription>
-                Cuando está activo, el motor de QC vuelca a la consola del WebView
-                el prompt enviado a OpenAI y la respuesta cruda de cada batch.
-                Útil para iterar el prompt. Abrí la consola con devtools
-                (en <span className="font-mono">tauri dev</span>) para verlo.
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between gap-4">
-            <Label htmlFor="limpiador-debug" className="text-sm font-normal">
-              Loguear prompts del QC
-            </Label>
-            <Switch
-              id="limpiador-debug"
-              checked={debugPrompts}
-              onCheckedChange={(v) => void toggleDebugPrompts(v)}
-              disabled={loading}
-            />
-          </div>
-        </CardContent>
-      </Card>
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

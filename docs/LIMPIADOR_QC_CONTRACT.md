@@ -179,11 +179,11 @@ Sin polling HTTP. El controller del job expone:
   "Modo debug del Limpiador"). Vuelca el prompt completo (system + user) y la
   respuesta cruda de OpenAI por batch. Útil para iterar el prompt; visible con
   devtools (en `tauri dev`). No persiste nada.
-- **TODO modelo GPT-5:** hoy el default es `gpt-4o-mini` vía
-  `/v1/chat/completions` con `temperature: 0` + `seed: 42`. La familia GPT-5
-  va por la **Responses API** (`/v1/responses`) y la semántica de `temperature`/
-  `seed` cambia — cambiar el modelo no es sólo cambiar el string (ver comentario
-  en `analyzeBatch`).
+- **Modelo:** default `gpt-5-mini` vía `/v1/chat/completions`. Como es un
+  modelo de razonamiento, el body **no lleva** `temperature` ni `seed` (la
+  API rechaza esos params en la familia GPT-5). `reasoning_effort` queda en
+  su default (`medium`). `max_completion_tokens` está holgado (6000) porque
+  los reasoning tokens también descuentan de ahí.
 
 ## Resume (reanudación)
 

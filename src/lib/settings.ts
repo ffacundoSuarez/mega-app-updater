@@ -26,6 +26,10 @@ const KEY_LIMPIADOR_DEBUG_PROMPTS = "limpiador.debug_prompts";
 // Modelo IA usado por el Validador de Cuestionarios para parser y checks
 // semánticos. Si está vacío, se asume el default exportado abajo.
 const KEY_CUESTIONARIO_MODEL = "cuestionario.model";
+// Drafts de reglas manuales sin guardar de la pantalla "Reglas" del Limpiador.
+// Estructurado como `{ [projectId]: string[] }` para no perder lo escrito al
+// volver al proyecto sin apretar "Guardar cambios".
+const KEY_LIMPIADOR_RULE_DRAFTS = "limpiador.rule_drafts";
 
 let storePromise: Promise<Store> | null = null;
 
@@ -249,4 +253,47 @@ export async function clearLimpiadorConnectionSettings(): Promise<void> {
     questionproApiKey: null,
     encryptionKey: null,
   });
+}
+
+// --- Drafts de reglas manuales (Limpiador) ---
+//
+// El usuario puede escribir varias reglas manuales en la pantalla "Reglas" sin
+// apretar "Guardar cambios". Antes se perdían al volver al proyecto; ahora se
+// persisten por proyecto para poder recuperarlas al volver.
+
+/** Devuelve los drafts guardados para un proyecto (lista de strings). */
+export async function getRuleDrafts(projectId: string): Promise<string[]> {
+  const store = await getStore();
+  const all = await store.get<Record<string, string[]>>(
+    KEY_LIMPIADOR_RULE_DRAFTS
+  );
+  const value = all?.[projectId];
+  return Array.isArray(value) ? value : [];
+}
+
+/**
+ * Persiste los drafts del proyecto. Si `drafts` está vacío o es null, se
+ * remueve la entrada del proyecto. Si después el map queda vacío, se borra la
+ * key entera del store.
+ */
+export async function setRuleDrafts(
+  projectId: string,
+  drafts: string[] | null
+): Promise<void> {
+  const store = await getStore();
+  const current =
+    (await store.get<Record<string, string[]>>(KEY_LIMPIADOR_RULE_DRAFTS)) ??
+    {};
+  const filtered = (drafts ?? []).filter((d) => d.trim().length > 0);
+  if (filtered.length === 0) {
+    delete current[projectId];
+  } else {
+    current[projectId] = filtered;
+  }
+  if (Object.keys(current).length === 0) {
+    await store.delete(KEY_LIMPIADOR_RULE_DRAFTS);
+  } else {
+    await store.set(KEY_LIMPIADOR_RULE_DRAFTS, current);
+  }
+  await store.save();
 }

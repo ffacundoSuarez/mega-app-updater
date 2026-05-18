@@ -69,9 +69,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   bulkUpdateFlagDecisions,
+  createManualRemoveFlag,
   getReviewFlagCounts,
   getSimilarRows,
   listFlags,
+  listUnflaggedRows,
   resetFlagDecisions,
   updateFlagDecision,
   type ListFlagsFilters,
@@ -121,6 +123,15 @@ const EMPTY_COUNTS: ReviewFlagCounts = {
   toKeep: 0,
 };
 
+/**
+ * Marca usada en entradas "virtuales" del review: filas que la IA no flagueó
+ * y que aparecen sólo cuando el usuario activa el toggle "Mostrar todas las
+ * filas". No tienen registro en `cleaning_flags` (todavía). Se renderizan como
+ * "OK · auto-keep"; si el usuario decide eliminar una, se crea un flag real
+ * vía `createManualRemoveFlag` y el reload las convierte en entradas normales.
+ */
+type ReviewItem = CleaningFlagWithRow & { _virtual?: boolean };
+
 export interface ReviewProps {
   versionId: string;
   onBack: () => void;
@@ -139,6 +150,14 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
   const [editsMap, setEditsMap] = useState<
     Map<string, Map<string, CleaningRowEdit>>
   >(new Map());
+
+  // Toggle "Mostrar filas sin flags" + cache de filas no flagueadas. Default
+  // off para no pagar el costo de listarlas si el usuario sólo viene a revisar
+  // los flags. Se carga la primera vez que se activa.
+  const [showUnflagged, setShowUnflagged] = useState(false);
+  const [unflaggedRows, setUnflaggedRows] = useState<CleaningRow[]>([]);
+  const [unflaggedLoading, setUnflaggedLoading] = useState(false);
+  const [unflaggedLoaded, setUnflaggedLoaded] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -204,16 +223,80 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
     if (!loading) void loadFlags();
   }, [loadFlags, loading]);
 
+  // Carga las filas no flagueadas la primera vez que se activa el toggle.
+  // Después permanecen en cache; el reload manual desde `handleResetAll` /
+  // `loadAll` también las refresca.
+  const loadUnflagged = useCallback(async () => {
+    setUnflaggedLoading(true);
+    try {
+      const rows = await listUnflaggedRows(versionId);
+      setUnflaggedRows(rows);
+      setUnflaggedLoaded(true);
+    } catch (err) {
+      window.alert(
+        `No se pudieron cargar las filas sin flags: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    } finally {
+      setUnflaggedLoading(false);
+    }
+  }, [versionId]);
+
+  useEffect(() => {
+    if (showUnflagged && !unflaggedLoaded && !unflaggedLoading) {
+      void loadUnflagged();
+    }
+  }, [showUnflagged, unflaggedLoaded, unflaggedLoading, loadUnflagged]);
+
+  // Construye entradas "virtuales" para filas sin flag. Se marcan implícitamente
+  // como `user_decision: "keep"` (auto-keep) y con color "green" en el render.
+  const virtualItems = useMemo<ReviewItem[]>(() => {
+    if (!showUnflagged || unflaggedRows.length === 0) return [];
+    // Excluimos filas que entre tanto recibieron un flag real (caso de doble
+    // carga). El set de row_ids con flag real es chico.
+    const realFlaggedRowIds = new Set(flags.map((f) => f.row_id));
+    return unflaggedRows
+      .filter((r) => !realFlaggedRowIds.has(r.id))
+      .map((row) => ({
+        id: `virtual-${row.id}`,
+        version_id: versionId,
+        row_id: row.id,
+        flag_type: "yellow",
+        reason: "",
+        matched_rules: [],
+        confidence: 1,
+        user_decision: "keep",
+        decided_at: null,
+        created_at: row.created_at,
+        recommendation: "keep",
+        friendly_explanation: null,
+        affected_question_ids: [],
+        similar_response_ids: [],
+        removed_from_qp_at: null,
+        row,
+        _virtual: true,
+      }));
+  }, [showUnflagged, unflaggedRows, flags, versionId]);
+
   // Flags visibles: filtros client-side + orden por severidad descendente.
+  // Los virtuales (color verde, rank 0) caen siempre al fondo. Hay que mirar
+  // `_virtual` para no aplicar las funciones de severidad sobre ellos.
+  const colorOf = useCallback((item: ReviewItem): RuleColor => {
+    return item._virtual ? "green" : flagColor(item);
+  }, []);
+
   const visibleFlags = useMemo(() => {
-    let list = flags;
+    let list: ReviewItem[] = [...flags, ...virtualItems];
     if (filterRecommendation !== "all") {
-      list = list.filter(
-        (f) => effectiveRecommendation(f) === filterRecommendation
+      list = list.filter((f) =>
+        f._virtual
+          ? filterRecommendation === "keep"
+          : effectiveRecommendation(f) === filterRecommendation
       );
     }
     if (filterColor !== "all") {
-      list = list.filter((f) => flagColor(f) === filterColor);
+      list = list.filter((f) => colorOf(f) === filterColor);
     }
     if (filterColumn) {
       list = list.filter((f) =>
@@ -221,16 +304,24 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
       );
     }
     return [...list].sort((a, b) => {
-      const rank = RULE_COLOR_RANK[flagColor(b)] - RULE_COLOR_RANK[flagColor(a)];
+      const rank = RULE_COLOR_RANK[colorOf(b)] - RULE_COLOR_RANK[colorOf(a)];
       if (rank !== 0) return rank;
-      const score = flagSeverityScore(b) - flagSeverityScore(a);
-      if (score !== 0) return score;
+      if (!a._virtual && !b._virtual) {
+        const score = flagSeverityScore(b) - flagSeverityScore(a);
+        if (score !== 0) return score;
+      }
+      // Para virtuales (sin score útil), ordenar por row_number ascendente.
+      const an = a.row?.row_number ?? 0;
+      const bn = b.row?.row_number ?? 0;
+      if (an !== bn) return an - bn;
       return a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0;
     });
-  }, [flags, filterRecommendation, filterColor, filterColumn]);
+  }, [flags, virtualItems, filterRecommendation, filterColor, filterColumn, colorOf]);
 
   // Heatmap: flags por columna afectada (sobre el set ya filtrado por
   // tipo/decisión), con el color de severidad del peor flag de cada columna.
+  // Las entradas virtuales NO aportan al heatmap porque no tienen
+  // `affected_question_ids` (siempre vacío).
   const columnFlagStats = useMemo(() => {
     const acc = new Map<
       string,
@@ -306,16 +397,50 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
   }, [flags, editsMap]);
 
   // Conteo de flags por color (sobre el set ya filtrado por tipo/decisión).
+  // Incluye los virtuales cuando el toggle está activo, así la leyenda de la
+  // barra de filtros refleja lo que el usuario está viendo.
   const colorCounts = useMemo(() => {
     const c: Record<RuleColor, number> = { red: 0, orange: 0, yellow: 0, green: 0 };
     for (const f of flags) c[flagColor(f)]++;
+    for (const v of virtualItems) c[colorOf(v)]++;
     return c;
-  }, [flags]);
+  }, [flags, virtualItems, colorOf]);
 
   // --- decisiones ---------------------------------------------------------
 
   const handleDecide = useCallback(
     async (flagId: string, decision: "keep" | "remove") => {
+      // Caso virtual: la fila no tiene flag en DB. "Keep" ya es el estado
+      // implícito (no hace falta tocar nada); "remove" crea un flag manual.
+      if (flagId.startsWith("virtual-")) {
+        const rowId = flagId.slice("virtual-".length);
+        if (decision === "keep") return; // no-op
+        setUpdating((s) => new Set(s).add(flagId));
+        try {
+          await createManualRemoveFlag(versionId, rowId);
+          // Sacamos la fila del set de no-flagueadas y forzamos un reload
+          // completo para que el flag recién creado entre por listFlags con
+          // todos sus campos hidratados (row join'ada, created_at, …).
+          setUnflaggedRows((prev) => prev.filter((r) => r.id !== rowId));
+          setSelectedFlagId(null);
+          await loadFlags();
+          setCounts(await getReviewFlagCounts(versionId));
+        } catch (err) {
+          window.alert(
+            `No se pudo marcar para eliminar: ${
+              err instanceof Error ? err.message : String(err)
+            }`
+          );
+        } finally {
+          setUpdating((s) => {
+            const next = new Set(s);
+            next.delete(flagId);
+            return next;
+          });
+        }
+        return;
+      }
+
       setUpdating((s) => new Set(s).add(flagId));
       try {
         await updateFlagDecision(flagId, decision);
@@ -345,23 +470,42 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
         });
       }
     },
-    [versionId]
+    [versionId, loadFlags]
   );
 
   const handleBulkDecide = useCallback(
     async (decision: "keep" | "remove") => {
       if (selected.size === 0) return;
-      const ids = [...selected];
+      const allIds = [...selected];
+      // Separamos virtuales (sin flag en DB) de los reales. Los virtuales:
+      //   - "keep": no-op (ya están auto-keep)
+      //   - "remove": crean un flag manual c/u (loop, no hay bulk insert)
+      const realIds = allIds.filter((id) => !id.startsWith("virtual-"));
+      const virtualRowIds = allIds
+        .filter((id) => id.startsWith("virtual-"))
+        .map((id) => id.slice("virtual-".length));
+
       try {
-        await bulkUpdateFlagDecisions(ids, decision);
-        const at = new Date().toISOString();
-        setFlags((prev) =>
-          prev.map((f) =>
-            selected.has(f.id)
-              ? { ...f, user_decision: decision, decided_at: at }
-              : f
-          )
-        );
+        if (realIds.length > 0) {
+          await bulkUpdateFlagDecisions(realIds, decision);
+          const at = new Date().toISOString();
+          setFlags((prev) =>
+            prev.map((f) =>
+              realIds.includes(f.id)
+                ? { ...f, user_decision: decision, decided_at: at }
+                : f
+            )
+          );
+        }
+        if (decision === "remove" && virtualRowIds.length > 0) {
+          for (const rowId of virtualRowIds) {
+            await createManualRemoveFlag(versionId, rowId);
+          }
+          setUnflaggedRows((prev) =>
+            prev.filter((r) => !virtualRowIds.includes(r.id))
+          );
+          await loadFlags();
+        }
         setSelected(new Set());
         setCounts(await getReviewFlagCounts(versionId));
       } catch (err) {
@@ -372,7 +516,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
         );
       }
     },
-    [selected, versionId]
+    [selected, versionId, loadFlags]
   );
 
   const handleResetAll = useCallback(async () => {
@@ -561,6 +705,15 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
       {/* Stats compactas */}
       <ReviewStats counts={counts} editedRows={editedRowsCount} />
 
+      {/* Toggle "Mostrar filas sin flags" */}
+      <UnflaggedToggle
+        enabled={showUnflagged}
+        loading={unflaggedLoading}
+        count={virtualItems.length}
+        totalFound={unflaggedRows.length}
+        onToggle={() => setShowUnflagged((v) => !v)}
+      />
+
       {/* Heatmap de columnas con flags (idea 7) */}
       <ColumnHeatmap
         stats={columnFlagStats}
@@ -649,7 +802,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
                   key={flag.id}
                   flag={flag}
                   schema={version.schema.columns}
-                  color={flagColor(flag)}
+                  color={colorOf(flag)}
                   active={flag.id === selectedFlagId}
                   selected={selected.has(flag.id)}
                   edited={flag.row ? editsMap.has(flag.row.id) : false}
@@ -669,7 +822,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
               versionId={versionId}
               flag={selectedFlag}
               schema={version.schema.columns}
-              color={flagColor(selectedFlag)}
+              color={colorOf(selectedFlag)}
               edits={selectedFlag.row ? editsMap.get(selectedFlag.row.id) : undefined}
               updating={updating.has(selectedFlag.id)}
               index={selectedIndex}
@@ -692,6 +845,61 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// --- UnflaggedToggle ------------------------------------------------------
+
+/**
+ * Barra horizontal para activar/desactivar la inclusión de filas sin flags en
+ * la lista. Cuando se activa la primera vez, dispara la carga lazy de las
+ * filas no flagueadas (ver `loadUnflagged`).
+ */
+function UnflaggedToggle({
+  enabled,
+  loading,
+  count,
+  totalFound,
+  onToggle,
+}: {
+  enabled: boolean;
+  loading: boolean;
+  count: number;
+  totalFound: number;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-md border bg-card/50 px-3 py-2 text-xs">
+      <CheckCircle2 className="size-4 text-emerald-500" />
+      <span className="flex-1 text-muted-foreground">
+        {enabled
+          ? loading
+            ? "Cargando respuestas sin flags…"
+            : `Mostrando ${count} respuesta${count === 1 ? "" : "s"} sin flags (auto-keep)`
+          : "Respuestas sin observaciones de la IA: se ocultan por defecto"}
+        {enabled && !loading && totalFound !== count && (
+          <span className="ml-1 opacity-70">
+            (de {totalFound} originales, el resto ya tienen flag)
+          </span>
+        )}
+      </span>
+      <Button
+        variant={enabled ? "default" : "outline"}
+        size="sm"
+        onClick={onToggle}
+        disabled={loading}
+        className="h-7 gap-1.5"
+      >
+        {loading ? (
+          <Loader2 className="size-3 animate-spin" />
+        ) : enabled ? (
+          <CheckCircle2 className="size-3" />
+        ) : (
+          <Plus className="size-3" />
+        )}
+        {enabled ? "Ocultar filas sin flags" : "Mostrar todas las filas"}
+      </Button>
     </div>
   );
 }
@@ -1232,7 +1440,10 @@ function RowSnapshotDialog({
 
 // --- FlagListItem --------------------------------------------------------
 
-function flagTitle(flag: CleaningFlagWithRow, schema: SchemaColumn[]): string {
+function flagTitle(flag: ReviewItem, schema: SchemaColumn[]): string {
+  if (flag._virtual) {
+    return `Fila #${flag.row?.row_number ?? "?"} · sin observaciones`;
+  }
   const affected = (flag.affected_question_ids ?? [])
     .map((id) => schema.find((c) => c.id === id))
     .find((c): c is SchemaColumn => Boolean(c));
@@ -1252,7 +1463,7 @@ function FlagListItem({
   onSelect,
   onToggleSelect,
 }: {
-  flag: CleaningFlagWithRow;
+  flag: ReviewItem;
   schema: SchemaColumn[];
   color: RuleColor;
   active: boolean;
@@ -1293,18 +1504,23 @@ function FlagListItem({
         </span>
         <span className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
           <span>Fila #{flag.row?.row_number ?? "?"}</span>
+          {flag._virtual && (
+            <span className="rounded bg-emerald-500/20 px-1 text-emerald-300">
+              OK · auto-keep
+            </span>
+          )}
           {edited && (
             <span className="inline-flex items-center gap-0.5 rounded bg-sky-500/20 px-1 text-sky-300">
               <Edit3 className="size-2.5" />
               ed.
             </span>
           )}
-          {flag.user_decision === "keep" && (
+          {!flag._virtual && flag.user_decision === "keep" && (
             <span className="rounded bg-emerald-500/20 px-1 text-emerald-300">
               mantener
             </span>
           )}
-          {flag.user_decision === "remove" && (
+          {!flag._virtual && flag.user_decision === "remove" && (
             <span className="rounded bg-red-500/20 px-1 text-red-300">
               eliminar
             </span>
@@ -1319,7 +1535,7 @@ function FlagListItem({
 
 interface FlagDetailPanelProps {
   versionId: string;
-  flag: CleaningFlagWithRow;
+  flag: ReviewItem;
   schema: SchemaColumn[];
   color: RuleColor;
   edits: Map<string, CleaningRowEdit> | undefined;
@@ -1397,6 +1613,24 @@ function FlagDetailPanel({
         <div className="flex items-center gap-1.5">
           {updating ? (
             <Loader2 className="size-4 animate-spin" />
+          ) : flag._virtual ? (
+            // Virtual: ya está implícitamente en "keep"; sólo ofrecemos override
+            // a "remove" (que crea un flag manual en DB y recarga).
+            <>
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                <CheckCircle2 className="size-3" />
+                Auto-keep
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onDecide("remove")}
+                className="h-7 gap-1.5"
+              >
+                <XCircle className="size-4" />
+                Eliminar igual
+              </Button>
+            </>
           ) : (
             <>
               <Button
@@ -1437,10 +1671,12 @@ function FlagDetailPanel({
             <span className={cn("size-2 rounded-full", RULE_COLOR_DOT[color])} />
             {RULE_COLOR_LABEL[color]}
           </span>
-          <RecommendationBadge
-            recommendation={flag.recommendation}
-            flagType={flag.flag_type}
-          />
+          {!flag._virtual && (
+            <RecommendationBadge
+              recommendation={flag.recommendation}
+              flagType={flag.flag_type}
+            />
+          )}
           <span className="text-xs text-muted-foreground">
             Fila #{row?.row_number ?? "?"}
           </span>
@@ -1454,7 +1690,7 @@ function FlagDetailPanel({
               Confianza: {Math.round(flag.confidence * 100)}%
             </span>
           )}
-          {flag.user_decision && (
+          {!flag._virtual && flag.user_decision && (
             <Badge
               variant={flag.user_decision === "keep" ? "default" : "destructive"}
               className="ml-auto"
@@ -1465,7 +1701,16 @@ function FlagDetailPanel({
         </div>
 
         {/* Texto principal */}
-        {mainText && <p className="text-sm leading-relaxed">{mainText}</p>}
+        {flag._virtual ? (
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            La IA no encontró problemas en esta respuesta y la dejó marcada
+            como mantener automáticamente. Si igual querés excluirla, usá
+            <span className="mx-1 font-medium">"Eliminar igual"</span>
+            arriba.
+          </p>
+        ) : (
+          mainText && <p className="text-sm leading-relaxed">{mainText}</p>
+        )}
 
         {/* Preguntas afectadas con edición inline */}
         {row && affectedColumns.length > 0 && (
