@@ -68,10 +68,20 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Mega App ${{ github.ref_name }}'
           releaseBody: |
-            Release publicado automáticamente desde el tag `${{ github.ref_name }}`.
+            ## Limpiador de encuestas
+            - Flujo completo: proyectos, carga Excel, reglas, QC con OpenAI, revisión y exportación.
+            - Sincronización de eliminaciones y ediciones a QuestionPro.
+            - Motor de QC local en TypeScript (sin servidor Lightsail).
 
-            El updater integrado se encarga de aplicar esta versión
-            automáticamente la próxima vez que el usuario abra la app.
+            ## Cuestionarios QPro
+            - Validación de cuestionarios (importación, chequeos y reporte).
+            - Editor y publicación a QuestionPro.
+
+            ## Ajustes
+            - Claves de Supabase, OpenAI, QuestionPro y Gemini en un solo panel.
+
+            ## Base de datos
+            - Aplicar las migraciones nuevas en `docs/migrations/` antes de usar Limpiador o Cuestionarios.
           releaseDraft: false
           prerelease: false
           # Genera latest.json adjunto al release, que es lo que consume el plugin-updater.

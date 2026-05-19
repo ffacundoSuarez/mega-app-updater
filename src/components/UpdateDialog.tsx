@@ -4,9 +4,8 @@
 //   - Update OBLIGATORIO: no hay botón "Más tarde", el dialog no se cierra
 //     con Esc ni click afuera. Una vez detectada una versión nueva, el usuario
 //     tiene que actualizar para seguir usando la app.
-//   - `installMode: passive` en `tauri.conf.json`: Windows muestra su propia UI
-//     de progreso durante la instalación. Este componente solo cubre la etapa
-//     previa (descarga) con una barra de progreso propia.
+//   - `installMode: quiet` en `tauri.conf.json`: el MSI/NSIS se instala sin UI
+//     de Windows. Este componente solo cubre la etapa previa (descarga).
 //
 // Estados del flujo:
 //   `available`   → aparece el detalle de la versión + botón "Actualizar ahora".
@@ -172,8 +171,8 @@ export function UpdateDialog({ update, currentVersion }: UpdateDialogProps) {
                 Instalando...
               </DialogTitle>
               <DialogDescription>
-                Windows está aplicando la actualización. La app se va a cerrar y
-                volver a abrir sola en unos segundos.
+                Se está aplicando la actualización en segundo plano. La app se
+                va a cerrar y volver a abrir sola en unos segundos.
               </DialogDescription>
             </DialogHeader>
           </>
