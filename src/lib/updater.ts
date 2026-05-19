@@ -6,10 +6,10 @@
 //      endpoint no disponible → caso habitual antes de publicar el primer release).
 //   2. `installUpdate(update, onProgress)` → descarga el MSI, verifica su firma
 //      Ed25519 contra la pubkey embebida (lo hace el plugin por nosotros) y
-//      dispara la instalación en modo `passive`. El runtime cierra la app.
+//      dispara la instalación en modo `quiet`. El runtime cierra la app.
 //   3. `relaunchApp()` → relanza la app en la nueva versión. En la práctica,
-//      con `installMode: passive` Windows reabre la app solo, así que esto se
-//      llama como fallback por si el installer no lo hace.
+//      con `installMode: quiet` no hay UI del instalador; esto es fallback
+//      por si el installer no relanza la app solo.
 //
 // IMPORTANTE: la política de la app es que el update es OBLIGATORIO (no hay
 // botón "Más tarde"), así que la UI que consume este wrapper debe bloquear al
@@ -40,7 +40,7 @@ export async function checkForUpdate(): Promise<Update | null> {
  * Descarga e instala el update. El plugin hace:
  *   - Descarga del asset listado en `latest.json`.
  *   - Verificación de firma Ed25519 contra la pubkey en `tauri.conf.json`.
- *   - Ejecución del instalador en modo `passive` (Windows muestra progreso).
+ *   - Ejecución del instalador en modo `quiet` (sin UI de Windows).
  *
  * El proceso cierra la app al final. Esta promesa normalmente no termina de
  * forma "normal" en Windows: la app es killeada por el installer.

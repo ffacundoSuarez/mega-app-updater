@@ -13,7 +13,7 @@ import { checkForUpdate, type Update } from "@/lib/updater";
 
 // Versión de la app. En runtime se podría leer con `getVersion()` del plugin,
 // por ahora es una constante sincronizada con tauri.conf.json / Cargo.toml.
-const APP_VERSION = "1.0.2";
+const APP_VERSION = "1.1.0";
 
 function App() {
   const [activeView, setActiveView] = useState<ViewId>("home");

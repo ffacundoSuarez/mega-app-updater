@@ -68,7 +68,7 @@ The updater is the whole reason this repo exists; treat it carefully.
 
 - `tauri.conf.json` → `plugins.updater.endpoints` points to the GitHub Releases `latest.json`. The matching Ed25519 `pubkey` is embedded in the same file.
 - `src-tauri/src/lib.rs` reads `option_env!("UPDATER_GITHUB_TOKEN")` at compile time and, if present, attaches `Authorization: Bearer …` headers so the binary can pull assets from the **private** repo. In dev this is empty and the check just fails silently — that's expected.
-- Update policy is **mandatory**: when a newer version is found, `UpdateDialog.tsx` blocks the UI until the user accepts. Install mode is `passive` (Windows shows its own progress, then relaunches).
+- Update policy is **mandatory**: when a newer version is found, `UpdateDialog.tsx` blocks the UI until the user accepts. Install mode is `quiet` (no Windows installer UI; app relaunches after install).
 - See `docs/DEV_GUIDE.md` for key rotation, secret setup (`TAURI_SIGNING_PRIVATE_KEY`, `UPDATER_GITHUB_TOKEN`), and the release-cut procedure.
 
 ## Versioning
