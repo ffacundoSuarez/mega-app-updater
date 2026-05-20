@@ -19,6 +19,15 @@ export interface QPSurveyInfo {
   totalResponses: number;
 }
 
+/** Encuesta listada en `GET /users/{userId}/surveys`. */
+export interface QPSurveyListItem {
+  id: string;
+  name: string;
+  status?: string;
+  completedResponses?: number;
+  url?: string;
+}
+
 /** Pregunta normalizada que devuelve `getSurveyQuestions`. */
 export interface QPQuestion {
   questionID: number;
@@ -123,6 +132,87 @@ export async function validateSurvey(
     name: survey.name,
     totalResponses,
   };
+}
+
+interface QPUserSurveysAPIItem {
+  surveyID?: number;
+  id?: number;
+  name?: string;
+  status?: string;
+  completedResponses?: number;
+  url?: string;
+}
+
+interface QPUserSurveysAPIResponse {
+  response?: QPUserSurveysAPIItem[];
+  pagination?: { totalPages?: number; currentPage?: number };
+}
+
+/**
+ * Lista las encuestas del usuario en QuestionPro (`GET /users/{userId}/surveys`).
+ * Requiere API key y User ID de Ajustes.
+ */
+export async function listUserSurveys(
+  userId: string,
+  apiKey: string,
+  options?: { activeOnly?: boolean }
+): Promise<QPSurveyListItem[]> {
+  const headers = { "api-key": apiKey };
+  const all: QPSurveyListItem[] = [];
+  let page = 1;
+  const perPage = 100;
+
+  while (true) {
+    const url = `${QP_API_BASE}/users/${encodeURIComponent(
+      userId.trim()
+    )}/surveys?page=${page}&perPage=${perPage}`;
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      const text = await safeText(res);
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(
+          "API Key inválida o sin permisos para listar encuestas de este usuario"
+        );
+      }
+      if (res.status === 404) {
+        throw new Error(
+          "Usuario de QuestionPro no encontrado. Verificá el User ID en Ajustes."
+        );
+      }
+      throw new Error(
+        `Error listando encuestas de QuestionPro (${res.status}): ${truncate(
+          text,
+          200
+        )}`
+      );
+    }
+
+    const data = (await res.json()) as QPUserSurveysAPIResponse;
+    const batch = data.response ?? [];
+
+    for (const item of batch) {
+      const id = String(item.surveyID ?? item.id ?? "");
+      if (!id) continue;
+      const status = item.status?.trim();
+      if (options?.activeOnly && status && status.toLowerCase() !== "active") {
+        continue;
+      }
+      all.push({
+        id,
+        name: String(item.name ?? `Encuesta ${id}`),
+        status,
+        completedResponses: item.completedResponses,
+        url: item.url,
+      });
+    }
+
+    const totalPages = data.pagination?.totalPages ?? 1;
+    if (page >= totalPages || batch.length < perPage) break;
+    page += 1;
+  }
+
+  all.sort((a, b) => a.name.localeCompare(b.name, "es"));
+  return all;
 }
 
 /**

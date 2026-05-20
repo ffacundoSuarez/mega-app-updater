@@ -1,29 +1,35 @@
 // Title bar personalizada (sustituye a la decoración nativa de Windows).
-// Lleva el logo + nombre de la app y los controles de ventana, y permite
-// arrastrar la ventana desde cualquier zona vacía.
+// Lleva el logo + nombre de la app, notificaciones y controles de ventana.
 
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Square, Copy, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { NotificationBell } from "@/components/NotificationBell";
+import type { ViewId } from "@/components/Toolbar";
 
-// Los archivos en /public se referencian por URL absoluta.
 const LOGO_URL = "/iconos_Iso-centro-rueda-1.svg";
 
 const appWindow = getCurrentWindow();
 
-export function TitleBar() {
+export interface TitleBarProps {
+  onNavigate: (view: ViewId) => void;
+  onOpenFiles?: (path?: string) => void;
+}
+
+export function TitleBar({ onNavigate, onOpenFiles }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
 
-  // Mantener sincronizado el icono del botón maximizar con el estado real.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     appWindow.isMaximized().then(setIsMaximized);
-    appWindow.onResized(async () => {
-      setIsMaximized(await appWindow.isMaximized());
-    }).then((fn) => {
-      unlisten = fn;
-    });
+    appWindow
+      .onResized(async () => {
+        setIsMaximized(await appWindow.isMaximized());
+      })
+      .then((fn) => {
+        unlisten = fn;
+      });
     return () => unlisten?.();
   }, []);
 
@@ -32,7 +38,6 @@ export function TitleBar() {
       data-tauri-drag-region
       className="flex h-9 shrink-0 select-none items-center justify-between border-b bg-sidebar text-sidebar-foreground"
     >
-      {/* Branding */}
       <div
         data-tauri-drag-region
         className="flex items-center gap-2 pl-3"
@@ -46,8 +51,11 @@ export function TitleBar() {
         <span className="text-xs font-medium tracking-tight">Mega App</span>
       </div>
 
-      {/* Controles de ventana */}
-      <div className="flex h-full">
+      <div className="flex h-full items-stretch">
+        <NotificationBell
+          onNavigate={onNavigate}
+          onOpenFiles={onOpenFiles}
+        />
         <WindowButton
           onClick={() => appWindow.minimize()}
           aria-label="Minimizar"

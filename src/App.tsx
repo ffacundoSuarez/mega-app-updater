@@ -1,30 +1,36 @@
 // Shell raíz de la aplicación: title bar custom + sidebar + área activa.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { TitleBar } from "@/components/TitleBar";
-import { Toolbar, type ViewId } from "@/components/Toolbar";
+import { Toolbar, type ToolId, type ViewId } from "@/components/Toolbar";
 import { UpdateDialog } from "@/components/UpdateDialog";
+import { ActivityProvider } from "@/lib/activity-context";
+import type { PendingToolNavigation } from "@/lib/tool-navigation";
 import { HomeView } from "@/tools/home/HomeView";
 import { BrandAuditView } from "@/tools/brand-audit/BrandAuditView";
 import { LimpiadorView } from "@/tools/limpiador/LimpiadorView";
 import { CuestionarioView } from "@/tools/cuestionario/CuestionarioView";
 import { SettingsView } from "@/tools/settings/SettingsView";
+import { FilesView } from "@/tools/files/FilesView";
 import { checkForUpdate, type Update } from "@/lib/updater";
 
-// Versión de la app. En runtime se podría leer con `getVersion()` del plugin,
-// por ahora es una constante sincronizada con tauri.conf.json / Cargo.toml.
 const APP_VERSION = "1.1.0";
 
-function App() {
+const TOOL_VIEWS: ToolId[] = ["brand-audit", "limpiador", "cuestionario"];
+
+function isToolView(view: ViewId): view is ToolId {
+  return TOOL_VIEWS.includes(view as ToolId);
+}
+
+function AppShell() {
   const [activeView, setActiveView] = useState<ViewId>("home");
+  const [filesHighlightPath, setFilesHighlightPath] = useState<string | null>(
+    null
+  );
+  const [pendingToolNav, setPendingToolNav] =
+    useState<PendingToolNavigation | null>(null);
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
 
-  // Chequeo de updates al iniciar la app. Se ejecuta una sola vez, en silencio.
-  // Si hay una versión nueva, el diálogo modal se muestra y bloquea todo hasta
-  // completar la actualización (política: update obligatorio).
-  // Si el chequeo falla (offline, endpoint 404 pre-primer-release, etc.), se
-  // loguea y se sigue normalmente — la app no puede depender del updater para
-  // funcionar.
   useEffect(() => {
     let cancelled = false;
     checkForUpdate()
@@ -41,39 +47,100 @@ function App() {
     };
   }, []);
 
+  const handleNavigate = useCallback(
+    (view: ViewId, payload?: Record<string, string>) => {
+      if (payload && Object.keys(payload).length > 0 && isToolView(view)) {
+        setPendingToolNav({ view, payload });
+      } else {
+        setPendingToolNav(null);
+      }
+      setActiveView(view);
+    },
+    []
+  );
+
+  const handleOpenFiles = useCallback((path?: string) => {
+    setFilesHighlightPath(path ?? null);
+    setPendingToolNav(null);
+    setActiveView("files");
+  }, []);
+
+  const clearPendingToolNav = useCallback(() => {
+    setPendingToolNav(null);
+  }, []);
+
+  const limpiadorPending = useMemo(
+    () =>
+      pendingToolNav?.view === "limpiador"
+        ? pendingToolNav.payload
+        : undefined,
+    [pendingToolNav]
+  );
+
+  const cuestionarioPending = useMemo(
+    () =>
+      pendingToolNav?.view === "cuestionario"
+        ? pendingToolNav.payload
+        : undefined,
+    [pendingToolNav]
+  );
+
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground">
-      <TitleBar />
+      <TitleBar onNavigate={handleNavigate} onOpenFiles={handleOpenFiles} />
 
       <div className="flex min-h-0 flex-1">
         <Toolbar
           activeView={activeView}
-          onSelectView={setActiveView}
+          onSelectView={(v) => {
+            if (v !== "files") setFilesHighlightPath(null);
+            if (v !== pendingToolNav?.view) setPendingToolNav(null);
+            setActiveView(v);
+          }}
           appVersion={APP_VERSION}
         />
 
-        {/* Área de contenido principal scrolleable */}
         <main className="min-w-0 flex-1 overflow-y-auto p-8">
           {activeView === "home" && (
-            <HomeView appVersion={APP_VERSION} onOpenTool={setActiveView} />
+            <HomeView
+              appVersion={APP_VERSION}
+              onOpenTool={(tool) => handleNavigate(tool)}
+              onOpenView={handleNavigate}
+              onOpenFiles={handleOpenFiles}
+            />
+          )}
+          {activeView === "files" && (
+            <FilesView highlightPath={filesHighlightPath} />
           )}
           {activeView === "brand-audit" && <BrandAuditView />}
           {activeView === "limpiador" && (
-            <LimpiadorView onOpenSettings={() => setActiveView("settings")} />
+            <LimpiadorView
+              onOpenSettings={() => setActiveView("settings")}
+              pendingNavigation={limpiadorPending}
+              onPendingNavigationConsumed={clearPendingToolNav}
+            />
           )}
           {activeView === "cuestionario" && (
             <CuestionarioView
               onOpenSettings={() => setActiveView("settings")}
+              pendingNavigation={cuestionarioPending}
+              onPendingNavigationConsumed={clearPendingToolNav}
             />
           )}
           {activeView === "settings" && <SettingsView />}
         </main>
       </div>
 
-      {/* Dialog del auto-updater. Se autorenderiza como modal obligatorio cuando
-          `pendingUpdate` deja de ser null. */}
       <UpdateDialog update={pendingUpdate} currentVersion={APP_VERSION} />
     </div>
+  );
+}
+
+function App() {
+  return (
+    <ActivityProvider>
+      <AppShell />
+    </ActivityProvider>
   );
 }
 

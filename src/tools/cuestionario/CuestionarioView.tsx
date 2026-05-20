@@ -11,7 +11,8 @@
 // EditorRaw; la pantalla `reporte` es donde se va a engarzar el botón
 // "Publicar en QuestionPro" en la Iteración 8.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { parseCuestionarioDeepLink } from "@/lib/tool-navigation";
 import { AlertTriangle, ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,9 +38,15 @@ interface NavigateOpts {
 export interface CuestionarioViewProps {
   /** Disponible para que un caller pueda saltar a Ajustes desde acá. */
   onOpenSettings?: () => void;
+  pendingNavigation?: Record<string, string>;
+  onPendingNavigationConsumed?: () => void;
 }
 
-export function CuestionarioView({ onOpenSettings }: CuestionarioViewProps) {
+export function CuestionarioView({
+  onOpenSettings,
+  pendingNavigation,
+  onPendingNavigationConsumed,
+}: CuestionarioViewProps) {
   const [screen, setScreen] = useState<CuestionarioScreen>("list");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -63,6 +70,21 @@ export function CuestionarioView({ onOpenSettings }: CuestionarioViewProps) {
       setSelectedId(opts.questionnaireId);
     }
   };
+
+  const lastConsumedNavRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!pendingNavigation) return;
+    const key = JSON.stringify(pendingNavigation);
+    if (lastConsumedNavRef.current === key) return;
+
+    const link = parseCuestionarioDeepLink(pendingNavigation);
+    if (link) {
+      navigate(link.screen, { questionnaireId: link.questionnaireId });
+    }
+    lastConsumedNavRef.current = key;
+    onPendingNavigationConsumed?.();
+  }, [pendingNavigation, onPendingNavigationConsumed]);
 
   if (hasSupabaseKeys === null) {
     return (
