@@ -213,6 +213,16 @@ export function Upload({
       });
 
       setPhase({ kind: "uploading", progress: 100 });
+      void import("@/lib/activity").then(({ logActivity }) =>
+        logActivity({
+          type: "limpiador_upload",
+          title: "Datos cargados en Limpiador",
+          body: `${parsed.filename} · ${parsed.totalRows} filas`,
+          toolId: "limpiador",
+          viewId: "limpiador",
+          payload: { projectId, versionId: version.id },
+        })
+      );
       onUploaded(version.id);
     } catch (err) {
       setPhase({

@@ -1,11 +1,16 @@
-// Sidebar / toolbar principal de la app.
-// Inicio + lista de herramientas disponibles + acceso a Ajustes.
+// Sidebar: Inicio · Proyectos · Herramientas; Archivos y Ajustes abajo.
 
-import { BarChart3, ClipboardCheck, Home, Settings2, Sparkles } from "lucide-react";
+import {
+  BarChart3,
+  ClipboardCheck,
+  FolderOpen,
+  Home,
+  Settings2,
+  Sparkles,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** Vistas navegables desde el sidebar. "home" es la landing page. */
-export type ViewId = "home" | "settings" | ToolId;
+export type ViewId = "home" | "files" | "settings" | ToolId;
 export type ToolId = "brand-audit" | "limpiador" | "cuestionario";
 
 interface NavItem {
@@ -14,33 +19,41 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
 }
 
-/** Entrada de inicio, separada del resto visualmente. */
 const HOME_ITEM: NavItem = {
   id: "home",
   label: "Inicio",
   icon: Home,
 };
 
-/** Herramientas disponibles. A medida que se sumen, se agregan acá. */
-const TOOLS: NavItem[] = [
+/** Flujo de proyecto de encuesta (cuestionario → limpieza). */
+const PROYECTO_TOOLS: NavItem[] = [
   {
-    id: "brand-audit",
-    label: "Brand Audit · YPF",
-    icon: BarChart3,
+    id: "cuestionario",
+    label: "Cuestionarios QPro",
+    icon: ClipboardCheck,
   },
   {
     id: "limpiador",
     label: "Limpiador",
     icon: Sparkles,
   },
+];
+
+/** Herramientas sueltas (por cliente, estudio, etc.). */
+const HERRAMIENTA_TOOLS: NavItem[] = [
   {
-    id: "cuestionario",
-    label: "Cuestionarios QPro",
-    icon: ClipboardCheck,
+    id: "brand-audit",
+    label: "Brand Audit · YPF",
+    icon: BarChart3,
   },
 ];
 
-/** Entradas del footer (abajo del sidebar). */
+const FILES_ITEM: NavItem = {
+  id: "files",
+  label: "Archivos",
+  icon: FolderOpen,
+};
+
 const SETTINGS_ITEM: NavItem = {
   id: "settings",
   label: "Ajustes",
@@ -57,21 +70,16 @@ export function Toolbar({ activeView, onSelectView, appVersion }: ToolbarProps) 
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
       <nav className="flex-1 overflow-y-auto p-2">
-        {/* Inicio */}
-        <ul className="flex flex-col gap-1">
+        <NavSection title="Inicio" first>
           <NavEntry
             item={HOME_ITEM}
             active={activeView === HOME_ITEM.id}
             onClick={() => onSelectView(HOME_ITEM.id)}
           />
-        </ul>
+        </NavSection>
 
-        {/* Sección de herramientas */}
-        <div className="px-2 pt-5 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Herramientas
-        </div>
-        <ul className="flex flex-col gap-1">
-          {TOOLS.map((tool) => (
+        <NavSection title="Proyectos">
+          {PROYECTO_TOOLS.map((tool) => (
             <NavEntry
               key={tool.id}
               item={tool}
@@ -79,12 +87,27 @@ export function Toolbar({ activeView, onSelectView, appVersion }: ToolbarProps) 
               onClick={() => onSelectView(tool.id)}
             />
           ))}
-        </ul>
+        </NavSection>
+
+        <NavSection title="Herramientas">
+          {HERRAMIENTA_TOOLS.map((tool) => (
+            <NavEntry
+              key={tool.id}
+              item={tool}
+              active={activeView === tool.id}
+              onClick={() => onSelectView(tool.id)}
+            />
+          ))}
+        </NavSection>
       </nav>
 
-      {/* Footer: ajustes + versión */}
       <div className="flex flex-col border-t">
         <ul className="flex flex-col gap-1 p-2">
+          <NavEntry
+            item={FILES_ITEM}
+            active={activeView === FILES_ITEM.id}
+            onClick={() => onSelectView(FILES_ITEM.id)}
+          />
           <NavEntry
             item={SETTINGS_ITEM}
             active={activeView === SETTINGS_ITEM.id}
@@ -105,13 +128,39 @@ export function Toolbar({ activeView, onSelectView, appVersion }: ToolbarProps) 
   );
 }
 
-interface NavEntryProps {
+function NavSection({
+  title,
+  first,
+  children,
+}: {
+  title: string;
+  first?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      <div
+        className={cn(
+          "px-2 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground",
+          first ? "pt-2" : "pt-5"
+        )}
+      >
+        {title}
+      </div>
+      <ul className="flex flex-col gap-1">{children}</ul>
+    </>
+  );
+}
+
+function NavEntry({
+  item,
+  active,
+  onClick,
+}: {
   item: NavItem;
   active: boolean;
   onClick: () => void;
-}
-
-function NavEntry({ item, active, onClick }: NavEntryProps) {
+}) {
   const Icon = item.icon;
   return (
     <li>
@@ -121,10 +170,11 @@ function NavEntry({ item, active, onClick }: NavEntryProps) {
         className={cn(
           "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors",
           "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-          active && "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
+          active &&
+            "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
         )}
       >
-        <Icon className="size-4 shrink-0" />
+        <Icon className="size-4 shrink-0 opacity-80" />
         <span className="truncate">{item.label}</span>
       </button>
     </li>
