@@ -11,6 +11,11 @@
  *     review a QP vía DELETE+POST)
  */
 
+import {
+  questionproCreateQuestion,
+  questionproCreateSurvey,
+} from "@/lib/tauri";
+
 const QP_API_BASE = "https://api.questionpro.com/a/api/v2";
 
 export interface QPSurveyInfo {
@@ -532,30 +537,18 @@ export async function createSurvey(
   if (!input.name.trim()) {
     throw new Error("El nombre de la encuesta no puede estar vacío");
   }
-  const body: Record<string, unknown> = { name: input.name.trim() };
-  if (input.folderID != null) body.folderID = input.folderID;
-  if (input.saveAndContinue != null) body.saveAndContinue = input.saveAndContinue;
-
-  const res = await fetch(`${QP_API_BASE}/users/${userId}/surveys`, {
-    method: "POST",
-    headers: { "api-key": apiKey, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+  const created = await questionproCreateSurvey({
+    userId: userId.trim(),
+    apiKey,
+    name: input.name.trim(),
+    folderId: input.folderID,
+    saveAndContinue: input.saveAndContinue,
   });
-  if (!res.ok) {
-    throw qpResponseError(res, await safeText(res));
-  }
-  const data = (await res.json()) as {
-    response?: { surveyID?: number; name?: string; url?: string; status?: string };
-  };
-  const r = data.response;
-  if (!r || typeof r.surveyID !== "number") {
-    throw new Error("QuestionPro no devolvió surveyID al crear la encuesta");
-  }
   return {
-    surveyID: r.surveyID,
-    name: r.name ?? input.name,
-    url: r.url ?? "",
-    status: r.status ?? "Unknown",
+    surveyID: created.surveyId,
+    name: created.name,
+    url: created.url,
+    status: created.status,
   };
 }
 
@@ -603,28 +596,15 @@ export async function createQuestion(
   payload: QPCreateQuestionPayload,
   apiKey: string
 ): Promise<QPCreatedQuestion> {
-  const res = await fetch(
-    `${QP_API_BASE}/surveys/${surveyId}/questions`,
-    {
-      method: "POST",
-      headers: { "api-key": apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }
-  );
-  if (!res.ok) {
-    throw qpResponseError(res, await safeText(res));
-  }
-  const data = (await res.json()) as {
-    response?: { questionID?: number; blockID?: number; orderNumber?: number };
-  };
-  const r = data.response;
-  if (!r || typeof r.questionID !== "number") {
-    throw new Error("QuestionPro no devolvió questionID al crear la pregunta");
-  }
+  const created = await questionproCreateQuestion({
+    surveyId,
+    apiKey,
+    payload,
+  });
   return {
-    questionID: r.questionID,
-    blockID: r.blockID,
-    orderNumber: r.orderNumber,
+    questionID: created.questionId,
+    blockID: created.blockId ?? undefined,
+    orderNumber: created.orderNumber ?? undefined,
   };
 }
 

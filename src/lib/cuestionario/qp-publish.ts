@@ -130,7 +130,7 @@ export async function publishQuestionnaireToQp(
     const q = questionnaire.preguntas[i];
     const { payload, perQuestionWarnings } = canonicalToQpQuestionPayload(
       q,
-      i + 1
+      i
     );
     warnings.push(...perQuestionWarnings);
 
@@ -201,18 +201,21 @@ export async function publishQuestionnaireToQp(
  */
 function canonicalToQpQuestionPayload(
   q: Question,
-  orderNumber: number
+  questionIndex: number
 ): { payload: QPCreateQuestionPayload; perQuestionWarnings: string[] } {
   const warnings: string[] = [];
-  const text = q.texto.trim() || `Pregunta ${q.numero}`;
-  const code = q.id || `Q${orderNumber}`;
+  const displayNumber = questionIndex + 1;
+  const text = q.texto.trim() || `Pregunta ${q.numero || displayNumber}`;
+  const code = q.id || `Q${displayNumber}`;
   // `required` no está en el canónico todavía — por seguridad creamos las
   // preguntas no-obligatorias así el usuario decide.
   const base: QPCreateQuestionPayload = {
     type: "multiplechoice_radio",
     text,
     code,
-    orderNumber,
+    // QuestionPro usa orden 0-based al crear preguntas: en una encuesta vacía
+    // sólo acepta orderNumber=0.
+    orderNumber: questionIndex,
     required: false,
   };
 
@@ -288,13 +291,21 @@ function canonicalToQpQuestionPayload(
 
     case "abierta_texto":
       return {
-        payload: { ...base, type: "text_multiple_row" },
+        payload: {
+          ...base,
+          type: "text_multiple_row",
+          rows: [{ text: "Respuesta" }],
+        },
         perQuestionWarnings: warnings,
       };
 
     case "abierta_marca":
       return {
-        payload: { ...base, type: "text_single_row" },
+        payload: {
+          ...base,
+          type: "text_single_row",
+          rows: [{ text: "Respuesta" }],
+        },
         perQuestionWarnings: warnings,
       };
 
@@ -303,7 +314,11 @@ function canonicalToQpQuestionPayload(
         `${q.id}: numérica se publicó como text_single_row. La validación numérica (min/max/decimales) hay que configurarla en QP.`
       );
       return {
-        payload: { ...base, type: "text_single_row" },
+        payload: {
+          ...base,
+          type: "text_single_row",
+          rows: [{ text: "Respuesta" }],
+        },
         perQuestionWarnings: warnings,
       };
 
@@ -322,7 +337,11 @@ function canonicalToQpQuestionPayload(
         `${q.id}: tipo fecha se publicó como text_single_row (no encontramos un tipo "date" confirmado en la API v2). Configurá el formato de fecha en QP si está disponible.`
       );
       return {
-        payload: { ...base, type: "text_single_row" },
+        payload: {
+          ...base,
+          type: "text_single_row",
+          rows: [{ text: "Respuesta" }],
+        },
         perQuestionWarnings: warnings,
       };
   }
@@ -333,7 +352,7 @@ function optionsToAnswers(
 ): Array<{ text: string; orderNumber: number }> {
   return opts.map((o, i) => ({
     text: o.texto.trim() || `Opción ${i + 1}`,
-    orderNumber: i + 1,
+    orderNumber: i,
   }));
 }
 
@@ -359,7 +378,7 @@ function buildScaleAnswers(
   }
   const out: Array<{ text: string; orderNumber: number }> = [];
   for (let v = lo, idx = 1; v <= hi; v++, idx++) {
-    out.push({ text: String(v), orderNumber: idx });
+    out.push({ text: String(v), orderNumber: idx - 1 });
   }
   return out;
 }
