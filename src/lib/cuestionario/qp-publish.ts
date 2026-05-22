@@ -213,9 +213,11 @@ function canonicalToQpQuestionPayload(
     type: "multiplechoice_radio",
     text,
     code,
-    // QuestionPro usa orden 0-based al crear preguntas: en una encuesta vacía
-    // sólo acepta orderNumber=0.
-    orderNumber: questionIndex,
+    // QP valida `orderNumber` como 0-based, pero al crear preguntas lo interpreta
+    // como posición de inserción desde el final del bloque. Mandar 0 en cada
+    // POST appendea la pregunta debajo de las ya creadas y conserva el orden
+    // del cuestionario canónico.
+    orderNumber: 0,
     required: false,
   };
 
@@ -294,7 +296,7 @@ function canonicalToQpQuestionPayload(
         payload: {
           ...base,
           type: "text_multiple_row",
-          rows: [{ text: "Respuesta" }],
+          rows: [textQuestionRow(text)],
         },
         perQuestionWarnings: warnings,
       };
@@ -304,7 +306,7 @@ function canonicalToQpQuestionPayload(
         payload: {
           ...base,
           type: "text_single_row",
-          rows: [{ text: "Respuesta" }],
+          rows: [textQuestionRow(text)],
         },
         perQuestionWarnings: warnings,
       };
@@ -317,7 +319,7 @@ function canonicalToQpQuestionPayload(
         payload: {
           ...base,
           type: "text_single_row",
-          rows: [{ text: "Respuesta" }],
+          rows: [textQuestionRow(text)],
         },
         perQuestionWarnings: warnings,
       };
@@ -340,7 +342,7 @@ function canonicalToQpQuestionPayload(
         payload: {
           ...base,
           type: "text_single_row",
-          rows: [{ text: "Respuesta" }],
+          rows: [textQuestionRow(text)],
         },
         perQuestionWarnings: warnings,
       };
@@ -354,6 +356,14 @@ function optionsToAnswers(
     text: o.texto.trim() || `Opción ${i + 1}`,
     orderNumber: i,
   }));
+}
+
+/**
+ * En preguntas de texto, QP muestra el texto visible desde `rows[].text`.
+ * Si mandamos una fila genérica ("Respuesta"), la pregunta queda mal rotulada.
+ */
+function textQuestionRow(text: string): { text: string } {
+  return { text: text.trim() || "Respuesta" };
 }
 
 /**

@@ -1,0 +1,150 @@
+Cuestionario de prueba - tipos mixtos
+Pais: Argentina
+Idioma: es
+Fecha: 2026-05-22
+
+Objetivo:
+Probar que la app pueda leer un PDF con preguntas de distintos tipos y convertirlo en un cuestionario estructurado para QuestionPro.
+
+Instrucciones para el encuestado:
+Lee cada pregunta y responde segun corresponda. Cuando la pregunta indique "una sola opcion", marca una unica respuesta. Cuando indique "todas las que correspondan", podes marcar mas de una.
+
+SECCION 1 - Perfil del encuestado
+
+P1. Edad
+Tipo: numerica
+Rango permitido: minimo 18, maximo 75
+Texto de la pregunta: ¿Cual es tu edad en años cumplidos?
+
+P2. Fecha de nacimiento
+Tipo: fecha
+Formato esperado: DD/MM/AAAA
+Texto de la pregunta: ¿Cual es tu fecha de nacimiento?
+
+P3. Region de residencia
+Tipo: cerrada_unica
+Texto de la pregunta: ¿En que region vivis actualmente? Elegi una sola opcion.
+Opciones:
+1. AMBA
+2. Provincia de Buenos Aires
+3. Centro
+4. Cuyo
+5. Noroeste
+6. Noreste
+7. Patagonia
+
+SECCION 2 - Habitos de compra
+
+P4. Frecuencia de compra online
+Tipo: escala
+Rango: 1 a 5
+Texto de la pregunta: En los ultimos 3 meses, ¿con que frecuencia compraste productos por internet?
+Opciones de escala:
+1. Nunca
+2. Rara vez
+3. Algunas veces
+4. Frecuentemente
+5. Muy frecuentemente
+
+P5. Categorias compradas
+Tipo: cerrada_multiple
+Texto de la pregunta: ¿Que categorias compraste por internet en los ultimos 3 meses? Selecciona todas las que correspondan.
+Opciones:
+1. Alimentos y bebidas
+2. Indumentaria
+3. Tecnologia
+4. Belleza y cuidado personal
+5. Hogar y decoracion
+6. Medicamentos o farmacia
+7. Ninguna de estas
+
+P6. Ranking de factores de eleccion
+Tipo: ranking
+Texto de la pregunta: Ordena los siguientes factores segun su importancia al elegir una tienda online, donde 1 es el mas importante.
+Opciones para ordenar:
+1. Precio
+2. Tiempo de entrega
+3. Variedad de productos
+4. Confianza en la marca
+5. Facilidad de pago
+
+SECCION 3 - Evaluacion de experiencia
+
+P7. Satisfaccion general
+Tipo: escala
+Rango: 1 a 10
+Texto de la pregunta: Pensando en tu ultima compra online, ¿que tan satisfecho/a quedaste con la experiencia general?
+Opciones de escala:
+1. 1 - Nada satisfecho/a
+2. 2
+3. 3
+4. 4
+5. 5
+6. 6
+7. 7
+8. 8
+9. 9
+10. 10 - Muy satisfecho/a
+
+P8. Evaluacion por atributo
+Tipo: matriz
+Texto de la pregunta: Pensando en tu ultima compra online, indica tu nivel de acuerdo con cada afirmacion.
+Filas:
+1. El sitio fue facil de usar
+2. La informacion del producto fue clara
+3. El precio fue conveniente
+4. La entrega llego en el plazo prometido
+Columnas:
+1. Totalmente en desacuerdo
+2. En desacuerdo
+3. Ni de acuerdo ni en desacuerdo
+4. De acuerdo
+5. Totalmente de acuerdo
+
+P9. Problemas durante la compra
+Tipo: cerrada_multiple
+Texto de la pregunta: ¿Tuviste alguno de estos problemas durante la compra? Selecciona todas las opciones que correspondan.
+Opciones:
+1. Problemas para pagar
+2. Error en el sitio o la app
+3. Falta de stock
+4. Demora en la entrega
+5. Producto distinto al esperado
+6. No tuve problemas
+
+P10. Comentario abierto
+Tipo: abierta_texto
+Texto de la pregunta: ¿Que mejorarias de la experiencia de compra online?
+
+SECCION 4 - Intencion futura
+
+P11. Probabilidad de recompra
+Tipo: escala
+Rango: 1 a 5
+Texto de la pregunta: ¿Que tan probable es que vuelvas a comprar en la misma tienda durante el proximo mes?
+Opciones de escala:
+1. Nada probable
+2. Poco probable
+3. Ni probable ni improbable
+4. Probable
+5. Muy probable
+
+P12. Fecha estimada de proxima compra
+Tipo: fecha
+Formato esperado: DD/MM/AAAA
+Texto de la pregunta: Si tuvieras que estimar una fecha, ¿cuando seria tu proxima compra online?
+
+P13. Monto estimado de proxima compra
+Tipo: numerica
+Rango permitido: minimo 0, maximo 1000000
+Texto de la pregunta: ¿Cuanto estimas gastar en tu proxima compra online, en pesos argentinos?
+
+P14. Motivo principal para volver a comprar
+Tipo: abierta_texto
+Texto de la pregunta: ¿Cual seria el motivo principal por el que volverias a comprar en esa tienda?
+
+Resumen de secciones:
+1. Perfil del encuestado: P1, P2, P3
+2. Habitos de compra: P4, P5, P6
+3. Evaluacion de experiencia: P7, P8, P9, P10
+4. Intencion futura: P11, P12, P13, P14

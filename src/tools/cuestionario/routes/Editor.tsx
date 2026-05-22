@@ -1,14 +1,15 @@
-// Editor tipado del cuestionario (Iteración 4).
+// Editor tipado del cuestionario (Iteración 4 + rediseño Validador UX).
 //
-// Reemplaza al `EditorRaw` provisorio: lista de tarjetas de pregunta con UI
-// específica por tipo, drag & drop para reordenar, validación inline de
+// Workspace de "pregunta única en foco": mini-mapa lateral con todas las
+// preguntas + stepper horizontal con círculos numerados arriba + card con la
+// pregunta enfocada. Navegación con teclado (← / →). Validación inline de
 // checks deterministicos (sin IA — eso es on-demand desde el reporte).
 //
 // Tiene un toggle "Modo código" para volver al textarea raw cuando el
 // usuario quiere editar el JSON canónico a mano. Los dos modos comparten
 // state local; cambiar de modo no pierde cambios sin guardar.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -31,7 +32,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
 import { runDeterministicChecks } from "@/lib/cuestionario/checks";
 import {
   getQuestionnaire,
@@ -47,6 +47,34 @@ import {
 } from "@/lib/cuestionario/types";
 import { MetadataPanel } from "./editor/MetadataPanel";
 import { QuestionCard } from "./editor/QuestionCard";
+import {
+  QuestionStepper,
+  type StepperItem,
+  type StepStatus,
+} from "./editor/QuestionStepper";
+import {
+  QuestionMiniMap,
+  type MiniMapItem,
+} from "./editor/QuestionMiniMap";
+
+const QUESTION_TYPE_LABEL: Record<QuestionType, string> = {
+  cerrada_unica: "Cerrada única",
+  cerrada_multiple: "Cerrada múltiple",
+  escala: "Escala",
+  matriz: "Matriz",
+  abierta_texto: "Abierta · texto",
+  abierta_marca: "Abierta · marca",
+  numerica: "Numérica",
+  ranking: "Ranking",
+  fecha: "Fecha",
+};
+
+function deriveStatus(q: Question, issues: QCIssue[]): StepStatus {
+  if (issues.some((i) => i.severidad === "error")) return "err";
+  if (issues.some((i) => i.severidad !== "error")) return "warn";
+  if (!q.texto || !q.texto.trim()) return "empty";
+  return "ok";
+}
 
 type EditorMode = "typed" | "code";
 
@@ -55,8 +83,6 @@ export interface EditorProps {
   onBack: () => void;
   onOpenReport: () => void;
 }
-
-const DRAG_MIME = "application/x-cuestionario-question-index";
 
 export function Editor({ questionnaireId, onBack, onOpenReport }: EditorProps) {
   const [row, setRow] = useState<QuestionnaireRow | null>(null);
@@ -72,6 +98,11 @@ export function Editor({ questionnaireId, onBack, onOpenReport }: EditorProps) {
   const [savedAt, setSavedAt] = useState<Date | null>(null);
 
   const [mode, setMode] = useState<EditorMode>("typed");
+
+  // Índice de la pregunta enfocada (single-focus). Se mantiene a nivel del
+  // Editor para que sobreviva a re-renders del subárbol y para que el handler
+  // de teclado pueda actualizar el foco sin pasar por TypedMode.
+  const [activeIndex, setActiveIndex] = useState(0);
 
   // Estado del modo código: el textarea trabaja con un string que puede ser
   // momentáneamente JSON inválido; sólo se parsea al cambiar de modo o guardar.
@@ -231,6 +262,8 @@ export function Editor({ questionnaireId, onBack, onOpenReport }: EditorProps) {
           opciones: [],
           flujo: [],
         };
+        // Mover el foco a la pregunta recién creada.
+        setActiveIndex(cur.preguntas.length);
         return { ...cur, preguntas: [...cur.preguntas, newQ] };
       });
     },
@@ -239,12 +272,16 @@ export function Editor({ questionnaireId, onBack, onOpenReport }: EditorProps) {
 
   const deleteQuestion = useCallback(
     (index: number) => {
-      updateDraft((cur) => ({
-        ...cur,
-        preguntas: cur.preguntas
+      updateDraft((cur) => {
+        const next = cur.preguntas
           .filter((_, i) => i !== index)
-          .map((p, i) => ({ ...p, numero: i + 1 })),
-      }));
+          .map((p, i) => ({ ...p, numero: i + 1 }));
+        // Clampear el foco: si borraste la última, retrocedé una.
+        setActiveIndex((cur) =>
+          Math.max(0, Math.min(cur, next.length - 1))
+        );
+        return { ...cur, preguntas: next };
+      });
     },
     [updateDraft]
   );
@@ -263,6 +300,8 @@ export function Editor({ questionnaireId, onBack, onOpenReport }: EditorProps) {
         };
         const preguntas = [...cur.preguntas];
         preguntas.splice(index + 1, 0, clone);
+        // Saltar el foco al clon.
+        setActiveIndex(index + 1);
         return {
           ...cur,
           preguntas: preguntas.map((p, i) => ({ ...p, numero: i + 1 })),
@@ -280,6 +319,8 @@ export function Editor({ questionnaireId, onBack, onOpenReport }: EditorProps) {
         const preguntas = [...cur.preguntas];
         const [moved] = preguntas.splice(from, 1);
         preguntas.splice(to, 0, moved);
+        // Seguir el item movido para que el foco no se desincronice.
+        setActiveIndex(to);
         return {
           ...cur,
           preguntas: preguntas.map((p, i) => ({ ...p, numero: i + 1 })),
@@ -288,6 +329,44 @@ export function Editor({ questionnaireId, onBack, onOpenReport }: EditorProps) {
     },
     [updateDraft]
   );
+
+  // Clamp del foco cuando cambia el largo de la lista (carga inicial,
+  // recarga, etc.) — protege contra activeIndex > preguntas.length-1.
+  useEffect(() => {
+    if (!draft) return;
+    const max = Math.max(0, draft.preguntas.length - 1);
+    setActiveIndex((i) => Math.min(Math.max(0, i), max));
+  }, [draft?.preguntas.length]);
+
+  // Navegación con teclado: ← / → entre preguntas. Se ignora cuando el foco
+  // está sobre un input editable (textarea, input, contenteditable) para no
+  // robar las flechas del cursor de texto.
+  useEffect(() => {
+    if (mode !== "typed") return;
+    if (!draft) return;
+    const total = draft.preguntas.length;
+    if (total <= 1) return;
+    function isEditableTarget(el: EventTarget | null): boolean {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+      if (el.isContentEditable) return true;
+      return false;
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if (isEditableTarget(e.target)) return;
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        setActiveIndex((i) => Math.min(total - 1, i + 1));
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setActiveIndex((i) => Math.max(0, i - 1));
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mode, draft?.preguntas.length]);
 
   // ----- render -----
 
@@ -377,6 +456,11 @@ export function Editor({ questionnaireId, onBack, onOpenReport }: EditorProps) {
       {mode === "typed" ? (
         <TypedMode
           draft={draft}
+          activeIndex={Math.min(
+            Math.max(0, activeIndex),
+            Math.max(0, draft.preguntas.length - 1)
+          )}
+          onActiveIndexChange={setActiveIndex}
           issuesByQuestion={issuesByQuestion}
           globalIssues={globalIssues}
           disabled={saving}
@@ -580,11 +664,25 @@ function InlineSummary({
 }
 
 // ---------------------------------------------------------------------------
-// Modo tipado: metadata + lista de cards
+// Modo tipado: metadata + workspace de pregunta única en foco
 // ---------------------------------------------------------------------------
+//
+// Layout (Validador UX rediseño):
+//   ┌───────────────────────────────────────────┐
+//   │ MetadataPanel (colapsable)                │
+//   │ Issues globales                           │
+//   │ ┌─Mapa──┐  ┌─Stepper P1 P2 P3 … +───────┐ │
+//   │ │ rail  │  ├──────────────────────────  │ │
+//   │ │ lista │  │ QuestionCard (pregunta en  │ │
+//   │ │ + %   │  │  foco, una sola)           │ │
+//   │ │       │  └────────────────────────────┘ │
+//   │ └───────┘                                 │
+//   └───────────────────────────────────────────┘
 
 interface TypedModeProps {
   draft: Questionnaire;
+  activeIndex: number;
+  onActiveIndexChange: (next: number) => void;
   issuesByQuestion: Map<string, QCIssue[]>;
   globalIssues: QCIssue[];
   disabled: boolean;
@@ -598,6 +696,8 @@ interface TypedModeProps {
 
 function TypedMode({
   draft,
+  activeIndex,
+  onActiveIndexChange,
   issuesByQuestion,
   globalIssues,
   disabled,
@@ -608,41 +708,27 @@ function TypedMode({
   onDuplicateQuestion,
   onMoveQuestion,
 }: TypedModeProps) {
-  // El índice "arrastrado" para feedback visual del drop target.
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-  const dragSourceRef = useRef<number | null>(null);
+  const stepperItems: StepperItem[] = useMemo(
+    () =>
+      draft.preguntas.map((p) => ({
+        code: p.id || `#${p.numero}`,
+        status: deriveStatus(p, issuesByQuestion.get(p.id) ?? []),
+      })),
+    [draft.preguntas, issuesByQuestion]
+  );
 
-  function handleDragStart(index: number) {
-    return (e: React.DragEvent) => {
-      dragSourceRef.current = index;
-      e.dataTransfer.effectAllowed = "move";
-      // Usamos el MIME custom para que el drop sólo aplique entre cards de
-      // esta lista, no con cualquier elemento del SO.
-      e.dataTransfer.setData(DRAG_MIME, String(index));
-    };
-  }
+  const miniMapItems: MiniMapItem[] = useMemo(
+    () =>
+      draft.preguntas.map((p, i) => ({
+        code: stepperItems[i]?.code ?? p.id,
+        status: stepperItems[i]?.status ?? "empty",
+        text: p.texto,
+        typeLabel: QUESTION_TYPE_LABEL[p.tipo],
+      })),
+    [draft.preguntas, stepperItems]
+  );
 
-  function handleDragOver(index: number) {
-    return (e: React.DragEvent) => {
-      if (!e.dataTransfer.types.includes(DRAG_MIME)) return;
-      e.preventDefault();
-      setDragOverIndex(index);
-    };
-  }
-
-  function handleDrop(index: number) {
-    return (e: React.DragEvent) => {
-      if (!e.dataTransfer.types.includes(DRAG_MIME)) return;
-      e.preventDefault();
-      const raw = e.dataTransfer.getData(DRAG_MIME);
-      const from = parseInt(raw, 10);
-      if (Number.isFinite(from)) {
-        onMoveQuestion(from, index);
-      }
-      dragSourceRef.current = null;
-      setDragOverIndex(null);
-    };
-  }
+  const focused = draft.preguntas[activeIndex];
 
   return (
     <div className="flex flex-col gap-4">
@@ -680,7 +766,6 @@ function TypedMode({
 
       <Separator />
 
-      {/* Lista de preguntas */}
       {draft.preguntas.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-10 text-center text-sm text-muted-foreground">
@@ -693,50 +778,52 @@ function TypedMode({
           </CardContent>
         </Card>
       ) : (
-        <div className="flex flex-col gap-3">
-          {draft.preguntas.map((q, i) => (
-            <div
-              key={`${q.id}-${i}`}
-              className={cn(
-                dragOverIndex === i &&
-                  dragSourceRef.current !== i &&
-                  "ring-2 ring-primary/40 rounded-lg"
-              )}
-            >
+        <div className="grid gap-4 md:grid-cols-[280px_1fr]">
+          {/* Rail izquierdo: mini-mapa */}
+          <QuestionMiniMap
+            items={miniMapItems}
+            active={activeIndex}
+            onPick={onActiveIndexChange}
+            onAddQuestion={onAddQuestion}
+            disabled={disabled}
+          />
+
+          {/* Canvas: stepper + pregunta en foco */}
+          <div className="flex min-w-0 flex-col gap-3">
+            <QuestionStepper
+              items={stepperItems}
+              active={activeIndex}
+              onPick={onActiveIndexChange}
+              onAdd={onAddQuestion}
+              disabled={disabled}
+            />
+
+            {focused && (
               <QuestionCard
-                value={q}
-                index={i}
+                key={`${focused.id}-${activeIndex}`}
+                value={focused}
+                index={activeIndex}
                 totalCount={draft.preguntas.length}
-                issues={issuesByQuestion.get(q.id) ?? []}
-                onChange={(next) => onQuestionChange(i, next)}
+                issues={issuesByQuestion.get(focused.id) ?? []}
+                onChange={(next) => onQuestionChange(activeIndex, next)}
                 onDelete={() => {
                   if (
                     window.confirm(
-                      `¿Eliminar la pregunta ${q.id || `#${q.numero}`}?`
+                      `¿Eliminar la pregunta ${focused.id || `#${focused.numero}`}?`
                     )
                   ) {
-                    onDeleteQuestion(i);
+                    onDeleteQuestion(activeIndex);
                   }
                 }}
-                onDuplicate={() => onDuplicateQuestion(i)}
-                onMoveUp={() => onMoveQuestion(i, i - 1)}
-                onMoveDown={() => onMoveQuestion(i, i + 1)}
-                onDragStart={handleDragStart(i)}
-                onDragOver={handleDragOver(i)}
-                onDrop={handleDrop(i)}
+                onDuplicate={() => onDuplicateQuestion(activeIndex)}
+                onMoveUp={() => onMoveQuestion(activeIndex, activeIndex - 1)}
+                onMoveDown={() =>
+                  onMoveQuestion(activeIndex, activeIndex + 1)
+                }
                 disabled={disabled}
               />
-            </div>
-          ))}
-          <Button
-            variant="outline"
-            onClick={onAddQuestion}
-            disabled={disabled}
-            className="gap-2"
-          >
-            <Plus className="size-4" />
-            Agregar pregunta
-          </Button>
+            )}
+          </div>
         </div>
       )}
     </div>
