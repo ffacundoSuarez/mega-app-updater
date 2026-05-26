@@ -59,12 +59,30 @@ pub struct CreateQuestionParams {
     pub payload: Value,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateBlockParams {
+    pub survey_id: String,
+    pub api_key: String,
+    pub title: String,
+    pub order_number: i64,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreatedQuestion {
     pub question_id: i64,
     pub block_id: Option<i64>,
     pub order_number: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatedBlock {
+    pub block_id: i64,
+    pub survey_id: i64,
+    pub title: String,
+    pub order_number: i64,
 }
 
 #[tauri::command]
@@ -132,6 +150,68 @@ pub async fn questionpro_create_survey(
             .and_then(Value::as_str)
             .unwrap_or("Unknown")
             .to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn questionpro_create_block(
+    params: CreateBlockParams,
+) -> Result<CreatedBlock, QuestionproError> {
+    let survey_id = params.survey_id.trim();
+    let api_key = params.api_key.trim();
+    let title = params.title.trim();
+    if survey_id.is_empty() {
+        return Err(QuestionproError::InvalidParam(
+            "Falta el Survey ID de QuestionPro".into(),
+        ));
+    }
+    if api_key.is_empty() {
+        return Err(QuestionproError::InvalidParam(
+            "Falta la API key de QuestionPro".into(),
+        ));
+    }
+    if title.is_empty() {
+        return Err(QuestionproError::InvalidParam(
+            "El título del bloque no puede estar vacío".into(),
+        ));
+    }
+
+    let body = json!({
+        "title": title,
+        "orderNumber": params.order_number,
+    });
+    let client = reqwest::Client::new();
+    let res = client
+        .post(format!("{QP_API_BASE}/surveys/{survey_id}/blocks"))
+        .header("api-key", api_key)
+        .json(&body)
+        .send()
+        .await?;
+
+    let data = json_response(res).await?;
+    let response = data
+        .get("response")
+        .ok_or_else(|| QuestionproError::UnexpectedResponse(data.to_string()))?;
+    let block_id = response
+        .get("blockID")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| QuestionproError::UnexpectedResponse(data.to_string()))?;
+
+    Ok(CreatedBlock {
+        block_id,
+        survey_id: response
+            .get("surveyID")
+            .and_then(Value::as_i64)
+            .unwrap_or_else(|| survey_id.parse::<i64>().unwrap_or_default()),
+        title: response
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or(title)
+            .to_string(),
+        order_number: response
+            .get("orderNumber")
+            .and_then(Value::as_i64)
+            .unwrap_or(params.order_number),
     })
 }
 

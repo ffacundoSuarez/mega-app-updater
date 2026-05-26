@@ -21,6 +21,7 @@
 import {
   createQuestion,
   createSurvey,
+  createSurveyBlock,
   type QPCreateQuestionPayload,
 } from "@/lib/questionpro";
 import type { Question, Questionnaire, QuestionOption } from "./types";
@@ -116,6 +117,11 @@ export async function publishQuestionnaireToQp(
 
   const warnings: string[] = [];
   const published: Array<{ canonicalId: string; qpQuestionId: number }> = [];
+  const blockByQuestionId = await createBlocksForSections(
+    qpSurveyId,
+    opts.apiKey,
+    questionnaire
+  );
 
   // 2) Publicar preguntas en orden. La cancelación se chequea entre llamadas
   //    para no abandonar una request en vuelo (mismo patrón que cleaning-job).
@@ -132,6 +138,8 @@ export async function publishQuestionnaireToQp(
       q,
       i
     );
+    const blockID = blockByQuestionId.get(q.id);
+    if (blockID != null) payload.blockID = blockID;
     warnings.push(...perQuestionWarnings);
 
     try {
@@ -165,12 +173,6 @@ export async function publishQuestionnaireToQp(
       `Skip-logic no se mapea automáticamente: ${totalCondiciones} condiciones de pregunta y ${totalFlujos} reglas de flujo quedaron pendientes. Configuralas en el panel de QuestionPro.`
     );
   }
-  if (questionnaire.secciones.length > 0) {
-    warnings.push(
-      `Se publicaron ${questionnaire.secciones.length} secciones como referencia interna pero QP las agrupa con "blocks" que no estamos creando todavía — revisá el agrupamiento en el panel.`
-    );
-  }
-
   return {
     qp_survey_id: qpSurveyId,
     qp_survey_url: created.url,
@@ -346,7 +348,39 @@ function canonicalToQpQuestionPayload(
         },
         perQuestionWarnings: warnings,
       };
+
+    case "comentario":
+      return {
+        payload: {
+          ...base,
+          type: "static_presentation_text",
+          required: false,
+        },
+        perQuestionWarnings: warnings,
+      };
   }
+}
+
+async function createBlocksForSections(
+  surveyId: string,
+  apiKey: string,
+  questionnaire: Questionnaire
+): Promise<Map<string, number>> {
+  const blockByQuestionId = new Map<string, number>();
+  const sections = questionnaire.secciones.filter(
+    (section) => section.nombre.trim() && section.preguntas.length > 0
+  );
+  for (let i = 0; i < sections.length; i++) {
+    const section = sections[i];
+    const created = await createSurveyBlock(surveyId, apiKey, {
+      title: section.nombre,
+      orderNumber: i + 1,
+    });
+    for (const questionId of section.preguntas) {
+      blockByQuestionId.set(questionId, created.blockID);
+    }
+  }
+  return blockByQuestionId;
 }
 
 function optionsToAnswers(

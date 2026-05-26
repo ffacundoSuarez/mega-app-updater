@@ -12,6 +12,7 @@
  */
 
 import {
+  questionproCreateBlock,
   questionproCreateQuestion,
   questionproCreateSurvey,
 } from "@/lib/tauri";
@@ -518,6 +519,13 @@ export interface QPCreatedSurvey {
   status: string;
 }
 
+export interface QPCreatedBlock {
+  blockID: number;
+  surveyID: number;
+  title: string;
+  orderNumber: number;
+}
+
 /**
  * Crea una encuesta vacía bajo el usuario `userId`. La API de QP la crea con
  * `status: "Active"` según la doc, pero **sin preguntas**, así que en la
@@ -560,6 +568,7 @@ export async function createSurvey(
  * caller (`qp-publish.ts`) arma el shape correcto y nosotros sólo lo POST'eamos.
  */
 export interface QPCreateQuestionPayload {
+  blockID?: number;
   type: string;
   text: string;
   code?: string;
@@ -578,6 +587,29 @@ export interface QPCreateQuestionPayload {
   maxValue?: number;
   step?: number;
   anchor?: { leftAnchor?: string; rightAnchor?: string };
+}
+
+/** Crea un bloque/sección dentro de una encuesta QP. */
+export async function createSurveyBlock(
+  surveyId: string,
+  apiKey: string,
+  input: { title: string; orderNumber: number }
+): Promise<QPCreatedBlock> {
+  if (!input.title.trim()) {
+    throw new Error("El título del bloque no puede estar vacío");
+  }
+  const created = await questionproCreateBlock({
+    surveyId,
+    apiKey,
+    title: input.title.trim(),
+    orderNumber: input.orderNumber,
+  });
+  return {
+    blockID: created.blockId,
+    surveyID: created.surveyId,
+    title: created.title,
+    orderNumber: created.orderNumber,
+  };
 }
 
 export interface QPCreatedQuestion {

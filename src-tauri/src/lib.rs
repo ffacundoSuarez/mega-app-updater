@@ -45,6 +45,7 @@ pub fn run() {
             commands::python::run_python_hello,
             commands::brand_audit::run_brand_audit,
             commands::questionpro::questionpro_create_survey,
+            commands::questionpro::questionpro_create_block,
             commands::questionpro::questionpro_create_question,
         ])
         .run(tauri::generate_context!())

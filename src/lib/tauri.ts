@@ -111,6 +111,31 @@ export function questionproCreateSurvey(
   });
 }
 
+/** Payload para crear un bloque/sección en QP desde Rust. */
+export interface QuestionproCreateBlockParams {
+  surveyId: string;
+  apiKey: string;
+  title: string;
+  orderNumber: number;
+}
+
+/** Shape devuelto por `questionpro_create_block` en Rust. */
+export interface QuestionproCreatedBlock {
+  blockId: number;
+  surveyId: number;
+  title: string;
+  orderNumber: number;
+}
+
+/** Crea un bloque en QuestionPro desde el backend local Tauri. */
+export function questionproCreateBlock(
+  params: QuestionproCreateBlockParams,
+): Promise<QuestionproCreatedBlock> {
+  return invoke<QuestionproCreatedBlock>("questionpro_create_block", {
+    params,
+  });
+}
+
 /** Payload para crear una pregunta en QP desde Rust. */
 export interface QuestionproCreateQuestionParams {
   surveyId: string;

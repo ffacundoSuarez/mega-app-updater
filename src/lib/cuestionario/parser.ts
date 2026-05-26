@@ -16,7 +16,8 @@
  *
  * Convenciones (heredadas de cleaning-service.ts):
  *   - `fetch` directo a /v1/chat/completions, sin SDK.
- *   - `response_format: json_object`, temperature 0 + seed 42 para determinismo.
+ *   - `response_format: json_object` + `reasoning_effort: "minimal"` para
+ *     alinear con el Limpiador en gpt-5-mini.
  *   - Errores del modelo se traducen a `ParseError` con un mensaje accionable
  *     en español; nunca devolvemos un Questionnaire silenciosamente vacío.
  *
@@ -24,7 +25,7 @@
  * `coerceQuestionnaire`, igual que cleaning-service hace para sus respuestas.
  */
 
-import { getOpenaiApiKey } from "@/lib/settings";
+import { DEFAULT_CUESTIONARIO_MODEL, getOpenaiApiKey } from "@/lib/settings";
 import type {
   FlowRule,
   OptionCondition,
@@ -48,6 +49,7 @@ const VALID_TYPES: readonly QuestionType[] = [
   "numerica",
   "ranking",
   "fecha",
+  "comentario",
 ];
 
 const VALID_OPTION_CONDITIONS: readonly OptionCondition[] = [
@@ -57,7 +59,7 @@ const VALID_OPTION_CONDITIONS: readonly OptionCondition[] = [
 ];
 
 export interface ParseOptions {
-  /** Override del modelo. Default: "gpt-4o-mini". */
+  /** Override del modelo. Default: "gpt-5-mini". */
   model?: string;
   /** Sugerencia de título; si la IA detecta uno mejor en el texto, lo respeta. */
   hintTitulo?: string;
@@ -103,7 +105,7 @@ export async function parseTextToQuestionnaire(
   const apiKey = await getOpenaiApiKey();
   if (!apiKey) throw new MissingOpenaiApiKeyError();
 
-  const model = opts.model ?? "gpt-4o-mini";
+  const model = opts.model ?? DEFAULT_CUESTIONARIO_MODEL;
 
   const body = {
     model,
@@ -112,9 +114,8 @@ export async function parseTextToQuestionnaire(
       { role: "user", content: buildUserPrompt(text, opts) },
     ],
     response_format: { type: "json_object" },
-    temperature: 0,
-    seed: 42,
-    max_completion_tokens: 6000,
+    reasoning_effort: "minimal",
+    max_completion_tokens: 16000,
   };
 
   let res: Response;
@@ -283,7 +284,8 @@ const SYSTEM_PROMPT = `Sos un asistente que estructura cuestionarios de encuesta
 Reglas estrictas:
 - Devolvé SIEMPRE un objeto JSON con exactamente estas claves de nivel superior: { "metadata": {...}, "preguntas": [...], "secciones": [...] }.
 - Cada pregunta tiene: { "id", "numero", "texto", "tipo", "condicion", "aleatorizar", "opciones", "flujo" } y opcionalmente "min", "max", "enunciados".
-- Tipos válidos (uno y sólo uno por pregunta): cerrada_unica, cerrada_multiple, escala, matriz, abierta_texto, abierta_marca, numerica, ranking, fecha.
+- Tipos válidos (uno y sólo uno por pregunta): cerrada_unica, cerrada_multiple, escala, matriz, abierta_texto, abierta_marca, numerica, ranking, fecha, comentario.
+- Usá tipo "comentario" para textos informativos, introducciones, instrucciones o separadores que se muestran al participante pero no esperan respuesta.
 - "id" es un identificador corto y único de la pregunta. Preferí lo que use el cuestionario (ej. "P1", "S2", "F5"). Si el cuestionario no tiene IDs, generalos como "P1", "P2", ... siguiendo el orden.
 - "numero" es la posición 1-based en el orden del cuestionario.
 - "condicion" es la expresión lógica que controla si la pregunta se muestra (ej. "S1=3"). Si no aplica, mandá "".

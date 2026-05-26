@@ -37,6 +37,15 @@ import type {
 } from "@/lib/cuestionario/types";
 import { OptionsEditor } from "./OptionsEditor";
 import { FlowEditor } from "./FlowEditor";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const NONE_SECTION = "__none__";
 
 const QUESTION_TYPES: QuestionType[] = [
   "cerrada_unica",
@@ -48,6 +57,7 @@ const QUESTION_TYPES: QuestionType[] = [
   "numerica",
   "ranking",
   "fecha",
+  "comentario",
 ];
 
 const TYPE_LABEL: Record<QuestionType, string> = {
@@ -60,6 +70,7 @@ const TYPE_LABEL: Record<QuestionType, string> = {
   numerica: "Numérica",
   ranking: "Ranking",
   fecha: "Fecha",
+  comentario: "Comentario",
 };
 
 const TYPES_WITH_OPTIONS: QuestionType[] = [
@@ -84,6 +95,11 @@ export interface QuestionCardProps {
   onDuplicate: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
+  /** Bloques disponibles en el cuestionario. */
+  sections?: string[];
+  /** Bloque al que pertenece esta pregunta (`undefined`/null = ninguno). */
+  sectionName?: string | null;
+  onSectionChange?: (sectionName: string | null) => void;
   /** Handlers para drag & drop. Opcionales: la vista single-focus del editor
    *  no muestra más de una card a la vez, así que no necesita reordenar por
    *  drag (usa el mini-map o los botones up/down). */
@@ -103,6 +119,9 @@ export function QuestionCard({
   onDuplicate,
   onMoveUp,
   onMoveDown,
+  sections = [],
+  sectionName = null,
+  onSectionChange,
   onDragStart,
   onDragOver,
   onDrop,
@@ -219,6 +238,34 @@ export function QuestionCard({
               <Trash2 className="size-3.5 text-muted-foreground" />
             </Button>
           </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={`q-section-${q.id}`}>Bloque / sección</Label>
+          <Select
+            value={sectionName ?? NONE_SECTION}
+            onValueChange={(v) =>
+              onSectionChange?.(v === NONE_SECTION ? null : v)
+            }
+            disabled={disabled || !onSectionChange}
+          >
+            <SelectTrigger id={`q-section-${q.id}`} className="w-full max-w-md">
+              <SelectValue placeholder="Ninguna" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE_SECTION}>Ninguna</SelectItem>
+              {sections.map((name) => (
+                <SelectItem key={name} value={name}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {sections.length === 0 && (
+            <p className="text-[11px] text-muted-foreground">
+              Todavía no hay bloques. Creá uno desde el mapa lateral.
+            </p>
+          )}
         </div>
 
         {/* Texto */}

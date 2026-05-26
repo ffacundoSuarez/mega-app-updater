@@ -67,6 +67,7 @@ const QUESTION_TYPE_LABEL: Record<QuestionType, string> = {
   numerica: "Numérica",
   ranking: "Ranking",
   fecha: "Fecha",
+  comentario: "Comentario",
 };
 
 function deriveStatus(q: Question, issues: QCIssue[]): StepStatus {
@@ -330,6 +331,132 @@ export function Editor({ questionnaireId, onBack, onOpenReport }: EditorProps) {
     [updateDraft]
   );
 
+  const addSection = useCallback(
+    (nombre: string, questionIds: string[]) => {
+      const trimmed = nombre.trim();
+      if (!trimmed) return;
+      updateDraft((cur) => {
+        if (cur.secciones.some((s) => s.nombre === trimmed)) {
+          window.alert(`Ya existe un bloque llamado "${trimmed}".`);
+          return cur;
+        }
+
+        const idSet = new Set(questionIds);
+        let secciones = cur.secciones
+          .map((s) => ({
+            ...s,
+            preguntas: s.preguntas.filter((id) => !idSet.has(id)),
+          }))
+          .filter((s) => s.preguntas.length > 0);
+
+        const validIds = questionIds.filter((id) =>
+          cur.preguntas.some((p) => p.id === id)
+        );
+
+        secciones = normalizeSectionOrder(
+          [...secciones, { nombre: trimmed, preguntas: validIds }],
+          cur.preguntas
+        );
+
+        const preguntas =
+          validIds.length === 0
+            ? cur.preguntas
+            : reorderQuestionsIntoSection(
+                cur.preguntas,
+                secciones,
+                validIds,
+                trimmed
+              );
+
+        return { ...cur, secciones, preguntas };
+      });
+    },
+    [updateDraft]
+  );
+
+  const renameSection = useCallback(
+    (oldName: string, newName: string) => {
+      const trimmed = newName.trim();
+      if (!trimmed || trimmed === oldName) return;
+      updateDraft((cur) => {
+        if (cur.secciones.some((s) => s.nombre === trimmed && s.nombre !== oldName)) {
+          window.alert(`Ya existe un bloque llamado "${trimmed}".`);
+          return cur;
+        }
+        return {
+          ...cur,
+          secciones: cur.secciones.map((s) =>
+            s.nombre === oldName ? { ...s, nombre: trimmed } : s
+          ),
+        };
+      });
+    },
+    [updateDraft]
+  );
+
+  const deleteSection = useCallback(
+    (name: string, deleteQuestions: boolean) => {
+      updateDraft((cur) => {
+        const section = cur.secciones.find((s) => s.nombre === name);
+        if (!section) return cur;
+        const questionIds = new Set(section.preguntas);
+
+        if (deleteQuestions) {
+          const preguntas = cur.preguntas
+            .filter((p) => !questionIds.has(p.id))
+            .map((p, i) => ({ ...p, numero: i + 1 }));
+          const secciones = normalizeSectionOrder(
+            cur.secciones.filter((s) => s.nombre !== name),
+            preguntas
+          );
+          setActiveIndex((i) => Math.max(0, Math.min(i, preguntas.length - 1)));
+          return { ...cur, preguntas, secciones };
+        }
+
+        return {
+          ...cur,
+          secciones: normalizeSectionOrder(
+            cur.secciones.filter((s) => s.nombre !== name),
+            cur.preguntas
+          ),
+        };
+      });
+    },
+    [updateDraft]
+  );
+
+  const moveQuestionToSection = useCallback(
+    (index: number, sectionName: string | null) => {
+      updateDraft((cur) => {
+        const pregunta = cur.preguntas[index];
+        if (!pregunta) return cur;
+        let secciones = removeQuestionFromSections(cur.secciones, pregunta.id);
+        if (sectionName) {
+          const targetIndex = secciones.findIndex((s) => s.nombre === sectionName);
+          if (targetIndex >= 0) {
+            secciones = secciones.map((s, i) =>
+              i === targetIndex
+                ? { ...s, preguntas: [...s.preguntas, pregunta.id] }
+                : s
+            );
+          } else {
+            secciones = [...secciones, { nombre: sectionName, preguntas: [pregunta.id] }];
+          }
+        }
+        const nextSecciones = normalizeSectionOrder(secciones, cur.preguntas);
+        const preguntas = reorderQuestionIntoSection(
+          cur.preguntas,
+          nextSecciones,
+          pregunta.id,
+          sectionName
+        );
+        setActiveIndex(preguntas.findIndex((p) => p.id === pregunta.id));
+        return { ...cur, secciones: nextSecciones, preguntas };
+      });
+    },
+    [updateDraft]
+  );
+
   // Clamp del foco cuando cambia el largo de la lista (carga inicial,
   // recarga, etc.) — protege contra activeIndex > preguntas.length-1.
   useEffect(() => {
@@ -472,6 +599,10 @@ export function Editor({ questionnaireId, onBack, onOpenReport }: EditorProps) {
           onDeleteQuestion={deleteQuestion}
           onDuplicateQuestion={duplicateQuestion}
           onMoveQuestion={moveQuestion}
+          onAddSection={addSection}
+          onRenameSection={renameSection}
+          onDeleteSection={deleteSection}
+          onMoveQuestionToSection={moveQuestionToSection}
         />
       ) : (
         <CodeMode
@@ -692,6 +823,10 @@ interface TypedModeProps {
   onDeleteQuestion: (index: number) => void;
   onDuplicateQuestion: (index: number) => void;
   onMoveQuestion: (from: number, to: number) => void;
+  onAddSection: (name: string, questionIds: string[]) => void;
+  onRenameSection: (oldName: string, newName: string) => void;
+  onDeleteSection: (name: string, deleteQuestions: boolean) => void;
+  onMoveQuestionToSection: (index: number, sectionName: string | null) => void;
 }
 
 function TypedMode({
@@ -707,7 +842,16 @@ function TypedMode({
   onDeleteQuestion,
   onDuplicateQuestion,
   onMoveQuestion,
+  onAddSection,
+  onRenameSection,
+  onDeleteSection,
+  onMoveQuestionToSection,
 }: TypedModeProps) {
+  const sectionByQuestionId = useMemo(
+    () => buildSectionNameByQuestionId(draft),
+    [draft]
+  );
+
   const stepperItems: StepperItem[] = useMemo(
     () =>
       draft.preguntas.map((p) => ({
@@ -724,8 +868,10 @@ function TypedMode({
         status: stepperItems[i]?.status ?? "empty",
         text: p.texto,
         typeLabel: QUESTION_TYPE_LABEL[p.tipo],
+        questionId: p.id,
+        sectionName: sectionByQuestionId.get(p.id),
       })),
-    [draft.preguntas, stepperItems]
+    [draft.preguntas, stepperItems, sectionByQuestionId]
   );
 
   const focused = draft.preguntas[activeIndex];
@@ -782,9 +928,13 @@ function TypedMode({
           {/* Rail izquierdo: mini-mapa */}
           <QuestionMiniMap
             items={miniMapItems}
+            sections={draft.secciones.map((s) => s.nombre)}
             active={activeIndex}
             onPick={onActiveIndexChange}
             onAddQuestion={onAddQuestion}
+            onAddSection={onAddSection}
+            onRenameSection={onRenameSection}
+            onDeleteSection={onDeleteSection}
             disabled={disabled}
           />
 
@@ -800,11 +950,16 @@ function TypedMode({
 
             {focused && (
               <QuestionCard
-                key={`${focused.id}-${activeIndex}`}
+                key={activeIndex}
                 value={focused}
                 index={activeIndex}
                 totalCount={draft.preguntas.length}
                 issues={issuesByQuestion.get(focused.id) ?? []}
+                sections={draft.secciones.map((s) => s.nombre)}
+                sectionName={sectionByQuestionId.get(focused.id) ?? null}
+                onSectionChange={(name) =>
+                  onMoveQuestionToSection(activeIndex, name)
+                }
                 onChange={(next) => onQuestionChange(activeIndex, next)}
                 onDelete={() => {
                   if (
@@ -919,4 +1074,109 @@ function parseCode(text: string): Questionnaire {
     throw new Error('Falta la clave "secciones" (array).');
   }
   return raw as Questionnaire;
+}
+
+function buildSectionNameByQuestionId(q: Questionnaire): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const section of q.secciones) {
+    const name = section.nombre.trim();
+    if (!name) continue;
+    for (const questionId of section.preguntas) {
+      if (!out.has(questionId)) out.set(questionId, name);
+    }
+  }
+  return out;
+}
+
+function removeQuestionFromSections(
+  sections: Questionnaire["secciones"],
+  questionId: string
+): Questionnaire["secciones"] {
+  return sections
+    .map((section) => ({
+      ...section,
+      preguntas: section.preguntas.filter((id) => id !== questionId),
+    }))
+    .filter((section) => section.preguntas.length > 0);
+}
+
+function normalizeSectionOrder(
+  sections: Questionnaire["secciones"],
+  questions: Question[]
+): Questionnaire["secciones"] {
+  const order = new Map(questions.map((q, i) => [q.id, i]));
+  return sections.map((section) => ({
+    ...section,
+    preguntas: [...new Set(section.preguntas)].sort(
+      (a, b) => (order.get(a) ?? 9999) - (order.get(b) ?? 9999)
+    ),
+  }));
+}
+
+/** Reordena varias preguntas para que queden juntas dentro del bloque destino. */
+function reorderQuestionsIntoSection(
+  preguntas: Question[],
+  secciones: Questionnaire["secciones"],
+  questionIds: string[],
+  targetSectionName: string
+): Question[] {
+  if (questionIds.length === 0) return preguntas;
+  const idSet = new Set(questionIds);
+  const selected = preguntas.filter((p) => idSet.has(p.id));
+  const rest = preguntas.filter((p) => !idSet.has(p.id));
+  const insertAt = findSectionInsertIndex(rest, secciones, targetSectionName);
+  const result = [...rest];
+  result.splice(insertAt, 0, ...selected);
+  return result.map((p, i) => ({ ...p, numero: i + 1 }));
+}
+
+/** Reordena `preguntas` para que la pregunta quede visualmente dentro del bloque destino. */
+function reorderQuestionIntoSection(
+  preguntas: Question[],
+  secciones: Questionnaire["secciones"],
+  questionId: string,
+  targetSectionName: string | null
+): Question[] {
+  const fromIndex = preguntas.findIndex((p) => p.id === questionId);
+  if (fromIndex < 0) return preguntas;
+
+  const moved = preguntas[fromIndex];
+  const rest = preguntas.filter((p) => p.id !== questionId);
+  const insertAt = findSectionInsertIndex(rest, secciones, targetSectionName);
+
+  const result = [...rest];
+  result.splice(insertAt, 0, moved);
+  return result.map((p, i) => ({ ...p, numero: i + 1 }));
+}
+
+function findSectionInsertIndex(
+  preguntas: Question[],
+  secciones: Questionnaire["secciones"],
+  targetSectionName: string | null
+): number {
+  if (targetSectionName === null) {
+    const assigned = new Set(secciones.flatMap((s) => s.preguntas));
+    const firstUnassigned = preguntas.findIndex((q) => !assigned.has(q.id));
+    return firstUnassigned >= 0 ? firstUnassigned : preguntas.length;
+  }
+
+  const section = secciones.find((s) => s.nombre === targetSectionName);
+  if (!section) return preguntas.length;
+
+  const idsInSection = new Set(section.preguntas);
+  let lastIdx = -1;
+  preguntas.forEach((q, i) => {
+    if (idsInSection.has(q.id)) lastIdx = i;
+  });
+  if (lastIdx >= 0) return lastIdx + 1;
+
+  const targetOrder = secciones.findIndex((s) => s.nombre === targetSectionName);
+  for (let s = targetOrder + 1; s < secciones.length; s++) {
+    const next = secciones[s];
+    const firstInNext = preguntas.findIndex((q) =>
+      next.preguntas.includes(q.id)
+    );
+    if (firstInNext >= 0) return firstInNext;
+  }
+  return preguntas.length;
 }

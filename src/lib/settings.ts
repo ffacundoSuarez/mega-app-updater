@@ -136,12 +136,12 @@ export async function setEncryptionKeySetting(
 }
 
 /**
- * Modelos válidos para el Validador de Cuestionarios. La app permite cambiar
- * sólo entre estos para evitar typos que rompan las llamadas a OpenAI.
+ * Modelo usado por el Validador de Cuestionarios. Lo dejamos listado para que
+ * Ajustes mantenga el mismo patrón de UI, pero hoy el validador usa gpt-5-mini.
  */
-export const CUESTIONARIO_MODELS = ["gpt-4o-mini", "gpt-4o"] as const;
+export const CUESTIONARIO_MODELS = ["gpt-5-mini"] as const;
 export type CuestionarioModel = (typeof CUESTIONARIO_MODELS)[number];
-export const DEFAULT_CUESTIONARIO_MODEL: CuestionarioModel = "gpt-4o-mini";
+export const DEFAULT_CUESTIONARIO_MODEL: CuestionarioModel = "gpt-5-mini";
 
 /** Devuelve el modelo configurado o el default si no hay nada guardado / es inválido. */
 export async function getCuestionarioModel(): Promise<CuestionarioModel> {
