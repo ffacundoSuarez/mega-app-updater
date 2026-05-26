@@ -12,6 +12,8 @@
     "bundle:python:force": "powershell -ExecutionPolicy Bypass -NoProfile -File ./scripts/bundle-python.ps1 -Force"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
     "@fontsource-variable/geist": "^5.2.8",
     "@supabase/supabase-js": "^2.105.3",
     "@tailwindcss/vite": "^4.2.2",

@@ -457,6 +457,88 @@ export function Editor({ questionnaireId, onBack, onOpenReport }: EditorProps) {
     [updateDraft]
   );
 
+  const moveSection = useCallback(
+    (from: number, to: number) => {
+      updateDraft((cur) => {
+        if (from === to || from < 0 || to < 0) return cur;
+        if (from >= cur.secciones.length || to >= cur.secciones.length) return cur;
+        const secciones = [...cur.secciones];
+        const [moved] = secciones.splice(from, 1);
+        secciones.splice(to, 0, moved);
+        const preguntas = reorderPreguntasBySectionOrder(cur.preguntas, secciones);
+        return {
+          ...cur,
+          secciones: normalizeSectionOrder(secciones, preguntas),
+          preguntas,
+        };
+      });
+    },
+    [updateDraft]
+  );
+
+  const duplicateSection = useCallback(
+    (name: string) => {
+      updateDraft((cur) => {
+        const origIdx = cur.secciones.findIndex((s) => s.nombre === name);
+        if (origIdx < 0) return cur;
+        const orig = cur.secciones[origIdx];
+
+        // Nombre del clon: "X (copia)", incrementando si ya existe.
+        let cloneName = `${orig.nombre} (copia)`;
+        let n = 2;
+        while (cur.secciones.some((s) => s.nombre === cloneName)) {
+          cloneName = `${orig.nombre} (copia ${n})`;
+          n++;
+        }
+
+        // Clonar las preguntas con IDs nuevos. nextQuestionId mira las
+        // existentes; vamos acumulando para no repetir.
+        const acc = { ...cur, preguntas: [...cur.preguntas] };
+        const newIds: string[] = [];
+        const clones: Question[] = [];
+        for (const qid of orig.preguntas) {
+          const origQ = cur.preguntas.find((p) => p.id === qid);
+          if (!origQ) continue;
+          const newId = nextQuestionId(acc);
+          const clone: Question = {
+            ...origQ,
+            id: newId,
+            opciones: origQ.opciones.map((o) => ({ ...o })),
+            flujo: origQ.flujo.map((f) => ({ ...f })),
+            enunciados: origQ.enunciados?.map((e) => ({ ...e })),
+          };
+          newIds.push(newId);
+          clones.push(clone);
+          acc.preguntas.push(clone);
+        }
+
+        // Insertar la sección clon justo después de la original.
+        const secciones = [...cur.secciones];
+        secciones.splice(origIdx + 1, 0, { nombre: cloneName, preguntas: newIds });
+
+        // Insertar las preguntas clonadas después de las originales del bloque.
+        const lastOrigIdx = (() => {
+          const origIdSet = new Set(orig.preguntas);
+          let last = -1;
+          cur.preguntas.forEach((p, i) => {
+            if (origIdSet.has(p.id)) last = i;
+          });
+          return last;
+        })();
+        const preguntas = [...cur.preguntas];
+        const insertAt = lastOrigIdx >= 0 ? lastOrigIdx + 1 : preguntas.length;
+        preguntas.splice(insertAt, 0, ...clones);
+
+        return {
+          ...cur,
+          secciones: normalizeSectionOrder(secciones, preguntas),
+          preguntas: preguntas.map((p, i) => ({ ...p, numero: i + 1 })),
+        };
+      });
+    },
+    [updateDraft]
+  );
+
   // Clamp del foco cuando cambia el largo de la lista (carga inicial,
   // recarga, etc.) — protege contra activeIndex > preguntas.length-1.
   useEffect(() => {
@@ -603,6 +685,8 @@ export function Editor({ questionnaireId, onBack, onOpenReport }: EditorProps) {
           onRenameSection={renameSection}
           onDeleteSection={deleteSection}
           onMoveQuestionToSection={moveQuestionToSection}
+          onMoveSection={moveSection}
+          onDuplicateSection={duplicateSection}
         />
       ) : (
         <CodeMode
@@ -827,6 +911,8 @@ interface TypedModeProps {
   onRenameSection: (oldName: string, newName: string) => void;
   onDeleteSection: (name: string, deleteQuestions: boolean) => void;
   onMoveQuestionToSection: (index: number, sectionName: string | null) => void;
+  onMoveSection: (from: number, to: number) => void;
+  onDuplicateSection: (name: string) => void;
 }
 
 function TypedMode({
@@ -846,6 +932,8 @@ function TypedMode({
   onRenameSection,
   onDeleteSection,
   onMoveQuestionToSection,
+  onMoveSection,
+  onDuplicateSection,
 }: TypedModeProps) {
   const sectionByQuestionId = useMemo(
     () => buildSectionNameByQuestionId(draft),
@@ -935,6 +1023,10 @@ function TypedMode({
             onAddSection={onAddSection}
             onRenameSection={onRenameSection}
             onDeleteSection={onDeleteSection}
+            onMoveSection={onMoveSection}
+            onDuplicateSection={onDuplicateSection}
+            onMoveQuestion={onMoveQuestion}
+            onMoveQuestionToSection={onMoveQuestionToSection}
             disabled={disabled}
           />
 
@@ -1147,6 +1239,29 @@ function reorderQuestionIntoSection(
   const result = [...rest];
   result.splice(insertAt, 0, moved);
   return result.map((p, i) => ({ ...p, numero: i + 1 }));
+}
+
+/** Reordena el array global de preguntas para que respete el orden actual
+ *  de los bloques. Huérfanas (sin bloque) quedan al principio, conservando
+ *  su orden relativo. */
+function reorderPreguntasBySectionOrder(
+  preguntas: Question[],
+  secciones: Questionnaire["secciones"]
+): Question[] {
+  const assigned = new Set(secciones.flatMap((s) => s.preguntas));
+  const unassigned = preguntas.filter((p) => !assigned.has(p.id));
+  const byId = new Map(preguntas.map((p) => [p.id, p]));
+  const inSections: Question[] = [];
+  for (const section of secciones) {
+    // Para cada bloque, las preguntas en el orden que tiene `section.preguntas`
+    // (este orden ya fue normalizado por `normalizeSectionOrder` la última vez
+    // que se tocó). Filtramos por existencia para tolerar IDs huérfanos.
+    for (const id of section.preguntas) {
+      const q = byId.get(id);
+      if (q) inSections.push(q);
+    }
+  }
+  return [...unassigned, ...inSections].map((p, i) => ({ ...p, numero: i + 1 }));
 }
 
 function findSectionInsertIndex(

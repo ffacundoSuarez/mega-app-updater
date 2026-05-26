@@ -30,6 +30,10 @@ export interface SectionDialogProps {
   questionCount?: number;
   questionOptions?: SectionQuestionOption[];
   defaultSelectedIds?: string[];
+  /** Si true y mode==="edit", se abre directamente en el confirm dual
+   *  (sólo bloque / bloque + preguntas) sin pasar por el botón "Eliminar…".
+   *  Útil cuando el call site ya es la acción de borrar. */
+  defaultConfirmDelete?: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: (name: string, questionIds: string[]) => void;
   onDelete?: (deleteQuestions: boolean) => void;
@@ -42,6 +46,7 @@ export function SectionDialog({
   questionCount = 0,
   questionOptions = [],
   defaultSelectedIds = [],
+  defaultConfirmDelete = false,
   onOpenChange,
   onConfirm,
   onDelete,
@@ -53,15 +58,21 @@ export function SectionDialog({
   useEffect(() => {
     if (open) {
       setName(initialName);
-      setConfirmDelete(false);
+      setConfirmDelete(defaultConfirmDelete);
       setSelectedIds(new Set(defaultSelectedIds));
     }
-  }, [open, initialName, defaultSelectedIds]);
+  }, [open, initialName, defaultSelectedIds, defaultConfirmDelete]);
 
   const trimmed = name.trim();
   const canSave =
     trimmed.length > 0 &&
     (mode === "create" || trimmed !== initialName.trim());
+
+  // Cuando venimos del flujo "trash" del ManageDialog: defaultConfirmDelete
+  // arranca en true. En ese caso ocultamos el input de rename y el footer de
+  // guardar — el usuario ya eligió "borrar", no tiene sentido mostrarle más.
+  const isPureDeleteFlow =
+    mode === "edit" && defaultConfirmDelete && confirmDelete;
 
   function toggleQuestion(id: string) {
     setSelectedIds((cur) => {
@@ -86,25 +97,33 @@ export function SectionDialog({
           <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-2">
             <DialogHeader>
               <DialogTitle>
-                {mode === "create" ? "Nuevo bloque" : "Editar bloque"}
+                {mode === "create"
+                  ? "Nuevo bloque"
+                  : isPureDeleteFlow
+                    ? "Eliminar bloque"
+                    : "Editar bloque"}
               </DialogTitle>
               <DialogDescription>
                 {mode === "create"
                   ? "Elegí un nombre y, si querés, qué preguntas incluir. Podés crear el bloque vacío."
-                  : "Cambiá el nombre del bloque o eliminalo."}
+                  : isPureDeleteFlow
+                    ? `Confirmá cómo querés eliminar "${initialName}".`
+                    : "Cambiá el nombre del bloque o eliminalo."}
               </DialogDescription>
             </DialogHeader>
 
-            <div className="mt-4 flex flex-col gap-1.5">
-              <Label htmlFor="section-name">Nombre del bloque</Label>
-              <Input
-                id="section-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Ej: Perfil del encuestado"
-                autoFocus
-              />
-            </div>
+            {!isPureDeleteFlow && (
+              <div className="mt-4 flex flex-col gap-1.5">
+                <Label htmlFor="section-name">Nombre del bloque</Label>
+                <Input
+                  id="section-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Ej: Perfil del encuestado"
+                  autoFocus
+                />
+              </div>
+            )}
 
             {mode === "create" && questionOptions.length > 0 && (
               <div className="mt-4 flex flex-col gap-2">
@@ -242,14 +261,16 @@ export function SectionDialog({
                     </span>
                   </Button>
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setConfirmDelete(false)}
-                >
-                  Cancelar
-                </Button>
+                {!isPureDeleteFlow && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setConfirmDelete(false)}
+                  >
+                    Cancelar
+                  </Button>
+                )}
               </div>
             )}
           </div>
@@ -262,9 +283,11 @@ export function SectionDialog({
             >
               Cancelar
             </Button>
-            <Button type="submit" disabled={!canSave}>
-              {mode === "create" ? "Crear bloque" : "Guardar"}
-            </Button>
+            {!isPureDeleteFlow && (
+              <Button type="submit" disabled={!canSave}>
+                {mode === "create" ? "Crear bloque" : "Guardar"}
+              </Button>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>

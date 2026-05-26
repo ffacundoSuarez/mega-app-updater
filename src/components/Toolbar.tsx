@@ -7,11 +7,12 @@ import {
   Home,
   Settings2,
   Sparkles,
+  Tags,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type ViewId = "home" | "files" | "settings" | ToolId;
-export type ToolId = "brand-audit" | "limpiador" | "cuestionario";
+export type ToolId = "brand-audit" | "limpiador" | "cuestionario" | "codificacion";
 
 interface NavItem {
   id: ViewId;
@@ -25,7 +26,7 @@ const HOME_ITEM: NavItem = {
   icon: Home,
 };
 
-/** Flujo de proyecto de encuesta (cuestionario → limpieza). */
+/** Flujo de proyecto de encuesta (cuestionario → limpieza → codificación). */
 const PROYECTO_TOOLS: NavItem[] = [
   {
     id: "cuestionario",
@@ -36,6 +37,11 @@ const PROYECTO_TOOLS: NavItem[] = [
     id: "limpiador",
     label: "Limpiador",
     icon: Sparkles,
+  },
+  {
+    id: "codificacion",
+    label: "Codificación",
+    icon: Tags,
   },
 ];
 

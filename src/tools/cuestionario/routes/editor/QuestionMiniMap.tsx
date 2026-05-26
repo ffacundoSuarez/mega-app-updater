@@ -2,11 +2,12 @@
 // de progreso (válidas vs. total) + accesos rápidos para agregar pregunta o
 // sección. Se usa como rail izquierdo del editor en modo "single-focus".
 
-import { Box, Plus } from "lucide-react";
+import { Plus, Settings2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { StepperItem, StepStatus } from "./QuestionStepper";
+import { ManageDialog } from "./ManageDialog";
 import {
   SectionDialog,
   type SectionQuestionOption,
@@ -28,6 +29,10 @@ export interface QuestionMiniMapProps {
   onAddSection?: (name: string, questionIds: string[]) => void;
   onRenameSection?: (oldName: string, newName: string) => void;
   onDeleteSection?: (name: string, deleteQuestions: boolean) => void;
+  onMoveSection?: (from: number, to: number) => void;
+  onDuplicateSection?: (name: string) => void;
+  onMoveQuestion?: (from: number, to: number) => void;
+  onMoveQuestionToSection?: (index: number, sectionName: string | null) => void;
   disabled?: boolean;
 }
 
@@ -48,17 +53,18 @@ export function QuestionMiniMap({
   onAddSection,
   onRenameSection,
   onDeleteSection,
+  onMoveSection,
+  onDuplicateSection,
+  onMoveQuestion,
+  onMoveQuestionToSection,
   disabled,
 }: QuestionMiniMapProps) {
   const [dialog, setDialog] = useState<SectionDialogState | null>(null);
+  const [manageOpen, setManageOpen] = useState(false);
 
   const validCount = items.filter((i) => i.status === "ok").length;
   const pct =
     items.length === 0 ? 0 : Math.round((100 * validCount) / items.length);
-
-  const canManageSections = Boolean(
-    onAddSection || onRenameSection || onDeleteSection
-  );
 
   const sectionQuestionCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -84,11 +90,6 @@ export function QuestionMiniMap({
     [items]
   );
 
-  function openCreateDialog() {
-    if (!onAddSection) return;
-    setDialog({ mode: "create" });
-  }
-
   function openEditDialog(name: string) {
     if (!onRenameSection && !onDeleteSection) return;
     setDialog({
@@ -97,6 +98,16 @@ export function QuestionMiniMap({
       questionCount: sectionQuestionCounts.get(name) ?? 0,
     });
   }
+
+  const canOpenManage = Boolean(
+    onAddSection &&
+      onRenameSection &&
+      onDeleteSection &&
+      onMoveSection &&
+      onDuplicateSection &&
+      onMoveQuestion &&
+      onMoveQuestionToSection
+  );
 
   return (
     <>
@@ -162,16 +173,16 @@ export function QuestionMiniMap({
             <Plus className="size-3.5" />
             Pregunta
           </Button>
-          {canManageSections && onAddSection && (
+          {canOpenManage && (
             <Button
               variant="outline"
               size="sm"
               className="flex-1"
-              onClick={openCreateDialog}
+              onClick={() => setManageOpen(true)}
               disabled={disabled}
             >
-              <Box className="size-3.5" />
-              Bloque
+              <Settings2 className="size-3.5" />
+              Administrar
             </Button>
           )}
         </div>
@@ -206,6 +217,29 @@ export function QuestionMiniMap({
           }
         />
       )}
+
+      {canOpenManage &&
+        onAddSection &&
+        onRenameSection &&
+        onDeleteSection &&
+        onMoveSection &&
+        onDuplicateSection &&
+        onMoveQuestion &&
+        onMoveQuestionToSection && (
+          <ManageDialog
+            open={manageOpen}
+            onOpenChange={setManageOpen}
+            items={items}
+            sections={sections}
+            onAddSection={onAddSection}
+            onRenameSection={onRenameSection}
+            onDeleteSection={onDeleteSection}
+            onMoveSection={onMoveSection}
+            onDuplicateSection={onDuplicateSection}
+            onMoveQuestion={onMoveQuestion}
+            onMoveQuestionToSection={onMoveQuestionToSection}
+          />
+        )}
     </>
   );
 }
