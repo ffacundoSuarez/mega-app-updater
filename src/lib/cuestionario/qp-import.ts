@@ -169,6 +169,10 @@ function mapQpTypeToCanonical(rawType: string): QuestionType | null {
     case "date":
     case "date_time":
       return "fecha";
+    case "static_presentation_text":
+    case "static_section_heading":
+    case "static_section_sub_heading":
+      return "comentario";
   }
   // Heurísticas para tipos no listados arriba.
   if (/matrix|grid/.test(t)) return "matriz";
@@ -178,6 +182,7 @@ function mapQpTypeToCanonical(rawType: string): QuestionType | null {
   if (/radio|single|dropdown|drop_down/.test(t)) return "cerrada_unica";
   if (/numeric/.test(t)) return "numerica";
   if (/date|time/.test(t)) return "fecha";
+  if (/static|presentation|heading|section/.test(t)) return "comentario";
   if (/text|essay|comment|open|paragraph|long|textarea/.test(t)) {
     return "abierta_texto";
   }

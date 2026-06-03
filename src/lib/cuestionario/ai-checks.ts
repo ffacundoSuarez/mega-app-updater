@@ -10,7 +10,7 @@
  *   - Una llamada por categoría: pasamos todo el cuestionario (filtrado a lo
  *     relevante para el check) en un solo prompt. 6 llamadas totales para un
  *     cuestionario de N preguntas, no 6×N.
- *   - response_format: json_object, temperature 0, seed 42 → determinismo.
+ *   - response_format: json_object + reasoning_effort minimal en gpt-5-mini.
  *   - `prompt_cache_key`: prefijo estable por (questionnaireId, checkKey) para
  *     que re-validaciones del mismo cuestionario peguen en cache.
  *   - Cancelación: el AbortSignal se propaga al `fetch`. Si abortan, la
@@ -267,7 +267,7 @@ async function checkWrongQuestionType(
 - Una pregunta de ranking ("ordená de mayor a menor") está como cerrada_multiple.
 - Una pregunta de fecha está como abierta_texto.
 
-Tipos válidos: cerrada_unica, cerrada_multiple, escala, matriz, abierta_texto, abierta_marca, numerica, ranking, fecha.
+Tipos válidos: cerrada_unica, cerrada_multiple, escala, matriz, abierta_texto, abierta_marca, numerica, ranking, fecha, comentario.
 
 Reglas:
 - Devolvé { "issues": [{ "pregunta_id": "<id>", "descripcion": "<motivo + tipo sugerido>" }] }.
@@ -336,9 +336,8 @@ async function callOpenAiJson(
       { role: "user", content: userPrompt },
     ],
     response_format: { type: "json_object" },
-    temperature: 0,
-    seed: 42,
-    max_completion_tokens: 4000,
+    reasoning_effort: "minimal",
+    max_completion_tokens: 8000,
     // Hint para el cache de OpenAI: re-validaciones del mismo cuestionario
     // comparten prefijo de prompt (system + estructura) y se benefician.
     prompt_cache_key: cacheKey,

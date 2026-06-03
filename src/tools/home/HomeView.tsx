@@ -11,6 +11,7 @@ import {
   ClipboardCheck,
   Loader2,
   Sparkles,
+  Tags,
   Zap,
 } from "lucide-react";
 import {
@@ -70,6 +71,12 @@ const QUICK_TOOLS_PROYECTOS: QuickTool[] = [
     label: "Limpiador",
     description: "QC de respuestas Qualtrics / QuestionPro.",
     icon: Sparkles,
+  },
+  {
+    id: "codificacion",
+    label: "Codificación",
+    description: "Clasificación de abiertas con libro de códigos.",
+    icon: Tags,
   },
 ];
 

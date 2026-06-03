@@ -1,0 +1,135 @@
+Cuestionario de prueba sin errores
+Pais: Argentina
+Idioma: es
+Fecha: 2026-05-21
+
+Instrucciones generales:
+Responder todas las preguntas segun corresponda. Cuando una pregunta indique "una opcion", elegir una sola respuesta. Cuando indique "todas las que correspondan", se pueden elegir varias.
+
+P1. Edad
+Tipo: numerica
+Rango: 18 a 75
+Texto para el encuestado: ¿Cual es tu edad?
+
+P2. Genero
+Tipo: cerrada_unica
+Texto para el encuestado: ¿Con que genero te identificas?
+Opciones:
+1. Femenino
+2. Masculino
+3. No binario
+4. Prefiero no responder
+
+P3. Consumo de gaseosas
+Tipo: cerrada_unica
+Texto para el encuestado: ¿Con que frecuencia consumis gaseosas?
+Opciones:
+1. Todos los dias
+2. Varias veces por semana
+3. Una vez por semana
+4. Menos de una vez por semana
+5. Nunca
+
+P4. Marcas conocidas
+Tipo: cerrada_multiple
+Texto para el encuestado: ¿Cuales de estas marcas de gaseosas conoces, aunque sea solo de nombre? Selecciona todas las que correspondan.
+Opciones:
+1. Coca-Cola
+2. Pepsi
+3. Sprite
+4. Fanta
+5. Manaos
+6. Ninguna de estas
+
+P5. Marca comprada mas recientemente
+Tipo: cerrada_unica
+Texto para el encuestado: ¿Cual fue la marca de gaseosa que compraste mas recientemente?
+Opciones:
+1. Coca-Cola
+2. Pepsi
+3. Sprite
+4. Fanta
+5. Manaos
+6. Otra marca
+7. No compre gaseosas recientemente
+
+P6. Satisfaccion con la ultima compra
+Tipo: cerrada_unica
+Texto para el encuestado: Pensando en tu ultima compra de gaseosa, ¿que tan satisfecho/a quedaste?
+Opciones:
+1. Muy insatisfecho/a
+2. Insatisfecho/a
+3. Ni satisfecho/a ni insatisfecho/a
+4. Satisfecho/a
+5. Muy satisfecho/a
+
+P7. Acuerdo con el sabor
+Tipo: cerrada_unica
+Texto para el encuestado: Pensando en la marca que compraste mas recientemente, ¿que tan de acuerdo estas con la frase "Tiene buen sabor"?
+Opciones:
+1. Totalmente en desacuerdo
+2. En desacuerdo
+3. Ni de acuerdo ni en desacuerdo
+4. De acuerdo
+5. Totalmente de acuerdo
+
+P8. Acuerdo con el precio
+Tipo: cerrada_unica
+Texto para el encuestado: Pensando en la marca que compraste mas recientemente, ¿que tan de acuerdo estas con la frase "Tiene buen precio"?
+Opciones:
+1. Totalmente en desacuerdo
+2. En desacuerdo
+3. Ni de acuerdo ni en desacuerdo
+4. De acuerdo
+5. Totalmente de acuerdo
+
+P9. Acuerdo con la disponibilidad
+Tipo: cerrada_unica
+Texto para el encuestado: Pensando en la marca que compraste mas recientemente, ¿que tan de acuerdo estas con la frase "Es facil de conseguir"?
+Opciones:
+1. Totalmente en desacuerdo
+2. En desacuerdo
+3. Ni de acuerdo ni en desacuerdo
+4. De acuerdo
+5. Totalmente de acuerdo
+
+P10. Acuerdo con la confianza
+Tipo: cerrada_unica
+Texto para el encuestado: Pensando en la marca que compraste mas recientemente, ¿que tan de acuerdo estas con la frase "Es una marca confiable"?
+Opciones:
+1. Totalmente en desacuerdo
+2. En desacuerdo
+3. Ni de acuerdo ni en desacuerdo
+4. De acuerdo
+5. Totalmente de acuerdo
+
+P11. Motivos de eleccion
+Tipo: cerrada_multiple
+Texto para el encuestado: ¿Por que elegiste esa marca? Selecciona todas las opciones que correspondan.
+Opciones:
+1. Precio conveniente
+2. Buen sabor
+3. Promocion o descuento
+4. Disponibilidad en el punto de venta
+5. Costumbre
+6. Recomendacion de otra persona
+7. Otro motivo
+
+P12. Comentario abierto
+Tipo: abierta_texto
+Texto para el encuestado: ¿Hay algo mas que quieras comentar sobre tu experiencia con la marca que compraste?
+
+P13. Intencion de recompra
+Tipo: cerrada_unica
+Texto para el encuestado: ¿Que tan probable es que vuelvas a comprar esa marca en el proximo mes?
+Opciones:
+1. Nada probable
+2. Poco probable
+3. Ni probable ni improbable
+4. Probable
+5. Muy probable
+
+Secciones:
+1. Perfil: P1, P2
+2. Habitos de consumo: P3, P4
+3. Ultima compra: P5, P6, P7, P8, P9, P10, P11, P12, P13

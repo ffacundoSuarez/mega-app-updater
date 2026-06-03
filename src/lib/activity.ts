@@ -18,6 +18,8 @@ export type ActivityEventType =
   | "limpiador_export"
   | "cuestionario_created"
   | "cuestionario_published"
+  | "codificacion_done"
+  | "codificacion_error"
   | "brand_audit_done"
   | "brand_audit_error"
   | "info"

@@ -82,3 +82,79 @@ export function runBrandAudit(
 ): Promise<BrandAuditResult> {
   return invoke<BrandAuditResult>("run_brand_audit", { params });
 }
+
+// --- QuestionPro -----------------------------------------------------------
+
+/** Payload para crear una encuesta en QP desde Rust (evita CORS del WebView). */
+export interface QuestionproCreateSurveyParams {
+  userId: string;
+  apiKey: string;
+  name: string;
+  folderId?: number;
+  saveAndContinue?: boolean;
+}
+
+/** Shape devuelto por `questionpro_create_survey` en Rust. */
+export interface QuestionproCreatedSurvey {
+  surveyId: number;
+  name: string;
+  url: string;
+  status: string;
+}
+
+/** Crea una encuesta en QuestionPro desde el backend local Tauri. */
+export function questionproCreateSurvey(
+  params: QuestionproCreateSurveyParams,
+): Promise<QuestionproCreatedSurvey> {
+  return invoke<QuestionproCreatedSurvey>("questionpro_create_survey", {
+    params,
+  });
+}
+
+/** Payload para crear un bloque/sección en QP desde Rust. */
+export interface QuestionproCreateBlockParams {
+  surveyId: string;
+  apiKey: string;
+  title: string;
+  orderNumber: number;
+}
+
+/** Shape devuelto por `questionpro_create_block` en Rust. */
+export interface QuestionproCreatedBlock {
+  blockId: number;
+  surveyId: number;
+  title: string;
+  orderNumber: number;
+}
+
+/** Crea un bloque en QuestionPro desde el backend local Tauri. */
+export function questionproCreateBlock(
+  params: QuestionproCreateBlockParams,
+): Promise<QuestionproCreatedBlock> {
+  return invoke<QuestionproCreatedBlock>("questionpro_create_block", {
+    params,
+  });
+}
+
+/** Payload para crear una pregunta en QP desde Rust. */
+export interface QuestionproCreateQuestionParams {
+  surveyId: string;
+  apiKey: string;
+  payload: unknown;
+}
+
+/** Shape devuelto por `questionpro_create_question` en Rust. */
+export interface QuestionproCreatedQuestion {
+  questionId: number;
+  blockId?: number | null;
+  orderNumber?: number | null;
+}
+
+/** Crea una pregunta en QuestionPro desde el backend local Tauri. */
+export function questionproCreateQuestion(
+  params: QuestionproCreateQuestionParams,
+): Promise<QuestionproCreatedQuestion> {
+  return invoke<QuestionproCreatedQuestion>("questionpro_create_question", {
+    params,
+  });
+}

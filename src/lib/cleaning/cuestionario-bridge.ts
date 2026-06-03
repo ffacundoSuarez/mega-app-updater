@@ -54,6 +54,8 @@ function canonicalTypeToQpString(tipo: QuestionType): string {
       return "ranking";
     case "fecha":
       return "date";
+    case "comentario":
+      return "static";
   }
 }
 

@@ -1,22 +1,30 @@
 // Shell raíz de la aplicación: title bar custom + sidebar + área activa.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Toaster } from "sonner";
 import { TitleBar } from "@/components/TitleBar";
 import { Toolbar, type ToolId, type ViewId } from "@/components/Toolbar";
 import { UpdateDialog } from "@/components/UpdateDialog";
+import { ToolErrorBoundary } from "@/components/ToolErrorBoundary";
 import { ActivityProvider } from "@/lib/activity-context";
 import type { PendingToolNavigation } from "@/lib/tool-navigation";
 import { HomeView } from "@/tools/home/HomeView";
 import { BrandAuditView } from "@/tools/brand-audit/BrandAuditView";
 import { LimpiadorView } from "@/tools/limpiador/LimpiadorView";
 import { CuestionarioView } from "@/tools/cuestionario/CuestionarioView";
+import { CodificacionView } from "@/tools/codificacion/CodificacionView";
 import { SettingsView } from "@/tools/settings/SettingsView";
 import { FilesView } from "@/tools/files/FilesView";
 import { checkForUpdate, type Update } from "@/lib/updater";
 
 const APP_VERSION = "1.1.0";
 
-const TOOL_VIEWS: ToolId[] = ["brand-audit", "limpiador", "cuestionario"];
+const TOOL_VIEWS: ToolId[] = [
+  "brand-audit",
+  "limpiador",
+  "cuestionario",
+  "codificacion",
+];
 
 function isToolView(view: ViewId): view is ToolId {
   return TOOL_VIEWS.includes(view as ToolId);
@@ -127,11 +135,19 @@ function AppShell() {
               onPendingNavigationConsumed={clearPendingToolNav}
             />
           )}
+          {activeView === "codificacion" && (
+            <ToolErrorBoundary toolName="Codificación">
+              <CodificacionView
+                onOpenSettings={() => setActiveView("settings")}
+              />
+            </ToolErrorBoundary>
+          )}
           {activeView === "settings" && <SettingsView />}
         </main>
       </div>
 
       <UpdateDialog update={pendingUpdate} currentVersion={APP_VERSION} />
+      <Toaster richColors closeButton position="bottom-right" />
     </div>
   );
 }
