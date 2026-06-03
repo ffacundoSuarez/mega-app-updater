@@ -1,7 +1,9 @@
 // Shell de Codificación: state machine interna (sin router).
+// Hostea la corrida del job para que sobreviva la navegación dentro de la herramienta.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Tags } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -16,12 +18,23 @@ import {
   getSupabaseAnonKey,
   getSupabaseUrl,
 } from "@/lib/settings";
+import {
+  endRunningJob,
+  logActivity,
+  startRunningJob,
+} from "@/lib/activity";
+import {
+  runClassificationJob,
+  type ClassificationJobController,
+} from "@/lib/codificacion/classification-job";
+import type { CodificacionJobWithProject } from "@/lib/codificacion/types";
 import { JobList } from "./routes/JobList";
 import { NewJob } from "./routes/NewJob";
 import { NewProject } from "./routes/NewProject";
 import { SampleTraining } from "./routes/SampleTraining";
 import { AnalysisSummary } from "./routes/AnalysisSummary";
 import { CategoryDetail } from "./routes/CategoryDetail";
+import { EditJob } from "./routes/EditJob";
 
 export type CodificacionScreen =
   | "list"
@@ -29,7 +42,8 @@ export type CodificacionScreen =
   | "new-job"
   | "samples"
   | "analysis"
-  | "category";
+  | "category"
+  | "edit";
 
 interface NavigateOpts {
   jobId?: string | null;
@@ -39,6 +53,13 @@ interface NavigateOpts {
 
 export interface CodificacionViewProps {
   onOpenSettings?: () => void;
+}
+
+export interface JobRunProgress {
+  jobId: string;
+  percent: number;
+  processed: number;
+  total: number;
 }
 
 export function CodificacionView({ onOpenSettings }: CodificacionViewProps) {
@@ -52,6 +73,12 @@ export function CodificacionView({ onOpenSettings }: CodificacionViewProps) {
   );
   const [hasKeys, setHasKeys] = useState<boolean | null>(null);
   const [keysError, setKeysError] = useState<string | null>(null);
+
+  // Corrida del job (hoisteada para sobrevivir la navegación in-tool).
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [progress, setProgress] = useState<JobRunProgress | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  const controllerRef = useRef<ClassificationJobController | null>(null);
 
   const checkKeys = useCallback(async () => {
     setKeysError(null);
@@ -72,11 +99,103 @@ export function CodificacionView({ onOpenSettings }: CodificacionViewProps) {
     void checkKeys();
   }, [screen, checkKeys]);
 
+  // Cancelar la corrida al salir de la herramienta (se desmonta la vista).
+  useEffect(() => {
+    return () => {
+      controllerRef.current?.cancel();
+    };
+  }, []);
+
   const navigate = useCallback((next: CodificacionScreen, opts: NavigateOpts = {}) => {
     setScreen(next);
     if (opts.jobId !== undefined) setSelectedJobId(opts.jobId);
     if (opts.projectId !== undefined) setSelectedProjectId(opts.projectId);
     if (opts.categoryId !== undefined) setSelectedCategoryId(opts.categoryId);
+  }, []);
+
+  const runJob = useCallback(
+    async (job: CodificacionJobWithProject) => {
+      if (!job.sample_training_completed) {
+        toast.info("Completá el entrenamiento de muestras antes de codificar.");
+        navigate("samples", { jobId: job.id });
+        return;
+      }
+      if (activeJobId) {
+        toast.warning("Ya hay una codificación en curso.");
+        return;
+      }
+
+      setActiveJobId(job.id);
+      setProgress({
+        jobId: job.id,
+        percent: job.progress_percentage,
+        processed: job.processed_responses,
+        total: job.total_responses,
+      });
+      void startRunningJob(job.id, "codificacion", `Codificando: ${job.question}`);
+
+      const controller = runClassificationJob(job.id, {
+        onProgress: (ev) => {
+          setProgress({
+            jobId: ev.jobId,
+            percent: ev.progress,
+            processed: ev.processed,
+            total: ev.total,
+          });
+        },
+      });
+      controllerRef.current = controller;
+
+      try {
+        const result = await controller.promise;
+        if (result.status === "completed") {
+          toast.success("Codificación completada", { description: job.question });
+          void logActivity({
+            type: "codificacion_done",
+            title: "Codificación completada",
+            body: job.question,
+            toolId: "codificacion",
+            viewId: "codificacion",
+            payload: { jobId: job.id },
+          });
+        } else if (result.status === "cancelled") {
+          toast("Codificación cancelada");
+        } else {
+          const msg = result.message ?? "Codificación incompleta";
+          toast.error(msg, { description: job.question });
+          void logActivity({
+            type: "codificacion_error",
+            title: "Codificación incompleta",
+            body: result.message ?? job.question,
+            toolId: "codificacion",
+            viewId: "codificacion",
+            payload: { jobId: job.id },
+          });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast.error("Error en la codificación", { description: msg });
+        void logActivity({
+          type: "codificacion_error",
+          title: "Codificación falló",
+          body: msg,
+          toolId: "codificacion",
+          viewId: "codificacion",
+          payload: { jobId: job.id },
+        });
+      } finally {
+        controllerRef.current = null;
+        setActiveJobId(null);
+        setProgress(null);
+        void endRunningJob(job.id);
+        setReloadToken((t) => t + 1);
+      }
+    },
+    [activeJobId, navigate]
+  );
+
+  const cancelJob = useCallback(() => {
+    controllerRef.current?.cancel();
   }, []);
 
   if (hasKeys === null) {
@@ -120,9 +239,6 @@ export function CodificacionView({ onOpenSettings }: CodificacionViewProps) {
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-      <Header />
-      <Separator />
-
       {screen === "list" && (
         <JobList
           selectedProjectId={selectedProjectId}
@@ -133,7 +249,13 @@ export function CodificacionView({ onOpenSettings }: CodificacionViewProps) {
           }
           onOpenSamples={(jobId) => navigate("samples", { jobId })}
           onOpenAnalysis={(jobId) => navigate("analysis", { jobId })}
+          onOpenEdit={(jobId) => navigate("edit", { jobId })}
           onRefreshKeys={checkKeys}
+          activeJobId={activeJobId}
+          progress={progress}
+          onRunJob={runJob}
+          onCancelJob={cancelJob}
+          reloadToken={reloadToken}
         />
       )}
 
@@ -160,6 +282,14 @@ export function CodificacionView({ onOpenSettings }: CodificacionViewProps) {
           jobId={selectedJobId}
           onBack={() => navigate("list")}
           onComplete={() => navigate("list", { jobId: selectedJobId })}
+        />
+      )}
+
+      {screen === "edit" && selectedJobId && (
+        <EditJob
+          jobId={selectedJobId}
+          onBack={() => navigate("list")}
+          onSaved={() => navigate("list", { jobId: selectedJobId })}
         />
       )}
 

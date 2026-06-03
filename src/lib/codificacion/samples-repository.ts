@@ -3,7 +3,8 @@ import type { ResponseRow, SampleClassification } from "./types";
 
 export async function generateSampleResponses(
   jobId: string,
-  sampleCount = 15
+  sampleCount = 15,
+  excludeIds: string[] = []
 ): Promise<ResponseRow[]> {
   const supabase = await getCodificacionSupabaseClient();
   const { data: allResponses, error } = await supabase
@@ -17,7 +18,9 @@ export async function generateSampleResponses(
     throw new Error("No responses found for this job");
   }
 
+  const excluded = new Set(excludeIds);
   const filtered = (allResponses as ResponseRow[]).filter((r) => {
+    if (excluded.has(r.id)) return false;
     const text = r.response_text?.trim() || "";
     return (
       text.length > 2 &&
@@ -93,6 +96,18 @@ export async function saveSampleClassifications(
         JSON.stringify(s.suggestedCategories),
     corrected_at: s.correctedCategories ? new Date().toISOString() : null,
   }));
+
+  // Reemplazo idempotente: limpiar muestras previas del job antes de insertar
+  // (evita duplicados al re-guardar un entrenamiento ya existente).
+  const { error: delError } = await supabase
+    .from("sample_classifications")
+    .delete()
+    .eq("job_id", jobId);
+  if (delError) {
+    throw new Error(
+      `Error clearing sample classifications: ${delError.message}`
+    );
+  }
 
   const { error } = await supabase.from("sample_classifications").insert(rows);
   if (error) {

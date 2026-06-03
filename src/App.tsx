@@ -1,6 +1,7 @@
 // Shell raíz de la aplicación: title bar custom + sidebar + área activa.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Toaster } from "sonner";
 import { TitleBar } from "@/components/TitleBar";
 import { Toolbar, type ToolId, type ViewId } from "@/components/Toolbar";
 import { UpdateDialog } from "@/components/UpdateDialog";
@@ -146,6 +147,7 @@ function AppShell() {
       </div>
 
       <UpdateDialog update={pendingUpdate} currentVersion={APP_VERSION} />
+      <Toaster richColors closeButton position="bottom-right" />
     </div>
   );
 }

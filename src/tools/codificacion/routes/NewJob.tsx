@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, FileSpreadsheet, Plus, Upload, X } from "lucide-react";
+import { ArrowLeft, Check, FileSpreadsheet, Plus, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -133,16 +134,28 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
   };
 
   return (
-    <div className="space-y-4">
-      <Button variant="ghost" size="sm" className="gap-2" onClick={onCancel}>
-        <ArrowLeft className="size-4" />
-        Volver
-      </Button>
+    <div className="space-y-6">
+      <div className="flex items-start gap-3">
+        <Button variant="ghost" size="sm" className="gap-2" onClick={onCancel}>
+          <ArrowLeft className="size-4" />
+          Volver a Encuestas
+        </Button>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Nueva Codificación
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Crea un nuevo trabajo de clasificación automática de respuestas
+          </p>
+        </div>
+      </div>
+
+      <Stepper current={step} />
 
       {step === "form" && (
         <Card>
           <CardHeader>
-            <CardTitle>Nueva codificación</CardTitle>
+            <CardTitle>Datos y Excel</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
@@ -436,6 +449,56 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+const STEPS: Array<{ key: "form" | "categories" | "review"; label: string }> = [
+  { key: "form", label: "Datos y Excel" },
+  { key: "categories", label: "Libro de Códigos" },
+  { key: "review", label: "Configurar y Crear" },
+];
+
+function Stepper({ current }: { current: "form" | "categories" | "review" }) {
+  const currentIndex = STEPS.findIndex((s) => s.key === current);
+  return (
+    <div className="flex items-center justify-center">
+      {STEPS.map((step, i) => {
+        const done = i < currentIndex;
+        const active = i === currentIndex;
+        return (
+          <div key={step.key} className="flex items-center">
+            <div className="flex items-center gap-2">
+              <div
+                className={cn(
+                  "flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-medium transition-colors",
+                  active && "bg-primary text-primary-foreground",
+                  done && "bg-primary/80 text-primary-foreground",
+                  !active && !done && "bg-muted text-muted-foreground"
+                )}
+              >
+                {done ? <Check className="size-4" /> : i + 1}
+              </div>
+              <span
+                className={cn(
+                  "text-sm",
+                  active ? "font-medium text-foreground" : "text-muted-foreground"
+                )}
+              >
+                {step.label}
+              </span>
+            </div>
+            {i < STEPS.length - 1 && (
+              <div
+                className={cn(
+                  "mx-3 h-px w-12 sm:w-20",
+                  i < currentIndex ? "bg-primary/60" : "bg-border"
+                )}
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
