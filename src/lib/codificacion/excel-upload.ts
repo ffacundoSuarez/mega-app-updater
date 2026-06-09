@@ -3,7 +3,11 @@
  */
 
 import * as XLSX from "xlsx-js-style";
-import type { CategoryBookRow, ExcelUploadData } from "./types";
+import type {
+  CategoryBookRow,
+  ExcelUploadData,
+  SurveyPlatform,
+} from "./types";
 
 type RawCell = string | number | boolean | null;
 
@@ -13,7 +17,41 @@ export function displayResponse(text: string): string {
   return t.length > 120 ? `${t.slice(0, 120)}…` : t;
 }
 
-export async function parseResponsesExcel(file: File): Promise<ExcelUploadData> {
+/** Una columna candidata del Excel de QuestionPro (para que el usuario elija). */
+export interface QuestionProColumnInfo {
+  index: number;
+  name: string;
+  /** Cantidad de filas con valor no vacío en esta columna. */
+  nonEmptyCount: number;
+  /** Hasta 2 valores de muestra para previsualizar. */
+  preview: string[];
+}
+
+/**
+ * Estado intermedio para archivos de QuestionPro: como traen muchas columnas
+ * (metadata + todas las preguntas), no se puede asumir cuál es la respuesta a
+ * clasificar. El usuario elige la columna y recién ahí se arma `ExcelUploadData`.
+ */
+export interface PendingQuestionProSelection {
+  filename: string;
+  columns: QuestionProColumnInfo[];
+  rawData: RawCell[][];
+  idColumnIndex: number;
+  idColumnName: string;
+  totalRows: number;
+}
+
+/**
+ * Resultado del parseo: `ready` cuando ya se puede usar (Qualtrics, mapeo
+ * automático col1=ID/col2=texto) o `select-column` cuando hace falta que el
+ * usuario elija la columna de respuesta (QuestionPro).
+ */
+export type ParseResponsesResult =
+  | { kind: "ready"; data: ExcelUploadData }
+  | { kind: "select-column"; pending: PendingQuestionProSelection };
+
+/** Lee la primera hoja del Excel como matriz de celdas crudas. */
+async function readSheetRows(file: File): Promise<RawCell[][]> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
   const sheetName = workbook.SheetNames[0];
@@ -21,32 +59,139 @@ export async function parseResponsesExcel(file: File): Promise<ExcelUploadData> 
     throw new Error("El archivo no tiene hojas");
   }
   const worksheet = workbook.Sheets[sheetName];
-  const jsonData = XLSX.utils.sheet_to_json(worksheet, {
-    header: 1,
-  }) as RawCell[][];
+  return XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as RawCell[][];
+}
+
+/**
+ * Parsea el Excel de respuestas según la plataforma de origen.
+ *
+ *   - Qualtrics: col1 = ID, col2 = texto (comportamiento histórico).
+ *   - QuestionPro: devuelve las columnas disponibles para que el usuario elija
+ *     cuál es la respuesta abierta a clasificar (la columna ID se autodetecta).
+ */
+export async function parseResponsesExcel(
+  file: File,
+  platform: SurveyPlatform = "qualtrics"
+): Promise<ParseResponsesResult> {
+  const jsonData = await readSheetRows(file);
 
   if (jsonData.length < 2) {
     throw new Error("El archivo debe tener al menos 2 filas (encabezados + datos)");
   }
 
-  const headers = (jsonData[0] as string[]).filter((h) => h && String(h).trim());
-  const dataRows = jsonData.slice(1);
+  const headers = (jsonData[0] as RawCell[]).map((h) =>
+    h ? String(h).trim() : ""
+  );
 
-  if (headers.length < 2) {
+  if (platform === "questionpro") {
+    return {
+      kind: "select-column",
+      pending: buildQuestionProPending(file.name, jsonData, headers),
+    };
+  }
+
+  // Qualtrics: col1 = ID, col2 = respuesta.
+  const nonEmptyHeaders = headers.filter((h) => h);
+  if (nonEmptyHeaders.length < 2) {
     throw new Error("El archivo debe tener al menos 2 columnas (ID y Respuesta)");
   }
 
+  const dataRows = jsonData.slice(1);
   const preview = dataRows.slice(0, 5).map((row, index) => ({
     id: String(row[0] ?? `Row_${index + 1}`),
     response: displayResponse(row[1] ? String(row[1]) : ""),
   }));
 
   return {
-    filename: file.name,
-    rows: dataRows.length,
-    columns: headers,
-    preview,
+    kind: "ready",
+    data: {
+      filename: file.name,
+      rows: dataRows.length,
+      columns: nonEmptyHeaders,
+      preview,
+      rawData: jsonData,
+      idColumnIndex: 0,
+      responseColumnIndex: 1,
+    },
+  };
+}
+
+/**
+ * Autodetecta la columna ID y arma la lista de columnas candidatas (con conteo
+ * de no vacíos y preview) para que el usuario elija la respuesta a clasificar.
+ */
+function buildQuestionProPending(
+  filename: string,
+  jsonData: RawCell[][],
+  headers: string[]
+): PendingQuestionProSelection {
+  const dataRows = jsonData.slice(1);
+
+  let idColumnIndex = headers.findIndex((h) => {
+    const n = h.toUpperCase();
+    return n === "RESPONSE ID" || n === "ID RESPUESTA" || n === "ID DE RESPUESTA";
+  });
+  if (idColumnIndex === -1) idColumnIndex = 0;
+
+  const columns: QuestionProColumnInfo[] = [];
+  headers.forEach((header, index) => {
+    if (index === idColumnIndex || !header) return;
+
+    let nonEmptyCount = 0;
+    const preview: string[] = [];
+    for (const row of dataRows) {
+      const val = row[index];
+      if (val != null && String(val).trim()) {
+        nonEmptyCount++;
+        if (preview.length < 2) preview.push(displayResponse(String(val).trim()));
+      }
+    }
+
+    columns.push({ index, name: header, nonEmptyCount, preview });
+  });
+
+  if (columns.length === 0) {
+    throw new Error("No se encontraron columnas válidas en el archivo");
+  }
+
+  return {
+    filename,
+    columns,
     rawData: jsonData,
+    idColumnIndex,
+    idColumnName: headers[idColumnIndex] || `Columna ${idColumnIndex + 1}`,
+    totalRows: dataRows.length,
+  };
+}
+
+/**
+ * Cierra la selección de QuestionPro: con la columna de respuesta elegida,
+ * arma el `ExcelUploadData` final (ID autodetectado + respuesta elegida).
+ */
+export function finalizeQuestionProSelection(
+  pending: PendingQuestionProSelection,
+  responseColumnIndex: number
+): ExcelUploadData {
+  const headers = (pending.rawData[0] as RawCell[]).map((h) =>
+    h ? String(h).trim() : ""
+  );
+  const dataRows = pending.rawData.slice(1);
+
+  const preview = dataRows.slice(0, 5).map((row, index) => ({
+    id: String(row[pending.idColumnIndex] ?? `Row_${index + 1}`),
+    response: displayResponse(
+      row[responseColumnIndex] ? String(row[responseColumnIndex]) : ""
+    ),
+  }));
+
+  return {
+    filename: pending.filename,
+    rows: pending.totalRows,
+    columns: headers.filter((h) => h),
+    preview,
+    rawData: pending.rawData,
+    idColumnIndex: pending.idColumnIndex,
+    responseColumnIndex,
   };
 }
 

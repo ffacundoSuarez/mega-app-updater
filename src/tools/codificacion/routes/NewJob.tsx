@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Check, FileSpreadsheet, Plus, Upload, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  FileSpreadsheet,
+  Plus,
+  Search,
+  Upload,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,10 +26,16 @@ import { createJob, listJobsByProject } from "@/lib/codificacion/jobs-repository
 import { createCategories, getCategoriesByJob } from "@/lib/codificacion/categories-repository";
 import { createResponsesFromExcel } from "@/lib/codificacion/responses-repository";
 import {
+  finalizeQuestionProSelection,
   parseCategoryBookExcel,
   parseResponsesExcel,
+  type PendingQuestionProSelection,
 } from "@/lib/codificacion/excel-upload";
-import type { CodificacionProject, ExcelUploadData } from "@/lib/codificacion/types";
+import type {
+  CodificacionProject,
+  ExcelUploadData,
+  SurveyPlatform,
+} from "@/lib/codificacion/types";
 
 interface LocalCategory {
   id: number;
@@ -43,7 +57,14 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
   const [description, setDescription] = useState("");
   const [languageCode, setLanguageCode] = useState("es");
   const [regionHint, setRegionHint] = useState("");
+  const [platform, setPlatform] = useState<SurveyPlatform>("qualtrics");
   const [excelData, setExcelData] = useState<ExcelUploadData | null>(null);
+  const [pendingQP, setPendingQP] =
+    useState<PendingQuestionProSelection | null>(null);
+  const [selectedResponseCol, setSelectedResponseCol] = useState<number | null>(
+    null
+  );
+  const [columnSearch, setColumnSearch] = useState("");
   const [categories, setCategories] = useState<LocalCategory[]>([]);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [reuseJobId, setReuseJobId] = useState("");
@@ -94,6 +115,43 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
     }
   };
 
+  // Limpia el estado del Excel (al cambiar de plataforma o quitar el archivo).
+  const resetExcel = () => {
+    setExcelData(null);
+    setPendingQP(null);
+    setSelectedResponseCol(null);
+    setColumnSearch("");
+  };
+
+  const handlePlatformChange = (value: string) => {
+    setPlatform(value as SurveyPlatform);
+    resetExcel();
+  };
+
+  const handleFile = async (file: File) => {
+    try {
+      const result = await parseResponsesExcel(file, platform);
+      if (result.kind === "ready") {
+        setExcelData(result.data);
+        setPendingQP(null);
+      } else {
+        // QuestionPro: el usuario debe elegir la columna de respuesta.
+        setPendingQP(result.pending);
+        setExcelData(null);
+        setSelectedResponseCol(null);
+        setColumnSearch("");
+      }
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const confirmResponseColumn = () => {
+    if (!pendingQP || selectedResponseCol === null) return;
+    setExcelData(finalizeQuestionProSelection(pendingQP, selectedResponseCol));
+    setPendingQP(null);
+  };
+
   const handleSubmit = async () => {
     if (!projectId || !question.trim() || !excelData || categories.length < 2) {
       window.alert("Completá proyecto, pregunta, Excel y al menos 2 categorías");
@@ -120,9 +178,11 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
         }))
       );
 
+      const idCol = excelData.idColumnIndex;
+      const respCol = excelData.responseColumnIndex;
       const processed = excelData.rawData.slice(1).map((row, index) => ({
-        id: String(row[0] ?? `Row_${index + 1}`),
-        response: row[1] ? String(row[1]).trim() : "",
+        id: String(row[idCol] ?? `Row_${index + 1}`),
+        response: row[respCol] ? String(row[respCol]).trim() : "",
       }));
       await createResponsesFromExcel(job.id, processed);
       onCreated(job.id);
@@ -219,10 +279,25 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
             </div>
 
             <div>
-              <Label>Excel de respuestas *</Label>
+              <Label>Plataforma de origen</Label>
+              <Select value={platform} onValueChange={handlePlatformChange}>
+                <SelectTrigger className="mt-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="qualtrics">Qualtrics</SelectItem>
+                  <SelectItem value="questionpro">QuestionPro</SelectItem>
+                </SelectContent>
+              </Select>
               <p className="mt-1 text-xs text-muted-foreground">
-                Columna 1 = ID, columna 2 = texto de respuesta
+                {platform === "questionpro"
+                  ? "Subí el export crudo de QuestionPro. Vas a poder elegir la columna de respuesta."
+                  : "El archivo debe tener 2 columnas: ID de respuesta y texto de respuesta."}
               </p>
+            </div>
+
+            <div>
+              <Label>Excel de respuestas *</Label>
               <input
                 ref={excelInputRef}
                 type="file"
@@ -231,11 +306,7 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
                 onChange={async (e) => {
                   const file = e.target.files?.[0];
                   if (!file) return;
-                  try {
-                    setExcelData(await parseResponsesExcel(file));
-                  } catch (err) {
-                    window.alert(err instanceof Error ? err.message : String(err));
-                  }
+                  await handleFile(file);
                   e.target.value = "";
                 }}
               />
@@ -246,18 +317,28 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
                     <div>
                       <p className="text-sm font-medium">{excelData.filename}</p>
                       <p className="text-xs text-muted-foreground">
-                        {excelData.rows} filas
+                        {excelData.rows} filas · respuesta:{" "}
+                        {String(
+                          excelData.rawData[0]?.[excelData.responseColumnIndex] ??
+                            `Columna ${excelData.responseColumnIndex + 1}`
+                        )}
                       </p>
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setExcelData(null)}
-                  >
+                  <Button variant="ghost" size="icon" onClick={resetExcel}>
                     <X className="size-4" />
                   </Button>
                 </div>
+              ) : pendingQP ? (
+                <ResponseColumnSelector
+                  pending={pendingQP}
+                  selected={selectedResponseCol}
+                  search={columnSearch}
+                  onSearch={setColumnSearch}
+                  onSelect={setSelectedResponseCol}
+                  onConfirm={confirmResponseColumn}
+                  onCancel={resetExcel}
+                />
               ) : (
                 <Button
                   type="button"
@@ -449,6 +530,125 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+interface ResponseColumnSelectorProps {
+  pending: PendingQuestionProSelection;
+  selected: number | null;
+  search: string;
+  onSearch: (value: string) => void;
+  onSelect: (index: number) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+/**
+ * Selector de la columna de respuesta para archivos de QuestionPro: lista las
+ * columnas (con conteo de respuestas y preview) y deja buscar y elegir cuál
+ * es la pregunta abierta a clasificar.
+ */
+function ResponseColumnSelector({
+  pending,
+  selected,
+  search,
+  onSearch,
+  onSelect,
+  onConfirm,
+  onCancel,
+}: ResponseColumnSelectorProps) {
+  const filtered = pending.columns.filter((col) =>
+    col.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="mt-2 space-y-4 rounded-lg border bg-muted/30 p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <FileSpreadsheet className="size-5 text-green-600" />
+          <div>
+            <p className="text-sm font-medium">{pending.filename}</p>
+            <p className="text-xs text-muted-foreground">
+              {pending.totalRows} filas · {pending.columns.length} columnas ·
+              ID: {pending.idColumnName}
+            </p>
+          </div>
+        </div>
+        <Button variant="ghost" size="icon" onClick={onCancel}>
+          <X className="size-4" />
+        </Button>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        Elegí la columna con las respuestas abiertas a clasificar.
+      </p>
+
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Buscar columnas…"
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          className="pl-9"
+        />
+      </div>
+
+      <div className="max-h-64 space-y-1 overflow-y-auto">
+        {filtered.length === 0 ? (
+          <p className="py-4 text-center text-sm text-muted-foreground">
+            No se encontraron columnas para “{search}”
+          </p>
+        ) : (
+          filtered.map((col) => {
+            const isSelected = selected === col.index;
+            return (
+              <button
+                key={col.index}
+                type="button"
+                onClick={() => onSelect(col.index)}
+                className={cn(
+                  "w-full rounded border p-2 text-left text-sm transition-colors",
+                  isSelected
+                    ? "border-primary bg-primary/10"
+                    : "border-border bg-background hover:border-primary/50"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      "size-3.5 shrink-0 rounded-full border-2",
+                      isSelected ? "border-primary bg-primary" : "border-muted-foreground/40"
+                    )}
+                  />
+                  <span className="flex-1 truncate font-medium">{col.name}</span>
+                  <span className="whitespace-nowrap text-xs text-muted-foreground">
+                    {col.nonEmptyCount} resp.
+                  </span>
+                </div>
+                {col.preview.length > 0 && (
+                  <div className="ml-6 mt-1 space-y-0.5 text-xs text-muted-foreground">
+                    {col.preview.map((p, i) => (
+                      <div key={i} className="truncate">
+                        • {p}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </button>
+            );
+          })
+        )}
+      </div>
+
+      <Button
+        type="button"
+        className="w-full"
+        onClick={onConfirm}
+        disabled={selected === null}
+      >
+        Confirmar columna seleccionada
+      </Button>
     </div>
   );
 }

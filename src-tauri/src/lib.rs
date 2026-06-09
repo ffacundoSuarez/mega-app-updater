@@ -47,6 +47,8 @@ pub fn run() {
             commands::questionpro::questionpro_create_survey,
             commands::questionpro::questionpro_create_block,
             commands::questionpro::questionpro_create_question,
+            commands::survey_import::read_survey_schema,
+            commands::survey_import::import_survey_rows,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

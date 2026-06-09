@@ -126,10 +126,11 @@ function isPurelyDeterministicFlag(matchedRules: unknown): boolean {
  * Mayor `row_number` ya procesado **por la IA** en la versión. Se usa para
  * reconciliar el cursor cuando un job se reanuda y `processed_rows` quedó atrás.
  *
- * Excluye los flags puramente determinísticos (capa pre-IA): esos pueden caer
- * en cualquier `row_number` (p. ej. una IP duplicada en la fila 500) y NO
- * implican que las filas previas hayan pasado por la IA — contarlos haría que
- * el resume saltee filas sin analizar.
+ * Excluye los flags puramente determinísticos: los de corridas viejas (cuando
+ * la capa pre-IA los escribía upfront, en cualquier `row_number`) y los del
+ * fallback actual NO garantizan que las filas previas hayan pasado por la IA —
+ * contarlos haría que el resume saltee filas sin analizar. Es conservador:
+ * a lo sumo se re-analizan filas, nunca se saltean.
  */
 export async function getMaxProcessedRow(
   client: SupabaseClient,
@@ -188,49 +189,14 @@ export async function getAllRows(
 }
 
 /**
- * IDs de fila (`row_id`) que ya tienen un flag **puramente determinístico** en
- * la versión. Se usa al reanudar un job para no re-mandar esas filas a la IA.
- */
-export async function getDeterministicFlaggedRowIds(
-  client: SupabaseClient,
-  versionId: string
-): Promise<Set<string>> {
-  const { data, error } = await client
-    .from("cleaning_flags")
-    .select("row_id, matched_rules")
-    .eq("version_id", versionId);
-  if (error || !data) {
-    if (error) console.warn("Could not load deterministic flags:", error.message);
-    return new Set();
-  }
-  const result = new Set<string>();
-  for (const f of data as Array<{ row_id: string; matched_rules: unknown }>) {
-    if (isPurelyDeterministicFlag(f.matched_rules)) result.add(f.row_id);
-  }
-  return result;
-}
-
-export interface SaveFlagsOptions {
-  /**
-   * Si es true, los flags que colisionen con uno existente para
-   * (`version_id`,`row_id`) **no** se pisan (INSERT ... ON CONFLICT DO NOTHING).
-   * Lo usa la capa pre-IA: un flag determinístico nunca debe pisar un juicio ya
-   * tomado (de la IA o de una corrida previa). Por defecto false → upsert.
-   */
-  ignoreConflicts?: boolean;
-}
-
-/**
  * Persiste los flags del batch (sólo los `flag !== "none"`).
- * Por defecto upsert por (`version_id`, `row_id`) para que reintentos no
- * dupliquen; con `ignoreConflicts` los existentes ganan.
- * Devuelve cuántos flags se intentaron guardar (no descuenta los ignorados).
+ * Upsert por (`version_id`, `row_id`) para que reintentos no dupliquen.
+ * Devuelve cuántos flags se intentaron guardar.
  */
 export async function saveFlags(
   client: SupabaseClient,
   versionId: string,
-  results: AnalyzeResult[],
-  options: SaveFlagsOptions = {}
+  results: AnalyzeResult[]
 ): Promise<number> {
   const flagged = results.filter(
     (r): r is AnalyzeResult & { flag: "red" | "yellow" } => r.flag !== "none"
@@ -253,7 +219,6 @@ export async function saveFlags(
 
   const { error } = await client.from("cleaning_flags").upsert(inserts, {
     onConflict: "version_id,row_id",
-    ignoreDuplicates: options.ignoreConflicts === true,
   });
 
   if (error) {

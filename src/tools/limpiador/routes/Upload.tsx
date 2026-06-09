@@ -1,18 +1,21 @@
 // Pantalla Upload del Limpiador (etapas 2.B + 2.C combinadas).
 //
-// Flujo:
+// Flujo (Punto 3 — lectura/inserción en Rust):
 //   1. Carga el proyecto (necesario para saber el `source` y, si QP,
 //      `qp_survey_id`).
-//   2. El usuario elige un archivo .xlsx/.xls.
-//   3. Parseamos según el `source` (parseQualtricsSheet / parseQuestionProSheet).
-//   4. Si QP: llamamos a la API y enriquecemos el schema. Mostramos resumen
-//      de match (X matched / Y unmatched) y un mapping manual para asignar
-//      preguntas QP a columnas que no matchearon automáticamente.
-//   5. El usuario aprueba → creamos `cleaning_versions` y cargamos las filas
-//      en batches con barra de progreso.
+//   2. El usuario elige un archivo .xlsx/.xls con el diálogo nativo → obtenemos
+//      su ruta en disco (no un File en memoria).
+//   3. Rust (`read_survey_schema`, calamine) lee sólo headers + preview, sin
+//      materializar las filas en el WebView (evita el límite de V8 y los 4 GB
+//      de RAM con archivos grandes).
+//   4. Si QP: enriquecemos el schema contra la API. Resumen de match + mapping
+//      manual para columnas sin coincidencia.
+//   5. El usuario aprueba → creamos `cleaning_versions` (JS) y Rust
+//      (`import_survey_rows`) streamea las filas a PostgREST por batches,
+//      emitiendo progreso por evento.
 //   6. Vuelve al detalle del proyecto.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -22,6 +25,8 @@ import {
   Upload as UploadIcon,
   X,
 } from "lucide-react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -38,19 +43,40 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { parseExcel, type ParsedExcel } from "@/lib/cleaning/excel-parser";
 import { enrichSchemaWithQuestionPro } from "@/lib/cleaning/enrich-schema";
 import { getProject } from "@/lib/cleaning/projects-repository";
-import {
-  createVersion,
-  insertRows,
-} from "@/lib/cleaning/versions-repository";
+import { createVersion } from "@/lib/cleaning/versions-repository";
 import type {
   CleaningProject,
   SchemaColumn,
+  VersionSchema,
 } from "@/lib/cleaning/types";
-import { getQuestionproApiKey } from "@/lib/settings";
+import {
+  getQuestionproApiKey,
+  getSupabaseAnonKey,
+  getSupabaseUrl,
+} from "@/lib/settings";
 import type { QPQuestion } from "@/lib/questionpro";
+import {
+  importSurveyRows,
+  readSurveySchema,
+  SURVEY_IMPORT_PROGRESS_EVENT,
+  type SurveyImportProgressPayload,
+} from "@/lib/tauri";
+
+/** Encuesta cargada: schema + preview leídos por Rust, más la ruta en disco
+ *  (las filas no viven en el WebView; Rust las relee al importar). */
+interface LoadedSurvey {
+  filename: string;
+  /** Ruta absoluta del archivo en disco. */
+  path: string;
+  totalRows: number;
+  schema: VersionSchema;
+  preview: {
+    headers: string[];
+    sampleRows: Array<Record<string, unknown>>;
+  };
+}
 
 export interface UploadProps {
   projectId: string;
@@ -76,9 +102,8 @@ export function Upload({
 }: UploadProps) {
   const [project, setProject] = useState<CleaningProject | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "loading-project" });
-  const [parsed, setParsed] = useState<ParsedExcel | null>(null);
+  const [loaded, setLoaded] = useState<LoadedSurvey | null>(null);
   const [qpCatalog, setQpCatalog] = useState<QPQuestion[]>([]);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Cargar el proyecto.
   useEffect(() => {
@@ -107,16 +132,18 @@ export function Upload({
     };
   }, [projectId]);
 
-  // Procesa el archivo elegido: parse + (si QP) enrich.
+  // Lee el archivo (path en disco) con Rust + (si QP) enriquece el schema.
   const handleFile = useCallback(
-    async (file: File) => {
+    async (path: string) => {
       if (!project) return;
       setPhase({ kind: "parsing" });
-      setParsed(null);
+      setLoaded(null);
       setQpCatalog([]);
 
       try {
-        const parsedExcel = await parseExcel(file, project.source);
+        const result = await readSurveySchema(path, project.source);
+        const filename = path.split(/[\\/]/).pop() || path;
+        let schema = result.schema;
 
         if (project.source === "questionpro") {
           if (!project.qp_survey_id) {
@@ -135,14 +162,19 @@ export function Upload({
           const enriched = await enrichSchemaWithQuestionPro({
             surveyId: project.qp_survey_id,
             apiKey,
-            schema: parsedExcel.schema,
+            schema: result.schema,
           });
-          setParsed({ ...parsedExcel, schema: enriched.schema });
+          schema = enriched.schema;
           setQpCatalog(enriched.qpQuestions);
-        } else {
-          setParsed(parsedExcel);
         }
 
+        setLoaded({
+          filename,
+          path,
+          totalRows: result.totalRows,
+          schema,
+          preview: result.preview,
+        });
         setPhase({ kind: "preview" });
       } catch (err) {
         setPhase({
@@ -157,9 +189,29 @@ export function Upload({
     [project]
   );
 
+  // Abre el diálogo nativo y dispara el parse con la ruta elegida.
+  const handlePick = useCallback(async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "Excel", extensions: ["xlsx", "xls"] }],
+      });
+      if (typeof selected === "string") {
+        void handleFile(selected);
+      }
+    } catch (err) {
+      setPhase({
+        kind: "error",
+        message:
+          err instanceof Error ? err.message : "No se pudo abrir el archivo.",
+      });
+    }
+  }, [handleFile]);
+
   const handleAssignQuestion = useCallback(
     (columnId: string, questionIdValue: string) => {
-      setParsed((prev) => {
+      setLoaded((prev) => {
         if (!prev) return prev;
         const nextCols: SchemaColumn[] = prev.schema.columns.map((c) => {
           if (c.id !== columnId) return c;
@@ -189,27 +241,49 @@ export function Upload({
   );
 
   const handleUpload = useCallback(async () => {
-    if (!parsed) return;
+    if (!loaded || !project) return;
     setPhase({ kind: "uploading", progress: 5 });
 
+    let unlisten: (() => void) | undefined;
     try {
+      const [supabaseUrl, anonKey] = await Promise.all([
+        getSupabaseUrl(),
+        getSupabaseAnonKey(),
+      ]);
+      if (!supabaseUrl || !anonKey) {
+        throw new Error(
+          "Faltan Supabase URL y/o anon key en Ajustes. Configurá ambas antes " +
+            "de subir datos."
+        );
+      }
+
       const version = await createVersion({
         projectId,
-        filename: parsed.filename,
-        totalRows: parsed.totalRows,
-        schema: parsed.schema,
+        filename: loaded.filename,
+        totalRows: loaded.totalRows,
+        schema: loaded.schema,
       });
 
       setPhase({ kind: "uploading", progress: 15 });
 
-      await insertRows({
+      // Progreso emitido por Rust durante la inserción (15..99).
+      unlisten = await listen<SurveyImportProgressPayload>(
+        SURVEY_IMPORT_PROGRESS_EVENT,
+        (event) => {
+          const { inserted, total } = event.payload;
+          const pct =
+            total > 0 ? 15 + Math.round((inserted / total) * 85) : 15;
+          setPhase({ kind: "uploading", progress: Math.min(pct, 99) });
+        }
+      );
+
+      await importSurveyRows({
+        path: loaded.path,
+        source: project.source,
+        schema: loaded.schema,
         versionId: version.id,
-        rows: parsed.rows,
-        onProgress: ({ inserted, total }) => {
-          // 15..100 cubre la inserción de filas.
-          const pct = 15 + Math.round((inserted / total) * 85);
-          setPhase({ kind: "uploading", progress: pct });
-        },
+        supabaseUrl,
+        anonKey,
       });
 
       setPhase({ kind: "uploading", progress: 100 });
@@ -217,7 +291,7 @@ export function Upload({
         logActivity({
           type: "limpiador_upload",
           title: "Datos cargados en Limpiador",
-          body: `${parsed.filename} · ${parsed.totalRows} filas`,
+          body: `${loaded.filename} · ${loaded.totalRows} filas`,
           toolId: "limpiador",
           viewId: "limpiador",
           payload: { projectId, versionId: version.id },
@@ -228,18 +302,17 @@ export function Upload({
       setPhase({
         kind: "error",
         message:
-          err instanceof Error
-            ? err.message
-            : "Error al subir el archivo.",
+          err instanceof Error ? err.message : "Error al subir el archivo.",
       });
+    } finally {
+      unlisten?.();
     }
-  }, [parsed, projectId, onUploaded]);
+  }, [loaded, project, projectId, onUploaded]);
 
   const reset = () => {
-    setParsed(null);
+    setLoaded(null);
     setQpCatalog([]);
     setPhase({ kind: "ready" });
-    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   // Render -------------------------------------------------------------
@@ -308,14 +381,13 @@ export function Upload({
         <FilePicker
           source={project.source}
           parsing={phase.kind === "parsing"}
-          fileInputRef={fileInputRef}
-          onPick={(f) => void handleFile(f)}
+          onBrowse={() => void handlePick()}
         />
       )}
 
-      {(phase.kind === "preview" || phase.kind === "uploading") && parsed && (
+      {(phase.kind === "preview" || phase.kind === "uploading") && loaded && (
         <PreviewCard
-          parsed={parsed}
+          parsed={loaded}
           qpCatalog={qpCatalog}
           isQuestionPro={project?.source === "questionpro"}
           uploading={phase.kind === "uploading"}
@@ -336,50 +408,24 @@ export function Upload({
 interface FilePickerProps {
   source: CleaningProject["source"];
   parsing: boolean;
-  fileInputRef: React.RefObject<HTMLInputElement | null>;
-  onPick: (file: File) => void;
+  /** Abre el diálogo nativo para elegir el archivo. */
+  onBrowse: () => void;
 }
 
-function FilePicker({ source, parsing, fileInputRef, onPick }: FilePickerProps) {
-  const [dragActive, setDragActive] = useState(false);
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setDragActive(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) onPick(file);
-  };
-
+function FilePicker({ source, parsing, onBrowse }: FilePickerProps) {
   return (
     <Card>
       <CardContent className="pt-6">
         <div
-          onClick={() => fileInputRef.current?.click()}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragActive(true);
+          onClick={() => {
+            if (!parsing) onBrowse();
           }}
-          onDragLeave={() => setDragActive(false)}
-          onDrop={handleDrop}
           className={cn(
             "flex cursor-pointer flex-col items-center gap-3 rounded-lg border-2 border-dashed p-10 text-center transition-colors",
-            dragActive
-              ? "border-primary bg-primary/5"
-              : "border-muted-foreground/25 hover:border-primary/50",
+            "border-muted-foreground/25 hover:border-primary/50",
             parsing && "pointer-events-none opacity-60"
           )}
         >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) onPick(f);
-            }}
-            disabled={parsing}
-          />
           {parsing ? (
             <>
               <Loader2 className="size-12 animate-spin text-primary" />
@@ -392,20 +438,11 @@ function FilePicker({ source, parsing, fileInputRef, onPick }: FilePickerProps) 
             </>
           ) : (
             <>
-              <UploadIcon
-                className={cn(
-                  "size-12",
-                  dragActive ? "text-primary" : "text-muted-foreground"
-                )}
-              />
+              <UploadIcon className="size-12 text-muted-foreground" />
               <div className="flex flex-col gap-1">
-                <p className="text-base font-medium">
-                  {dragActive
-                    ? "Soltá el archivo acá"
-                    : "Subí tu archivo Excel"}
-                </p>
+                <p className="text-base font-medium">Subí tu archivo Excel</p>
                 <p className="text-xs text-muted-foreground">
-                  Arrastrá un .xlsx o .xls, o hacé clic para elegir.
+                  Hacé clic para elegir un .xlsx o .xls.
                 </p>
               </div>
 
@@ -448,7 +485,7 @@ function FilePicker({ source, parsing, fileInputRef, onPick }: FilePickerProps) 
 }
 
 interface PreviewCardProps {
-  parsed: ParsedExcel;
+  parsed: LoadedSurvey;
   qpCatalog: QPQuestion[];
   isQuestionPro: boolean;
   uploading: boolean;

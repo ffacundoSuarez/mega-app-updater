@@ -23,7 +23,6 @@ import { getOpenaiApiKey } from "@/lib/settings";
 import { analyzeBatch, type PromptDebugEntry } from "./cleaning-service";
 import {
   getAllRows,
-  getDeterministicFlaggedRowIds,
   getMaxProcessedRow,
   getProjectRules,
   getRows,
@@ -33,8 +32,8 @@ import {
   updateVersion,
 } from "./cleaning-repository";
 import {
-  deterministicHitToResult,
   runDeterministicChecks,
+  type DeterministicHit,
 } from "./pre-ai-checks";
 import { detectSimilarRows } from "./similarity-detector";
 import { getCleaningSupabaseClient } from "./supabase-client";
@@ -167,53 +166,23 @@ async function executeJob(
     log("info", `Found ${rules.length} active rules`);
 
     // ---- Capa pre-IA: chequeos determinísticos sobre TODAS las filas ----
-    // Best-effort: si falla la carga/persistencia, seguimos sin pre-filtro
-    // (la IA procesará todo, que es el fallback correcto).
-    const deterministicRowIds = new Set<string>();
+    // Ya NO persiste flags ni excluye filas de la IA: los hallazgos viajan
+    // como señales en el prompt (`deterministicHints`) y la IA decide si
+    // confirmarlos o descartarlos. Best-effort: si esta pasada falla, la IA
+    // procesa todo sin señales, que es el fallback correcto.
+    let deterministicHints = new Map<string, DeterministicHit>();
     try {
       const allRows = await getAllRows(client, versionId);
-      const hits = runDeterministicChecks({
+      deterministicHints = runDeterministicChecks({
         rows: allRows,
         schema: version.schema,
         onLog: log,
       });
-      if (hits.size > 0) {
-        const rowById = new Map(allRows.map((r) => [r.id, r]));
-        const detResults = [...hits.entries()]
-          .map(([rowId, hit]) => {
-            const r = rowById.get(rowId);
-            return r ? deterministicHitToResult(hit, r) : null;
-          })
-          .filter((r): r is NonNullable<typeof r> => r !== null);
-        // ignoreConflicts: un flag determinístico nunca pisa un juicio ya
-        // tomado (IA o corrida previa) — caso de upgrade sobre job parcial.
-        const saved = await saveFlags(client, versionId, detResults, {
-          ignoreConflicts: true,
-        });
-        totalFlagged += saved;
-        for (const [rowId] of hits) {
-          deterministicRowIds.add(rowId);
-          const r = rowById.get(rowId);
-          if (r && !flaggedRowIds.has(rowId)) {
-            flaggedRows.push(r);
-            flaggedRowIds.add(rowId);
-          }
-        }
-        log("info", `Pre-IA: ${saved} flags determinísticos persistidos.`);
-      }
     } catch (preErr) {
       log(
         "warn",
-        `Pre-IA: falló la pasada determinística, sigo sin pre-filtro: ${errorMessage(preErr)}`
+        `Pre-IA: falló la pasada determinística, sigo sin señales: ${errorMessage(preErr)}`
       );
-      // Aún así intentamos saber qué filas ya tienen flag determinístico de una
-      // corrida previa, para no re-mandarlas a la IA al reanudar.
-      try {
-        const prev = await getDeterministicFlaggedRowIds(client, versionId);
-        for (const id of prev) deterministicRowIds.add(id);
-      } catch {
-        /* ignore */
-      }
     }
 
     // Resume: si processed_rows quedó atrás respecto a flags de IA ya guardados,
@@ -245,41 +214,32 @@ async function executeJob(
       const rows = await getRows(client, versionId, cursor, batchSize);
       if (rows.length === 0) break;
 
-      // Las filas ya flagueadas por la capa pre-IA no se mandan a la IA.
-      const aiRows = rows.filter((r) => !deterministicRowIds.has(r.id));
-      const skipped = rows.length - aiRows.length;
-
+      const hinted = rows.filter((r) => deterministicHints.has(r.id)).length;
       log(
         "info",
         `Processing batch: ${rows.length} rows starting at row ${cursor + 1}` +
-          (skipped > 0 ? ` (${skipped} ya flagueadas por chequeos determinísticos, no van a la IA)` : "")
+          (hinted > 0 ? ` (${hinted} con señal determinística para la IA)` : "")
       );
 
       try {
-        let flaggedCount = 0;
-        let flagBreakdown = { red: 0, yellow: 0 };
-        if (aiRows.length > 0) {
-          const results = await analyzeBatch(
-            { rows: aiRows, schema: version.schema, rules, apiKey },
-            { model, onLog: log, debugPromptLogger, batchIndex }
-          );
-          batchIndex++;
+        const results = await analyzeBatch(
+          { rows, schema: version.schema, rules, apiKey, deterministicHints },
+          { model, onLog: log, debugPromptLogger, batchIndex }
+        );
+        batchIndex++;
 
-          flaggedCount = await saveFlags(client, versionId, results);
-          totalFlagged += flaggedCount;
-          flagBreakdown = countFlagsByType(results);
+        const flaggedCount = await saveFlags(client, versionId, results);
+        totalFlagged += flaggedCount;
+        const flagBreakdown = countFlagsByType(results);
 
-          // Acumulamos filas flagueadas para la pasada de similaridad al final
-          // (paso 4 — embeddings cross-row sobre preguntas abiertas).
-          results.forEach((r, i) => {
-            if (r.flag !== "none") {
-              flaggedRows.push(aiRows[i]);
-              flaggedRowIds.add(r.row_id);
-            }
-          });
-        } else {
-          log("info", "Batch sin filas para la IA (todas flagueadas determinísticamente); se saltea OpenAI.");
-        }
+        // Acumulamos filas flagueadas para la pasada de similaridad al final
+        // (paso 4 — embeddings cross-row sobre preguntas abiertas).
+        results.forEach((r, i) => {
+          if (r.flag !== "none") {
+            flaggedRows.push(rows[i]);
+            flaggedRowIds.add(r.row_id);
+          }
+        });
 
         const currentMaxRow = Math.max(...rows.map((r) => r.row_number));
         const progressPercent = progressPct(currentMaxRow, version.total_rows);

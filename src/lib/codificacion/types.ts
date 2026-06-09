@@ -95,12 +95,19 @@ export interface ClassificationBatchResult {
   raw_ai_response?: string;
 }
 
+/** Plataforma de origen del Excel de respuestas. */
+export type SurveyPlatform = "qualtrics" | "questionpro";
+
 export interface ExcelUploadData {
   filename: string;
   rows: number;
   columns: string[];
   preview: Array<{ id: string; response: string }>;
   rawData: (string | number | boolean | null)[][];
+  /** Índice (0-based) de la columna usada como ID de respuesta. */
+  idColumnIndex: number;
+  /** Índice (0-based) de la columna con el texto de respuesta a clasificar. */
+  responseColumnIndex: number;
 }
 
 export interface CategoryBookRow {

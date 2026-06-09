@@ -38,16 +38,20 @@ Entrada en runtime:
   (todas obligatorias; el job tira `MissingSupabaseSettingsError` /
   `MissingOpenAiKeyError` si falta alguna).
 
-## Capa pre-IA (chequeos determinísticos)
+## Capa pre-IA (señales determinísticas)
 
 Antes del bucle de la IA, el job corre chequeos determinísticos puros
 (`src/lib/cleaning/field-checks.ts`, orquestados por `pre-ai-checks.ts`) sobre
-**todas** las filas de la versión. Las filas que esta capa flaguea **no** se
-mandan a OpenAI (baja costo + consistencia: le saca al modelo lo trivial).
+**todas** las filas de la versión. Los hallazgos **no se persisten como flags
+directos ni excluyen filas de la IA**: viajan como señales en el prompt
+(línea `SEÑAL AUTOMÁTICA (<regla>): <motivo>` en la fila correspondiente) y
+es la IA quien decide confirmarlos (flag, con el id de la regla en
+`matched_rules`) o descartarlos (`none`). Esto evita falsos positivos del
+estilo "abierta con <3 palabras" sobre respuestas cortas pero válidas.
 
-Reglas v1 (id que va en `cleaning_flags.matched_rules`):
+Reglas v1 (id de la señal; si la IA la confirma, va en `cleaning_flags.matched_rules`):
 
-| Regla | Disparo | flag | recommendation | conf | Columna |
+| Regla | Disparo | flag* | recommendation* | conf* | Columna |
 |---|---|---|---|---|---|
 | `ip_duplicada` | la IP del encuestado aparece en ≥2 filas | yellow | review | 0.7 | `META_IP` (QP) o por nombre |
 | `duracion_corta` | duración < percentil 5 del set | yellow | review | 0.6 | `META_MINUTOS` (QP) o por nombre |
@@ -55,24 +59,35 @@ Reglas v1 (id que va en `cleaning_flags.matched_rules`):
 | `abierta_pocas_palabras` | respuesta abierta no vacía con <3 palabras | yellow | review | 0.85 | columnas con `qp_question_type` de texto |
 | `abierta_caracteres_repetidos` | abierta con un mismo carácter ≥5 veces seguidas | red | remove | 1.0 | idem |
 
+\* `flag`/`recommendation`/`conf` de la tabla son los valores del **fallback**
+(ver abajo); cuando la señal pasa por la IA, el flag final lo decide el modelo.
+
 Notas:
-- **Una fila → a lo sumo un flag** (la tabla tiene `UNIQUE(version_id,row_id)`):
-  si dispara varias reglas gana la de mayor prioridad (`abierta_caracteres_repetidos`
-  > `ip_duplicada` > `duracion_corta` > `abierta_pocas_palabras` > `duracion_larga`).
+- **Una fila → a lo sumo una señal**: si dispara varias reglas gana la de mayor
+  prioridad (`abierta_caracteres_repetidos` > `ip_duplicada` > `duracion_corta`
+  > `abierta_pocas_palabras` > `duracion_larga`).
 - La detección de columna IP/duración es **confiable sólo en proyectos QuestionPro**
   (metadata estándar `META_IP` / `META_MINUTOS`). Para Qualtrics es best-effort por
   nombre de columna; si no se identifica, se omite ese chequeo (log informativo).
 - Las abiertas sólo se chequean si el schema fue **enriquecido con QP** y la columna
   tiene un `qp_question_type` de texto — sin tipo no se asume abierta (evita falsos
   positivos sobre preguntas cerradas en Qualtrics).
-- `friendly_explanation` y `reason` se **redactan acá** (la IA no los provee para
-  estas filas) siguiendo el mismo formato que los flags de IA.
-- Es **best-effort**: si la carga de filas o el `saveFlags` fallan, el job sigue sin
-  pre-filtro (la IA procesa todo). Es **idempotente**: re-correr el job re-aplica los
-  mismos flags vía upsert.
+- **Fallback**: si OpenAI falla para un batch (HTTP error agotando retries,
+  respuesta vacía o no parseable), las filas de ese batch con señal se persisten
+  con el flag determinístico de la tabla (vía `deterministicHitToResult`, con
+  `reason`/`friendly_explanation` redactados en `pre-ai-checks.ts`) en lugar de
+  perderse en el "todo none".
+- Es **best-effort**: si la pasada determinística falla, el job sigue y la IA
+  procesa todo sin señales.
 - `getMaxProcessedRow` (resume) **excluye** los flags cuyo `matched_rules` está
-  compuesto sólo por ids determinísticos: esos pueden caer en cualquier `row_number`
-  y no implican que la IA haya procesado las filas previas.
+  compuesto sólo por ids determinísticos (datos de corridas viejas que los
+  escribían upfront, o del fallback): no garantizan que la IA haya procesado
+  las filas previas. Conservador: a lo sumo re-analiza, nunca saltea.
+
+Además, el prompt restringe el patrón "contradicciones internas": sólo se
+flaguea cuando una respuesta **abierta** de texto contradice otra respuesta (o
+cuando lo pide una regla del usuario). Combinaciones de cerradas/numéricas
+(edad, hogar, ingresos, NSE) que parezcan atípicas **no** son motivo de flag.
 
 ## Lecturas (durante el job)
 
@@ -83,7 +98,6 @@ Notas:
 | `getAllRows` | `cleaning_rows` | `version_id`, todas, paginadas de a 1000 | Para los chequeos cross-row de la capa pre-IA (IPs, percentiles de duración). |
 | `getRows` | `cleaning_rows` | `version_id`, `row_number > cursor`, ordenadas asc, `limit = batchSize` | Paginación por cursor (bucle de IA). |
 | `getMaxProcessedRow` | `cleaning_flags` ⨝ `cleaning_rows` | `version_id` | Mayor `row_number` ya procesado por IA (excluye flags puramente determinísticos). Reconcilia `cursor` al reanudar. |
-| `getDeterministicFlaggedRowIds` | `cleaning_flags` | `version_id` | Filas con flag puramente determinístico — para no re-mandarlas a la IA al reanudar si falló la pasada pre-IA. |
 
 ## Escrituras (durante el job)
 
