@@ -44,6 +44,11 @@ pub fn run() {
             greet,
             commands::python::run_python_hello,
             commands::brand_audit::run_brand_audit,
+            commands::questionpro::questionpro_create_survey,
+            commands::questionpro::questionpro_create_block,
+            commands::questionpro::questionpro_create_question,
+            commands::survey_import::read_survey_schema,
+            commands::survey_import::import_survey_rows,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -44,6 +44,7 @@ import {
   type BrandAuditResult,
 } from "@/lib/tauri";
 import { getGeminiApiKey } from "@/lib/settings";
+import { endRunningJob, logActivity, startRunningJob } from "@/lib/activity";
 
 type RunStatus = "idle" | "running" | "success" | "error";
 
@@ -143,6 +144,9 @@ export function BrandAuditView() {
     setResult(null);
     setError(null);
 
+    const jobId = "brand-audit-run";
+    void startRunningJob(jobId, "brand-audit", "Brand Audit · YPF");
+
     try {
       const waveFilterNum = Number(waveFilter);
       if (!Number.isInteger(waveFilterNum)) {
@@ -172,10 +176,27 @@ export function BrandAuditView() {
       });
       setResult(res);
       setStatus("success");
+      void logActivity({
+        type: "brand_audit_done",
+        title: "Brand Audit completado",
+        body: res.outputDir,
+        toolId: "brand-audit",
+        viewId: "brand-audit",
+        filePath: res.outputDir,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
       setStatus("error");
+      void logActivity({
+        type: "brand_audit_error",
+        title: "Brand Audit falló",
+        body: msg,
+        toolId: "brand-audit",
+        viewId: "brand-audit",
+      });
+    } finally {
+      void endRunningJob(jobId);
     }
   }, [
     canRun,

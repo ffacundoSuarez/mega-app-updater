@@ -35,7 +35,9 @@ import {
   extractQuestionProSurveyId,
   validateSurvey,
 } from "@/lib/questionpro";
-import { getQuestionproApiKey } from "@/lib/settings";
+import { getQuestionproApiKey, getQuestionproUserId } from "@/lib/settings";
+import { SurveyPicker } from "@/components/SurveyPicker";
+import { logActivity } from "@/lib/activity";
 import type { CleaningProjectSource } from "@/lib/cleaning/types";
 
 export interface NewProjectProps {
@@ -61,6 +63,7 @@ export function NewProject({
 
   // Estado de la pantalla QP (paso 2)
   const [qpApiKey, setQpApiKey] = useState<string | null>(null);
+  const [qpUserId, setQpUserId] = useState<string | null>(null);
   const [qpKeyLoading, setQpKeyLoading] = useState(true);
   const [surveyInput, setSurveyInput] = useState("");
   const [surveyFieldError, setSurveyFieldError] = useState("");
@@ -80,12 +83,15 @@ export function NewProject({
     if (step !== 2) return;
     let cancelled = false;
     setQpKeyLoading(true);
-    getQuestionproApiKey().then((k) => {
-      if (!cancelled) {
-        setQpApiKey(k);
-        setQpKeyLoading(false);
+    Promise.all([getQuestionproApiKey(), getQuestionproUserId()]).then(
+      ([k, uid]) => {
+        if (!cancelled) {
+          setQpApiKey(k);
+          setQpUserId(uid);
+          setQpKeyLoading(false);
+        }
       }
-    });
+    );
     return () => {
       cancelled = true;
     };
@@ -144,6 +150,13 @@ export function NewProject({
           qpSurveyId: surveyId,
           qpSurveyName: surveyValid!.name,
         }),
+      });
+      void logActivity({
+        type: "limpiador_project_created",
+        title: `Proyecto creado: ${project.name}`,
+        toolId: "limpiador",
+        viewId: "limpiador",
+        payload: { projectId: project.id },
       });
       onCreated(project.id);
     } catch (err) {
@@ -287,9 +300,9 @@ export function NewProject({
           {step === 2 && isQuestionPro && (
             <QuestionProStep
               apiKey={qpApiKey}
+              userId={qpUserId}
               apiKeyLoading={qpKeyLoading}
               surveyInput={surveyInput}
-              surveyId={surveyId}
               surveyFieldError={surveyFieldError}
               validating={validating}
               surveyValid={surveyValid}
@@ -391,9 +404,9 @@ function SourceCard({
 
 interface QuestionProStepProps {
   apiKey: string | null;
+  userId: string | null;
   apiKeyLoading: boolean;
   surveyInput: string;
-  surveyId: string;
   surveyFieldError: string;
   validating: boolean;
   surveyValid: SurveyValidation | null;
@@ -404,9 +417,9 @@ interface QuestionProStepProps {
 
 function QuestionProStep({
   apiKey,
+  userId,
   apiKeyLoading,
   surveyInput,
-  surveyId,
   surveyFieldError,
   validating,
   surveyValid,
@@ -460,28 +473,20 @@ function QuestionProStep({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <Label htmlFor="qp-survey-input">Link o ID de la encuesta</Label>
-        <Input
-          id="qp-survey-input"
-          value={surveyInput}
-          onChange={(e) => onSurveyInputChange(e.target.value)}
-          placeholder="Link de QuestionPro o ID numérico"
-          className={cn(surveyFieldError && "border-destructive")}
-        />
-        {surveyInput && surveyId && surveyId !== surveyInput.trim() && (
-          <p className="text-xs text-muted-foreground">
-            Survey ID detectado:{" "}
-            <span className="font-mono font-medium">{surveyId}</span>
-          </p>
-        )}
-        {surveyFieldError && (
-          <p className="flex items-center gap-1 text-xs text-destructive">
-            <AlertCircle className="size-3" />
-            {surveyFieldError}
-          </p>
-        )}
-      </div>
+      <SurveyPicker
+        apiKey={apiKey}
+        userId={userId}
+        value={surveyInput}
+        onChange={onSurveyInputChange}
+        onOpenSettings={onOpenSettings}
+        disabled={validating}
+      />
+      {surveyFieldError && (
+        <p className="flex items-center gap-1 text-xs text-destructive">
+          <AlertCircle className="size-3" />
+          {surveyFieldError}
+        </p>
+      )}
 
       <div>
         <Button

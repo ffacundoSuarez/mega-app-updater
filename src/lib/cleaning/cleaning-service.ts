@@ -22,6 +22,8 @@
  * holgado (16000) para que el JSON de salida no se trunque.
  */
 
+import type { DeterministicHit } from "./pre-ai-checks";
+import { deterministicHitToResult } from "./pre-ai-checks";
 import type {
   AnalyzeResult,
   CleaningRow,
@@ -81,6 +83,13 @@ export interface AnalyzeBatchInput {
   schema: VersionSchema;
   rules: CleaningRule[];
   apiKey: string;
+  /**
+   * Señales de los chequeos determinísticos (`row_id → hit`). Las filas con
+   * señal igual van a la IA: la señal viaja en el prompt y el modelo decide
+   * si confirmarla (flag) o descartarla (none). Si OpenAI falla, el fallback
+   * preserva estas señales como flags en lugar de devolver "none".
+   */
+  deterministicHints?: Map<string, DeterministicHit>;
 }
 
 interface OpenAIResponseChoice {
@@ -121,6 +130,28 @@ function isPromptColumn(col: SchemaColumn): boolean {
   if (col.is_metadata) return false;
   if (col.id.startsWith("META_")) return false;
   return true;
+}
+
+/**
+ * Columnas que efectivamente van al prompt de la IA.
+ *
+ * Para proyectos QuestionPro (schema enriquecido contra la API), la IA mira
+ * SÓLO las columnas que matchearon una pregunta real (`qp_question_id`
+ * seteado). Así se ignoran las customs / variables personalizadas / templates
+ * (`$[ESTRATO_ARG]`, `Variable personalizada N`, etc.) que vienen en el export
+ * crudo o de Automatizaciones: no se borran del archivo (siguen en
+ * `cleaning_rows.data` para el export), pero no ensucian ni encarecen el QC.
+ *
+ * Detección por schema (sin depender del `source`): `qp_question_id` lo setea
+ * únicamente el enrich de la API de QP; el Validador sólo agrega
+ * `qp_question_type`/`qp_options`. Si NINGUNA columna tiene `qp_question_id`
+ * (caso Qualtrics, o QP sin matches), caemos al comportamiento previo: todas
+ * las no-metadata.
+ */
+function selectPromptColumns(schema: VersionSchema): SchemaColumn[] {
+  const base = schema.columns.filter(isPromptColumn);
+  const hasQpMatches = base.some((c) => c.qp_question_id != null);
+  return hasQpMatches ? base.filter((c) => c.qp_question_id != null) : base;
 }
 
 /**
@@ -212,6 +243,15 @@ Ejemplo G — comentario opcional dejado en "no" → NO flaguear
 Ejemplo H — respuesta breve y concreta en abierta → NO flaguear
   Q12 (¿Qué marca de gaseosa tomás más seguido?): "Coca-Cola"
   → flag: "none"  (responde la pregunta, aunque sea corta)
+
+Ejemplo I — combinación demográfica de cerradas plausible → NO flaguear
+  Q2 (¿Cuál es tu edad?): 18  |  Q40 (¿Cuántas personas viven en su hogar?): 4  |  Q41 (¿Cuántas tienen ingresos?): 1  |  Q42 (¿Está trabajando?): "No trabaja (desocupado)"
+  → flag: "none"  (todas son respuestas cerradas/numéricas válidas; que la combinación parezca atípica no es motivo de flag)
+
+Ejemplo J — señal automática descartada por contexto → NO flaguear
+  Q9 (¿Por qué elegiste esa marca?): "Estaba disponible"
+  SEÑAL AUTOMÁTICA (abierta_pocas_palabras): Respuesta abierta con menos de 3 palabras.
+  → flag: "none"  (la respuesta es corta pero concreta y responde la pregunta; la señal se descarta)
 `;
 
 /**
@@ -221,13 +261,18 @@ Ejemplo H — respuesta breve y concreta en abierta → NO flaguear
  * Las reglas del usuario se expanden: cualquier `@COLUMN_ID` mencionado en la
  * descripción se reemplaza por `@COLUMN_ID ("texto de la pregunta")` para que
  * el modelo no tenga que adivinar a qué columna refiere.
+ *
+ * Si se pasan `deterministicHints`, cada fila con señal lleva una línea
+ * `SEÑAL AUTOMÁTICA (...)` y el prompt instruye al modelo a confirmarla o
+ * descartarla con criterio.
  */
 export function buildPrompt(
   rows: CleaningRow[],
   schema: VersionSchema,
-  rules: CleaningRule[]
+  rules: CleaningRule[],
+  deterministicHints?: Map<string, DeterministicHit>
 ): string {
-  const promptColumns = schema.columns.filter(isPromptColumn);
+  const promptColumns = selectPromptColumns(schema);
 
   const schemaDescription = promptColumns
     .map(describeSchemaColumn)
@@ -241,9 +286,13 @@ export function buildPrompt(
   const rowsData = rows
     .map((row, i) => {
       const rowDataStr = serializeRowData(row, promptColumns);
+      const hint = deterministicHints?.get(row.id);
+      const hintLine = hint
+        ? `\n  SEÑAL AUTOMÁTICA (${hint.ruleId}): ${hint.reason}`
+        : "";
       return `ROW ${i + 1} (row_number: ${row.row_number}, response_id: ${
         row.response_id ?? "N/A"
-      }):\n${rowDataStr}`;
+      }):\n${rowDataStr}${hintLine}`;
     })
     .join("\n\n");
 
@@ -268,8 +317,13 @@ PATRONES ADICIONALES A DETECTAR (sólo si NO hay regla del usuario que aplique; 
 - Galimatías, caracteres random, golpes de teclado
 - Respuestas sospechosamente generadas por IA (gramática perfecta, genéricas, sin contenido personal)
 - Respuestas abiertas que no responden lógicamente la pregunta
-- Contradicciones internas (ej: edad dice 25 pero menciona nietos)
+- Contradicciones internas SÓLO cuando una respuesta ABIERTA de texto contradice otra respuesta (ej: edad dice 25 pero en un comentario menciona nietos). NO flaguees combinaciones de respuestas cerradas/numéricas (edad, tamaño del hogar, ingresos, ocupación, NSE) por parecer atípicas o improbables — las cerradas son contexto, no objeto de juicio de plausibilidad.
 - Respuestas excesivamente cortas o vagas ("bien", "ok", "sí") en preguntas que piden desarrollo
+
+SEÑALES AUTOMÁTICAS (chequeos determinísticos previos):
+- Algunas filas incluyen una línea "SEÑAL AUTOMÁTICA (<regla>): <motivo>". Son hallazgos de chequeos automáticos simples, NO un veredicto.
+- Evaluá cada señal mirando el contenido de la fila: si el problema es real, flagueá la fila e incluí el nombre de la regla (ej: "abierta_pocas_palabras") en "matched_rules"; si la respuesta es legítima en contexto (ej: corta pero concreta), devolvé "none" — la señal se descarta.
+- Las señales "ip_duplicada", "duracion_corta" y "duracion_larga" reportan hechos verificados sobre toda la base (no podés recomputarlos). No los descartes como falsos: ponderá si, junto con el contenido de la fila, ameritan "yellow" para revisión humana o si la fila se ve genuina y alcanza con "none".
 
 ${FEW_SHOT_BLOCK}
 REGLAS IMPORTANTES DE INTERPRETACIÓN:
@@ -375,10 +429,10 @@ export async function analyzeBatch(
   } = options;
 
   const log = onLog ?? defaultLogger;
-  const { rows, schema, rules, apiKey } = input;
+  const { rows, schema, rules, apiKey, deterministicHints } = input;
 
   log("info", `CleaningService: Analyzing ${rows.length} rows...`);
-  const prompt = buildPrompt(rows, schema, rules);
+  const prompt = buildPrompt(rows, schema, rules, deterministicHints);
   // El body manda `response_format: { type: "json_object" }`, que fuerza al
   // modelo a devolver un OBJETO JSON (no un array suelto). gpt-5-mini razona
   // y se traba si el prompt le pide "un array" mientras el response_format
@@ -471,13 +525,13 @@ export async function analyzeBatch(
             usage?.completion_tokens ?? "?"
           }). Falling back to "none" for all ${rows.length} rows.`
         );
-        return getFallbackResults(rows);
+        return getFallbackResults(rows, deterministicHints);
       }
 
       const parsed = parseAiArray(content);
       if (!parsed) {
         log("error", "Failed to parse OpenAI response as JSON array");
-        return getFallbackResults(rows);
+        return getFallbackResults(rows, deterministicHints);
       }
 
       const results = mergeAiResults(rows, parsed);
@@ -503,22 +557,33 @@ export async function analyzeBatch(
   }
 
   log("error", `AI analysis failed after retries: ${errorMessage(lastError)}`);
-  return getFallbackResults(rows);
+  return getFallbackResults(rows, deterministicHints);
 }
 
-/** Resultado neutro por fila. Usado cuando OpenAI falla. */
-export function getFallbackResults(rows: CleaningRow[]): AnalyzeResult[] {
-  return rows.map((row) => ({
-    row_id: row.id,
-    row_number: row.row_number,
-    flag: "none",
-    reason: null,
-    matched_rules: [],
-    confidence: 1.0,
-    friendly_explanation: null,
-    recommendation: null,
-    affected_question_ids: [],
-  }));
+/**
+ * Resultado por fila cuando OpenAI falla. Las filas con señal determinística
+ * conservan ese flag (la IA no llegó a juzgarlo, pero la señal no se pierde);
+ * el resto cae a "none".
+ */
+export function getFallbackResults(
+  rows: CleaningRow[],
+  deterministicHints?: Map<string, DeterministicHit>
+): AnalyzeResult[] {
+  return rows.map((row) => {
+    const hint = deterministicHints?.get(row.id);
+    if (hint) return deterministicHitToResult(hint, row);
+    return {
+      row_id: row.id,
+      row_number: row.row_number,
+      flag: "none" as const,
+      reason: null,
+      matched_rules: [],
+      confidence: 1.0,
+      friendly_explanation: null,
+      recommendation: null,
+      affected_question_ids: [],
+    };
+  });
 }
 
 // ---------- helpers internos ----------

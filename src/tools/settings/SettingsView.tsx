@@ -791,11 +791,9 @@ export function SettingsView() {
                   </CardTitle>
                   <CardDescription>
                     Modelo de OpenAI usado para parsear cuestionarios y correr
-                    los checks semánticos.{" "}
-                    <span className="font-mono">gpt-4o-mini</span> es más
-                    barato y suficiente para la mayoría de los casos;{" "}
-                    <span className="font-mono">gpt-4o</span> rinde mejor en
-                    cuestionarios largos o con texto ambiguo.
+                    los checks semánticos. Hoy usa{" "}
+                    <span className="font-mono">gpt-5-mini</span>, igual que el
+                    Limpiador.
                   </CardDescription>
                 </div>
               </div>

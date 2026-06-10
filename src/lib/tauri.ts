@@ -3,6 +3,10 @@
 // acá exponemos funciones TS que los llaman para mantener tipos en un solo lugar.
 
 import { invoke } from "@tauri-apps/api/core";
+import type {
+  CleaningProjectSource,
+  VersionSchema,
+} from "@/lib/cleaning/types";
 
 /** Ejemplo de comando heredado del scaffold. Se puede borrar cuando se quite de Rust. */
 export function greet(name: string): Promise<string> {
@@ -81,4 +85,138 @@ export function runBrandAudit(
   params: BrandAuditParams,
 ): Promise<BrandAuditResult> {
   return invoke<BrandAuditResult>("run_brand_audit", { params });
+}
+
+// --- QuestionPro -----------------------------------------------------------
+
+/** Payload para crear una encuesta en QP desde Rust (evita CORS del WebView). */
+export interface QuestionproCreateSurveyParams {
+  userId: string;
+  apiKey: string;
+  name: string;
+  folderId?: number;
+  saveAndContinue?: boolean;
+}
+
+/** Shape devuelto por `questionpro_create_survey` en Rust. */
+export interface QuestionproCreatedSurvey {
+  surveyId: number;
+  name: string;
+  url: string;
+  status: string;
+}
+
+/** Crea una encuesta en QuestionPro desde el backend local Tauri. */
+export function questionproCreateSurvey(
+  params: QuestionproCreateSurveyParams,
+): Promise<QuestionproCreatedSurvey> {
+  return invoke<QuestionproCreatedSurvey>("questionpro_create_survey", {
+    params,
+  });
+}
+
+/** Payload para crear un bloque/sección en QP desde Rust. */
+export interface QuestionproCreateBlockParams {
+  surveyId: string;
+  apiKey: string;
+  title: string;
+  orderNumber: number;
+}
+
+/** Shape devuelto por `questionpro_create_block` en Rust. */
+export interface QuestionproCreatedBlock {
+  blockId: number;
+  surveyId: number;
+  title: string;
+  orderNumber: number;
+}
+
+/** Crea un bloque en QuestionPro desde el backend local Tauri. */
+export function questionproCreateBlock(
+  params: QuestionproCreateBlockParams,
+): Promise<QuestionproCreatedBlock> {
+  return invoke<QuestionproCreatedBlock>("questionpro_create_block", {
+    params,
+  });
+}
+
+/** Payload para crear una pregunta en QP desde Rust. */
+export interface QuestionproCreateQuestionParams {
+  surveyId: string;
+  apiKey: string;
+  payload: unknown;
+}
+
+/** Shape devuelto por `questionpro_create_question` en Rust. */
+export interface QuestionproCreatedQuestion {
+  questionId: number;
+  blockId?: number | null;
+  orderNumber?: number | null;
+}
+
+/** Crea una pregunta en QuestionPro desde el backend local Tauri. */
+export function questionproCreateQuestion(
+  params: QuestionproCreateQuestionParams,
+): Promise<QuestionproCreatedQuestion> {
+  return invoke<QuestionproCreatedQuestion>("questionpro_create_question", {
+    params,
+  });
+}
+
+// --- Limpiador: lectura/inserción de Excel en Rust (Punto 3) --------------
+
+/** Evento Tauri con el progreso de inserción de filas. La UI lo escucha con
+ *  `listen()`. Payload: `SurveyImportProgressPayload`. */
+export const SURVEY_IMPORT_PROGRESS_EVENT = "survey-import-progress";
+
+/** Resultado de `read_survey_schema`: schema + preview, sin las filas (que se
+ *  quedan en disco hasta el import). Shape espejo de `SurveySchemaResult` en
+ *  src-tauri/src/commands/survey_import.rs. */
+export interface SurveySchemaResult {
+  schema: VersionSchema;
+  totalRows: number;
+  preview: {
+    headers: string[];
+    sampleRows: Array<Record<string, unknown>>;
+  };
+  /** Nombre de la hoja efectivamente leída (ej. "Datos sin procesar" en QP crudo). */
+  sheetName: string;
+}
+
+/** Lee headers + preview de un Excel desde Rust (calamine), sin materializar
+ *  las filas en el WebView. `path` es la ruta absoluta en disco. */
+export function readSurveySchema(
+  path: string,
+  source: CleaningProjectSource,
+): Promise<SurveySchemaResult> {
+  return invoke<SurveySchemaResult>("read_survey_schema", { path, source });
+}
+
+/** Parámetros de `import_survey_rows`. El shape debe coincidir con
+ *  `ImportParams` (camelCase) en survey_import.rs. */
+export interface ImportSurveyRowsParams {
+  path: string;
+  source: CleaningProjectSource;
+  /** Schema (posiblemente enriquecido con QP). Sólo se usan index + id. */
+  schema: VersionSchema;
+  versionId: string;
+  supabaseUrl: string;
+  anonKey: string;
+  /** Filas por request a PostgREST. Default 500. */
+  batchSize?: number;
+}
+
+/** Payload del evento de progreso emitido durante la inserción. */
+export interface SurveyImportProgressPayload {
+  inserted: number;
+  total: number;
+}
+
+/** Streamea las filas del Excel e inserta a Supabase (PostgREST) por batches.
+ *  Emite `SURVEY_IMPORT_PROGRESS_EVENT` por cada batch — suscribite con
+ *  `listen()` antes de llamar. Devuelve el total insertado. */
+export function importSurveyRows(
+  params: ImportSurveyRowsParams,
+): Promise<number> {
+  return invoke<number>("import_survey_rows", { params });
 }

@@ -53,6 +53,7 @@ import {
   getQuestionproApiKey,
   getQuestionproUserId,
 } from "@/lib/settings";
+import { logActivity } from "@/lib/activity";
 import type {
   IssueCategory,
   IssueSeverity,
@@ -243,6 +244,14 @@ export function ValidationReport({
           qp_survey_url: result.qp_survey_url,
           warnings: result.warnings,
         },
+      });
+      void logActivity({
+        type: "cuestionario_published",
+        title: `Publicado en QuestionPro: ${row.nombre}`,
+        body: `Survey ID ${result.qp_survey_id}`,
+        toolId: "cuestionario",
+        viewId: "cuestionario",
+        payload: { questionnaireId },
       });
       // Refresh del row para reflejar el qp_published_survey_id.
       await load();

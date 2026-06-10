@@ -15,7 +15,8 @@ export type QuestionType =
   | "abierta_marca"
   | "numerica"
   | "ranking"
-  | "fecha";
+  | "fecha"
+  | "comentario";
 
 /** Tag de condición sobre una opción. "fijar" = posición fija aunque la
  *  pregunta esté aleatorizada; "especificar" = abre texto; "exclusiva" = al

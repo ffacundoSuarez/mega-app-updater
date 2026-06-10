@@ -59,7 +59,9 @@ import {
 } from "@/lib/cuestionario/types";
 import { MissingSupabaseSettingsError } from "@/lib/cuestionario/supabase-client";
 import { extractQuestionProSurveyId, validateSurvey } from "@/lib/questionpro";
-import { getQuestionproApiKey } from "@/lib/settings";
+import { getQuestionproApiKey, getQuestionproUserId } from "@/lib/settings";
+import { SurveyPicker } from "@/components/SurveyPicker";
+import { logActivity } from "@/lib/activity";
 
 type Camino = "blanco" | "texto" | "docx" | "pdf" | "questionpro_api";
 
@@ -89,6 +91,7 @@ export function NewQuestionnaire({
   const [surveyInput, setSurveyInput] = useState("");
   const [qpKeyLoading, setQpKeyLoading] = useState(false);
   const [qpKey, setQpKey] = useState<string | null>(null);
+  const [qpUserId, setQpUserId] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
   const [surveyValid, setSurveyValid] = useState<{ id: string; name: string } | null>(null);
 
@@ -110,11 +113,14 @@ export function NewQuestionnaire({
     let cancelled = false;
     setQpKeyLoading(true);
     setSurveyValid(null);
-    getQuestionproApiKey().then((k) => {
-      if (cancelled) return;
-      setQpKey(k);
-      setQpKeyLoading(false);
-    });
+    Promise.all([getQuestionproApiKey(), getQuestionproUserId()]).then(
+      ([k, uid]) => {
+        if (cancelled) return;
+        setQpKey(k);
+        setQpUserId(uid);
+        setQpKeyLoading(false);
+      }
+    );
     return () => {
       cancelled = true;
     };
@@ -270,6 +276,14 @@ export function NewQuestionnaire({
         // Guardamos el id pendiente para abrir cuando el usuario confirme.
         pendingOpenIdRef.current = row.id;
       } else {
+        void logActivity({
+          type: "cuestionario_created",
+          title: `Cuestionario importado: ${nombreTrimmed}`,
+          body: `QuestionPro · ${surveyValid.name}`,
+          toolId: "cuestionario",
+          viewId: "cuestionario",
+          payload: { questionnaireId: row.id },
+        });
         onCreated(row.id);
       }
     } catch (err) {
@@ -567,19 +581,17 @@ export function NewQuestionnaire({
               </div>
             ) : (
               <>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="qp-survey">Encuesta de QuestionPro</Label>
-                  <Input
-                    id="qp-survey"
-                    placeholder="https://www.questionpro.com/... ó 12345678"
-                    value={surveyInput}
-                    onChange={(e) => {
-                      setSurveyInput(e.target.value);
-                      setSurveyValid(null);
-                    }}
-                    disabled={validating || submitting}
-                  />
-                </div>
+                <SurveyPicker
+                  apiKey={qpKey}
+                  userId={qpUserId}
+                  value={surveyInput}
+                  onChange={(v) => {
+                    setSurveyInput(v);
+                    setSurveyValid(null);
+                  }}
+                  onOpenSettings={onOpenSettings}
+                  disabled={validating || submitting}
+                />
                 {!surveyValid ? (
                   <div className="flex justify-end">
                     <Button

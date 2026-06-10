@@ -1,15 +1,18 @@
 /**
  * Capa pre-IA del Limpiador: corre los chequeos determinísticos
- * (`field-checks.ts`) sobre todas las filas de una versión ANTES de mandar
- * nada a OpenAI. Las filas que esta capa flaguea no se envían a la IA — eso
- * baja costo y consistencia (le saca al modelo lo trivial: galimatías, IPs
- * repetidas, abiertas vacías) y deja a la IA sólo lo que requiere criterio.
+ * (`field-checks.ts`) sobre todas las filas de una versión ANTES del bucle
+ * de OpenAI. Los hallazgos NO se persisten como flags directos ni excluyen
+ * filas de la IA: viajan como **señales** en el prompt (`deterministicHints`
+ * en `analyzeBatch`) y es la IA quien decide confirmarlos (flag) o
+ * descartarlos (none) con el contexto de la fila. Único caso en que un
+ * hallazgo se convierte en flag sin pasar por la IA: el fallback cuando
+ * OpenAI falla (ver `getFallbackResults`).
  *
  * Esta capa SÍ conoce el dominio (cómo está armado el `VersionSchema`, qué
  * columna es la IP, cuál la duración, cuáles abiertas), coerce tipos y mapea
- * cada hallazgo a un `AnalyzeResult` con el mismo shape que produce la IA, así
- * `saveFlags` lo persiste igual. Cada fila recibe a lo sumo UN flag (gana el
- * de mayor prioridad) — la tabla `cleaning_flags` tiene UNIQUE(version_id,row_id).
+ * cada hallazgo a un `DeterministicHit`; `deterministicHitToResult` lo
+ * convierte al shape `AnalyzeResult` para el fallback. Cada fila recibe a lo
+ * sumo UNA señal (gana la de mayor prioridad).
  *
  * Alcance v1: `ip_duplicada`, `duracion_corta/larga`, `abierta_pocas_palabras`,
  * `abierta_caracteres_repetidos`. La detección de columna IP/duración es
@@ -318,9 +321,9 @@ export function runDeterministicChecks(
     const byRule = new Map<string, number>();
     for (const h of hits.values()) byRule.set(h.ruleId, (byRule.get(h.ruleId) ?? 0) + 1);
     const summary = [...byRule.entries()].map(([r, n]) => `${r}=${n}`).join(", ");
-    log("info", `Pre-IA: ${hits.size}/${rows.length} filas flagueadas determinísticamente (${summary}).`);
+    log("info", `Pre-IA: ${hits.size}/${rows.length} filas con señal determinística para la IA (${summary}).`);
   } else {
-    log("info", `Pre-IA: ninguna fila flagueada por chequeos determinísticos.`);
+    log("info", `Pre-IA: ningún hallazgo determinístico; la IA analiza sin señales.`);
   }
 
   return hits;

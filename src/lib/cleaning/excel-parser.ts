@@ -137,10 +137,58 @@ export function parseQualtricsSheet(
 }
 
 /**
- * Parser QuestionPro: 1 header + datos. Las primeras 7 columnas DEBEN ser la
- * metadata estándar (en el orden exacto exportado por QP). Si no coincide,
- * abortamos con error claro para que el usuario sepa que el proyecto debería
- * estar configurado como Qualtrics o que el export está mal.
+ * Normaliza un header para compararlo de forma tolerante: saca acentos, pasa a
+ * minúsculas, colapsa espacios y recorta. Así "País" == "Pais", "ID Respuesta"
+ * == "id  respuesta", etc.
+ */
+function normalizeHeader(value: RawCell): string {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Alias aceptados (ya normalizados) para cada columna de metadata estándar de
+ * QP, indexados por su `columnId`. Permite reconocer la metadata aunque venga
+ * con otra grafía/acento u otro orden, e incluye las etiquetas del export crudo
+ * de QP por si llegan así.
+ */
+const QP_METADATA_ALIASES: Record<string, string[]> = {
+  META_ID_RESPUESTA: ["id respuesta", "id de respuesta", "response id", "responseid"],
+  META_FECHA_HORA: [
+    "fecha y hora",
+    "fecha",
+    "marca de tiempo",
+    "marca de tiempo (mm/dd/yyyy)",
+    "timestamp",
+  ],
+  META_MINUTOS: [
+    "minutos",
+    "tiempo necesario para completar (segundos)",
+    "tiempo necesario para completar",
+    "timetaken",
+  ],
+  META_ESTADO: ["estado", "estado de respuesta", "responsestatus"],
+  META_IP: ["ip", "direccion ip", "ip address", "ipaddress"],
+  META_DUPLICADO: ["duplicado", "duplicar", "duplicate"],
+  META_PAIS: ["pais", "country"],
+};
+
+/**
+ * Parser QuestionPro: 1 fila de headers + datos.
+ *
+ * Tolerante (F2a): detecta las columnas de metadata estándar por alias
+ * normalizado (acentos/mayúsculas/espacios) en cualquier posición, sin exigir
+ * que estén las 7 ni en un orden fijo. El resto de columnas se tratan como
+ * preguntas (`Q1`, `Q2`, …) en su orden de aparición. Así acepta el formato
+ * limpio venga o no de Automatizaciones, sin romper por "Pais" vs "País".
+ *
+ * Nota: el export *crudo* de QP (hoja "Datos sin procesar") no se lee acá — es
+ * demasiado grande para el lector JS (límite de string de V8) y se maneja en el
+ * lector Rust/calamine (F3).
  */
 export function parseQuestionProSheet(
   jsonData: RawSheet,
@@ -153,48 +201,55 @@ export function parseQuestionProSheet(
   }
 
   const metaDef = getQuestionProExcelMetadataColumns();
-  const headerRow = jsonData[0] ?? [];
+  const labelByColumnId = new Map(metaDef.map((m) => [m.columnId, m.label]));
 
-  for (let i = 0; i < metaDef.length; i++) {
-    const got = String(headerRow[i] ?? "").trim();
-    if (got !== metaDef[i].label) {
-      throw new Error(
-        `Este Excel no parece de QuestionPro: se esperaba la columna ` +
-          `"${metaDef[i].label}" en la posición ${i + 1}` +
-          (got ? ` (encontrada: "${got}")` : "") +
-          `. Verificá que el proyecto esté configurado como QuestionPro y ` +
-          `que uses el export con las columnas estándar.`
-      );
+  // alias normalizado -> { columnId, label }
+  const aliasToMeta = new Map<string, { columnId: string; label: string }>();
+  for (const [columnId, aliases] of Object.entries(QP_METADATA_ALIASES)) {
+    for (const alias of aliases) {
+      aliasToMeta.set(alias, {
+        columnId,
+        label: labelByColumnId.get(columnId) ?? alias,
+      });
     }
   }
 
+  const headerRow = jsonData[0] ?? [];
   const dataRows = jsonData.slice(1);
   const schema: VersionSchema = { columns: [] };
 
-  // Metadata (columnas 0..6)
-  metaDef.forEach((meta, i) => {
-    schema.columns.push({
-      index: i,
-      id: meta.columnId,
-      question: meta.label,
-      is_metadata: true,
-    });
+  const assignedMeta = new Set<string>();
+  let questionCounter = 0;
+  let responseIdIndex = -1;
+
+  headerRow.forEach((cell, index) => {
+    const norm = normalizeHeader(cell);
+    const meta = norm ? aliasToMeta.get(norm) : undefined;
+
+    // Cada metadata se asigna una sola vez (la primera coincidencia).
+    if (meta && !assignedMeta.has(meta.columnId)) {
+      assignedMeta.add(meta.columnId);
+      schema.columns.push({
+        index,
+        id: meta.columnId,
+        question: meta.label,
+        is_metadata: true,
+      });
+      if (meta.columnId === "META_ID_RESPUESTA") responseIdIndex = index;
+    } else {
+      questionCounter++;
+      const headerText = String(cell ?? "").trim();
+      schema.columns.push({
+        index,
+        id: `Q${questionCounter}`,
+        question: headerText || `Q${questionCounter}`,
+        is_metadata: false,
+      });
+    }
   });
 
-  // Preguntas (columnas 7..N), IDs sintéticos Q1, Q2, …
-  for (let j = metaDef.length; j < headerRow.length; j++) {
-    const headerText = String(headerRow[j] ?? "").trim();
-    const qNum = j - metaDef.length + 1;
-    schema.columns.push({
-      index: j,
-      id: `Q${qNum}`,
-      question: headerText || `Q${qNum}`,
-      is_metadata: false,
-    });
-  }
-
-  // En QP el response_id vive en la columna 0 ("ID Respuesta")
-  const responseIdIndex = 0;
+  // Si no detectamos "ID Respuesta", caemos a la primera columna como id.
+  if (responseIdIndex < 0) responseIdIndex = 0;
 
   const rows = dataRows.map<ParsedRow>((row, rowIndex) => {
     const data: Record<string, unknown> = {};

@@ -7,8 +7,10 @@
 // shell le pase via prop). Los AI issues no se muestran inline porque corren
 // on-demand desde el reporte.
 //
-// Drag & drop: la card es `draggable`; el shell maneja `onDragStart` /
-// `onDrop` con `dataTransfer` para reordenar.
+// Drag & drop: opcional — sólo se activa si el shell pasa los handlers
+// `onDragStart` / `onDragOver` / `onDrop`. La vista single-focus del editor
+// no los pasa (mostrar una sola card a la vez vuelve el reorder por drag
+// inviable), pero el resto de los call sites pueden seguir usándolo.
 
 import { Fragment } from "react";
 import {
@@ -35,6 +37,15 @@ import type {
 } from "@/lib/cuestionario/types";
 import { OptionsEditor } from "./OptionsEditor";
 import { FlowEditor } from "./FlowEditor";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const NONE_SECTION = "__none__";
 
 const QUESTION_TYPES: QuestionType[] = [
   "cerrada_unica",
@@ -46,6 +57,7 @@ const QUESTION_TYPES: QuestionType[] = [
   "numerica",
   "ranking",
   "fecha",
+  "comentario",
 ];
 
 const TYPE_LABEL: Record<QuestionType, string> = {
@@ -58,6 +70,7 @@ const TYPE_LABEL: Record<QuestionType, string> = {
   numerica: "Numérica",
   ranking: "Ranking",
   fecha: "Fecha",
+  comentario: "Comentario",
 };
 
 const TYPES_WITH_OPTIONS: QuestionType[] = [
@@ -82,10 +95,17 @@ export interface QuestionCardProps {
   onDuplicate: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
-  /** Handlers para drag & drop a nivel del shell. */
-  onDragStart: (e: React.DragEvent) => void;
-  onDragOver: (e: React.DragEvent) => void;
-  onDrop: (e: React.DragEvent) => void;
+  /** Bloques disponibles en el cuestionario. */
+  sections?: string[];
+  /** Bloque al que pertenece esta pregunta (`undefined`/null = ninguno). */
+  sectionName?: string | null;
+  onSectionChange?: (sectionName: string | null) => void;
+  /** Handlers para drag & drop. Opcionales: la vista single-focus del editor
+   *  no muestra más de una card a la vez, así que no necesita reordenar por
+   *  drag (usa el mini-map o los botones up/down). */
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent) => void;
   disabled?: boolean;
 }
 
@@ -99,6 +119,9 @@ export function QuestionCard({
   onDuplicate,
   onMoveUp,
   onMoveDown,
+  sections = [],
+  sectionName = null,
+  onSectionChange,
   onDragStart,
   onDragOver,
   onDrop,
@@ -122,9 +145,11 @@ export function QuestionCard({
     onChange(cleaned);
   }
 
+  const dragEnabled = !disabled && Boolean(onDragStart);
+
   return (
     <Card
-      draggable={!disabled}
+      draggable={dragEnabled}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
@@ -134,21 +159,23 @@ export function QuestionCard({
           ? "border-l-destructive/70"
           : hasWarn
           ? "border-l-amber-500/70"
-          : "border-l-border"
+          : "border-l-primary/40"
       )}
       data-question-id={q.id}
     >
       <CardContent className="flex flex-col gap-4 pt-6">
-        {/* Header: drag handle + número + ID + tipo + acciones */}
+        {/* Header: (drag handle) + número + ID + tipo + acciones */}
         <div className="flex flex-wrap items-center gap-2">
-          <span
-            className="flex size-6 shrink-0 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
-            aria-label="Arrastrar para reordenar"
-            title="Arrastrar para reordenar"
-          >
-            <GripVertical className="size-4" />
-          </span>
-          <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-mono font-medium tabular-nums">
+          {dragEnabled && (
+            <span
+              className="flex size-6 shrink-0 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
+              aria-label="Arrastrar para reordenar"
+              title="Arrastrar para reordenar"
+            >
+              <GripVertical className="size-4" />
+            </span>
+          )}
+          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary font-mono text-xs font-bold tabular-nums text-primary-foreground">
             #{q.numero}
           </span>
           <Input
@@ -159,19 +186,11 @@ export function QuestionCard({
             className="w-28 font-mono text-xs"
             aria-label="ID de la pregunta"
           />
-          <select
+          <TypeChips
             value={q.tipo}
-            onChange={(e) => changeType(e.target.value as QuestionType)}
+            onChange={changeType}
             disabled={disabled}
-            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-            aria-label="Tipo de pregunta"
-          >
-            {QUESTION_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {TYPE_LABEL[t]}
-              </option>
-            ))}
-          </select>
+          />
 
           <div className="ml-auto flex items-center gap-1">
             <Button
@@ -219,6 +238,34 @@ export function QuestionCard({
               <Trash2 className="size-3.5 text-muted-foreground" />
             </Button>
           </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor={`q-section-${q.id}`}>Bloque / sección</Label>
+          <Select
+            value={sectionName ?? NONE_SECTION}
+            onValueChange={(v) =>
+              onSectionChange?.(v === NONE_SECTION ? null : v)
+            }
+            disabled={disabled || !onSectionChange}
+          >
+            <SelectTrigger id={`q-section-${q.id}`} className="w-full max-w-md">
+              <SelectValue placeholder="Ninguna" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE_SECTION}>Ninguna</SelectItem>
+              {sections.map((name) => (
+                <SelectItem key={name} value={name}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {sections.length === 0 && (
+            <p className="text-[11px] text-muted-foreground">
+              Todavía no hay bloques. Creá uno desde el mapa lateral.
+            </p>
+          )}
         </div>
 
         {/* Texto */}
@@ -335,6 +382,49 @@ export function QuestionCard({
         {issues.length > 0 && <InlineIssues issues={issues} />}
       </CardContent>
     </Card>
+  );
+}
+
+// Chips de tipo de pregunta — reemplaza al `<select>` original. Cada chip es
+// un botón compacto que muestra el label legible y se marca como activo cuando
+// es el tipo seleccionado.
+function TypeChips({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: QuestionType;
+  onChange: (next: QuestionType) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Tipo de pregunta"
+      className="flex flex-wrap gap-1"
+    >
+      {QUESTION_TYPES.map((t) => {
+        const on = t === value;
+        return (
+          <button
+            key={t}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            disabled={disabled}
+            onClick={() => onChange(t)}
+            className={cn(
+              "inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-xs transition-colors disabled:opacity-50",
+              on
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-background text-muted-foreground hover:border-primary hover:text-foreground"
+            )}
+          >
+            {TYPE_LABEL[t]}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

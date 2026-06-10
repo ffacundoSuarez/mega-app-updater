@@ -21,6 +21,7 @@
 import {
   createQuestion,
   createSurvey,
+  createSurveyBlock,
   type QPCreateQuestionPayload,
 } from "@/lib/questionpro";
 import type { Question, Questionnaire, QuestionOption } from "./types";
@@ -116,6 +117,11 @@ export async function publishQuestionnaireToQp(
 
   const warnings: string[] = [];
   const published: Array<{ canonicalId: string; qpQuestionId: number }> = [];
+  const blockByQuestionId = await createBlocksForSections(
+    qpSurveyId,
+    opts.apiKey,
+    questionnaire
+  );
 
   // 2) Publicar preguntas en orden. La cancelación se chequea entre llamadas
   //    para no abandonar una request en vuelo (mismo patrón que cleaning-job).
@@ -130,8 +136,10 @@ export async function publishQuestionnaireToQp(
     const q = questionnaire.preguntas[i];
     const { payload, perQuestionWarnings } = canonicalToQpQuestionPayload(
       q,
-      i + 1
+      i
     );
+    const blockID = blockByQuestionId.get(q.id);
+    if (blockID != null) payload.blockID = blockID;
     warnings.push(...perQuestionWarnings);
 
     try {
@@ -165,12 +173,6 @@ export async function publishQuestionnaireToQp(
       `Skip-logic no se mapea automáticamente: ${totalCondiciones} condiciones de pregunta y ${totalFlujos} reglas de flujo quedaron pendientes. Configuralas en el panel de QuestionPro.`
     );
   }
-  if (questionnaire.secciones.length > 0) {
-    warnings.push(
-      `Se publicaron ${questionnaire.secciones.length} secciones como referencia interna pero QP las agrupa con "blocks" que no estamos creando todavía — revisá el agrupamiento en el panel.`
-    );
-  }
-
   return {
     qp_survey_id: qpSurveyId,
     qp_survey_url: created.url,
@@ -201,18 +203,23 @@ export async function publishQuestionnaireToQp(
  */
 function canonicalToQpQuestionPayload(
   q: Question,
-  orderNumber: number
+  questionIndex: number
 ): { payload: QPCreateQuestionPayload; perQuestionWarnings: string[] } {
   const warnings: string[] = [];
-  const text = q.texto.trim() || `Pregunta ${q.numero}`;
-  const code = q.id || `Q${orderNumber}`;
+  const displayNumber = questionIndex + 1;
+  const text = q.texto.trim() || `Pregunta ${q.numero || displayNumber}`;
+  const code = q.id || `Q${displayNumber}`;
   // `required` no está en el canónico todavía — por seguridad creamos las
   // preguntas no-obligatorias así el usuario decide.
   const base: QPCreateQuestionPayload = {
     type: "multiplechoice_radio",
     text,
     code,
-    orderNumber,
+    // QP valida `orderNumber` como 0-based, pero al crear preguntas lo interpreta
+    // como posición de inserción desde el final del bloque. Mandar 0 en cada
+    // POST appendea la pregunta debajo de las ya creadas y conserva el orden
+    // del cuestionario canónico.
+    orderNumber: 0,
     required: false,
   };
 
@@ -288,13 +295,21 @@ function canonicalToQpQuestionPayload(
 
     case "abierta_texto":
       return {
-        payload: { ...base, type: "text_multiple_row" },
+        payload: {
+          ...base,
+          type: "text_multiple_row",
+          rows: [textQuestionRow(text)],
+        },
         perQuestionWarnings: warnings,
       };
 
     case "abierta_marca":
       return {
-        payload: { ...base, type: "text_single_row" },
+        payload: {
+          ...base,
+          type: "text_single_row",
+          rows: [textQuestionRow(text)],
+        },
         perQuestionWarnings: warnings,
       };
 
@@ -303,7 +318,11 @@ function canonicalToQpQuestionPayload(
         `${q.id}: numérica se publicó como text_single_row. La validación numérica (min/max/decimales) hay que configurarla en QP.`
       );
       return {
-        payload: { ...base, type: "text_single_row" },
+        payload: {
+          ...base,
+          type: "text_single_row",
+          rows: [textQuestionRow(text)],
+        },
         perQuestionWarnings: warnings,
       };
 
@@ -322,10 +341,46 @@ function canonicalToQpQuestionPayload(
         `${q.id}: tipo fecha se publicó como text_single_row (no encontramos un tipo "date" confirmado en la API v2). Configurá el formato de fecha en QP si está disponible.`
       );
       return {
-        payload: { ...base, type: "text_single_row" },
+        payload: {
+          ...base,
+          type: "text_single_row",
+          rows: [textQuestionRow(text)],
+        },
+        perQuestionWarnings: warnings,
+      };
+
+    case "comentario":
+      return {
+        payload: {
+          ...base,
+          type: "static_presentation_text",
+          required: false,
+        },
         perQuestionWarnings: warnings,
       };
   }
+}
+
+async function createBlocksForSections(
+  surveyId: string,
+  apiKey: string,
+  questionnaire: Questionnaire
+): Promise<Map<string, number>> {
+  const blockByQuestionId = new Map<string, number>();
+  const sections = questionnaire.secciones.filter(
+    (section) => section.nombre.trim() && section.preguntas.length > 0
+  );
+  for (let i = 0; i < sections.length; i++) {
+    const section = sections[i];
+    const created = await createSurveyBlock(surveyId, apiKey, {
+      title: section.nombre,
+      orderNumber: i + 1,
+    });
+    for (const questionId of section.preguntas) {
+      blockByQuestionId.set(questionId, created.blockID);
+    }
+  }
+  return blockByQuestionId;
 }
 
 function optionsToAnswers(
@@ -333,8 +388,16 @@ function optionsToAnswers(
 ): Array<{ text: string; orderNumber: number }> {
   return opts.map((o, i) => ({
     text: o.texto.trim() || `Opción ${i + 1}`,
-    orderNumber: i + 1,
+    orderNumber: i,
   }));
+}
+
+/**
+ * En preguntas de texto, QP muestra el texto visible desde `rows[].text`.
+ * Si mandamos una fila genérica ("Respuesta"), la pregunta queda mal rotulada.
+ */
+function textQuestionRow(text: string): { text: string } {
+  return { text: text.trim() || "Respuesta" };
 }
 
 /**
@@ -359,7 +422,7 @@ function buildScaleAnswers(
   }
   const out: Array<{ text: string; orderNumber: number }> = [];
   for (let v = lo, idx = 1; v <= hi; v++, idx++) {
-    out.push({ text: String(v), orderNumber: idx });
+    out.push({ text: String(v), orderNumber: idx - 1 });
   }
   return out;
 }

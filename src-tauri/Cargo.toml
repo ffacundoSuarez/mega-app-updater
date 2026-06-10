@@ -1,6 +1,6 @@
 [package]
 name = "mega-tools"
-version = "1.1.0"
+version = "1.2.0"
 description = "Mega App — herramientas internas con auto-update"
 authors = ["Mega Research"]
 edition = "2021"
@@ -25,3 +25,8 @@ tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-store = "2"
 chrono = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Lector de Excel en streaming. Necesario para abrir el export crudo de QP
+# (hoja "Datos sin procesar") que rompe el límite de string de V8 en el WebView,
+# y para parsear/insertar archivos grandes sin saturar la RAM del renderer.
+calamine = "0.26"

@@ -5,7 +5,8 @@
 // se preserva al entrar a review/export aunque ahí también se use selectedVersionId,
 // para que el "Volver al proyecto" funcione sin un fetch extra.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { parseLimpiadorDeepLink } from "@/lib/tool-navigation";
 import { AlertTriangle, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,9 +46,16 @@ interface NavigateOpts {
 export interface LimpiadorViewProps {
   /** Disponible para que un caller pueda saltar a Ajustes desde acá. */
   onOpenSettings?: () => void;
+  /** Navegación desde notificación / actividad (se consume una vez). */
+  pendingNavigation?: Record<string, string>;
+  onPendingNavigationConsumed?: () => void;
 }
 
-export function LimpiadorView({ onOpenSettings }: LimpiadorViewProps) {
+export function LimpiadorView({
+  onOpenSettings,
+  pendingNavigation,
+  onPendingNavigationConsumed,
+}: LimpiadorViewProps) {
   const [view, setView] = useState<LimpiadorView>("list");
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
@@ -70,6 +78,24 @@ export function LimpiadorView({ onOpenSettings }: LimpiadorViewProps) {
     if (opts.projectId !== undefined) setSelectedProjectId(opts.projectId);
     if (opts.versionId !== undefined) setSelectedVersionId(opts.versionId);
   };
+
+  const lastConsumedNavRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!pendingNavigation) return;
+    const key = JSON.stringify(pendingNavigation);
+    if (lastConsumedNavRef.current === key) return;
+
+    const link = parseLimpiadorDeepLink(pendingNavigation);
+    if (link) {
+      navigate(link.screen, {
+        projectId: link.projectId,
+        versionId: link.versionId,
+      });
+    }
+    lastConsumedNavRef.current = key;
+    onPendingNavigationConsumed?.();
+  }, [pendingNavigation, onPendingNavigationConsumed]);
 
   if (hasSupabaseKeys === null) {
     return (

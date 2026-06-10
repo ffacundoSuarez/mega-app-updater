@@ -42,6 +42,11 @@ import {
   type CleaningJobController,
   type CleaningJobProgress,
 } from "@/lib/cleaning/cleaning-job";
+import {
+  endRunningJob,
+  logActivity,
+  startRunningJob,
+} from "@/lib/activity";
 import type {
   CleaningProject,
   CleaningVersion,
@@ -116,6 +121,14 @@ export function ProjectDetail({
 
       setActiveJob({ versionId: version.id, progress: null, jobError: null });
 
+      const jobId = `qc-${version.id}`;
+      const projectName = project?.name ?? "Proyecto";
+      void startRunningJob(
+        jobId,
+        "limpiador",
+        `Control de calidad · ${projectName} v${version.version_number}`
+      );
+
       const controller = runCleaningJob(version.id, {
         onProgress: (progress) => {
           setActiveJob((curr) =>
@@ -144,7 +157,28 @@ export function ProjectDetail({
 
       controller.promise
         .then((result) => {
+          if (result.status === "completed") {
+            void logActivity({
+              type: "limpiador_qc_done",
+              title: `QC terminado: ${projectName}`,
+              body: `Versión ${version.version_number}`,
+              toolId: "limpiador",
+              viewId: "limpiador",
+              payload: {
+                projectId,
+                versionId: version.id,
+                screen: "project",
+              },
+            });
+          }
           if (result.status === "error" && result.errorMessage) {
+            void logActivity({
+              type: "limpiador_qc_error",
+              title: `QC falló: ${projectName}`,
+              body: result.errorMessage,
+              toolId: "limpiador",
+              viewId: "limpiador",
+            });
             setActiveJob((curr) =>
               curr && curr.versionId === version.id
                 ? { ...curr, jobError: result.errorMessage ?? null }
@@ -162,6 +196,7 @@ export function ProjectDetail({
         })
         .finally(() => {
           jobControllerRef.current = null;
+          void endRunningJob(jobId);
           // Recargamos para que el status/processed_rows reflejen lo persistido.
           void load();
           // Limpiamos el activeJob un toque después para que el usuario alcance
@@ -173,7 +208,7 @@ export function ProjectDetail({
           }, 1500);
         });
     },
-    [load]
+    [load, project, projectId]
   );
 
   const handleCancelQC = useCallback(() => {

@@ -17,8 +17,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx-js-style";
+import { join } from "@tauri-apps/api/path";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
+import { logActivity } from "@/lib/activity";
+import {
+  ensureDirectory,
+  getLimpiadorExportsDir,
+} from "@/lib/mega-paths";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
   AlertCircle,
@@ -141,9 +147,12 @@ export function Export({ projectId, versionId, onBack, onGoToReview }: ExportPro
     //    si cancela no perdemos tiempo armando el book).
     let targetPath: string | null = null;
     try {
+      const exportDir = await getLimpiadorExportsDir(projectId);
+      await ensureDirectory(exportDir);
+      const suggestedPath = await join(exportDir, defaultFilename);
       targetPath = await save({
         title: "Guardar Excel limpio",
-        defaultPath: defaultFilename,
+        defaultPath: suggestedPath,
         filters: [{ name: "Excel", extensions: ["xlsx"] }],
       });
     } catch (err) {
@@ -175,6 +184,15 @@ export function Export({ projectId, versionId, onBack, onGoToReview }: ExportPro
 
       await writeFile(targetPath, bytes);
       setSavedPath(targetPath);
+      void logActivity({
+        type: "limpiador_export",
+        title: `Export guardado: ${project.name}`,
+        body: defaultFilename,
+        toolId: "limpiador",
+        viewId: "limpiador",
+        payload: { projectId, versionId, screen: "export" },
+        filePath: targetPath,
+      });
     } catch (err) {
       setError(
         `No se pudo guardar el Excel: ${
