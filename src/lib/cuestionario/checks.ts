@@ -93,6 +93,30 @@ function checkQuestionShape(q: Questionnaire): QCIssue[] {
 function checkOptionShape(q: Questionnaire): QCIssue[] {
   const issues: QCIssue[] = [];
   for (const p of q.preguntas) {
+    if (p.tipo === "escala") {
+      p.opciones.forEach((opt, i) => {
+        if (!opt.texto.trim()) {
+          issues.push({
+            pregunta_id: p.id,
+            severidad: "error",
+            categoria: "estructura",
+            descripcion: `La opción ${i + 1} de la pregunta ${p.id} no tiene texto.`,
+          });
+        }
+      });
+      const hasRange = p.min !== undefined && p.max !== undefined;
+      const hasOpts = p.opciones.length > 0;
+      if (!hasRange && !hasOpts) {
+        issues.push({
+          pregunta_id: p.id,
+          severidad: "error",
+          categoria: "estructura",
+          descripcion: `La pregunta ${p.id} es de tipo escala pero no tiene opciones ni rango min/max.`,
+        });
+      }
+      continue;
+    }
+
     if (!isOptionedType(p)) continue;
     p.opciones.forEach((opt, i) => {
       if (!opt.texto.trim()) {
@@ -193,12 +217,14 @@ function checkScaleRanges(q: Questionnaire): QCIssue[] {
       });
     }
     if (p.tipo === "escala" && (min === undefined || max === undefined)) {
-      issues.push({
-        pregunta_id: p.id,
-        severidad: "advertencia",
-        categoria: "rangos",
-        descripcion: `La escala ${p.id} no tiene min/max definidos.`,
-      });
+      if (p.opciones.length === 0) {
+        issues.push({
+          pregunta_id: p.id,
+          severidad: "advertencia",
+          categoria: "rangos",
+          descripcion: `La escala ${p.id} no tiene min/max definidos.`,
+        });
+      }
     }
   }
   return issues;
@@ -339,15 +365,17 @@ function checkUnreachableQuestions(q: Questionnaire): QCIssue[] {
     if (reachable.has(id)) continue;
     reachable.add(id);
     const p = q.preguntas[indexOf.get(id)!];
-    const { hasTerminator, jumpTargets, allOptionsExit } = analyzeExits(p);
+    const { jumpTargets, allOptionsExit } = analyzeExits(p);
 
     for (const dest of jumpTargets) {
       if (indexOf.has(dest)) stack.push(dest);
     }
-    // Default-next: existe a menos que toda salida sea "terminar" o las opciones
-    // sean todas exit (terminar o saltar_a).
+    // Default-next: la pregunta cae a la siguiente salvo que TODAS sus opciones
+    // sean salida (terminar o saltar_a). Los terminadores a nivel pregunta son
+    // condicionales (`si_respuesta`), así que NO cortan el fall-through: solo
+    // terminan para esas respuestas, el resto sigue al orden natural.
     const nextIndex = indexOf.get(id)! + 1;
-    const canFallThrough = !hasTerminator && !allOptionsExit;
+    const canFallThrough = !allOptionsExit;
     if (canFallThrough && nextIndex < order.length) {
       stack.push(order[nextIndex]);
     }
@@ -395,8 +423,7 @@ function isOptionedType(p: Question): boolean {
     p.tipo === "cerrada_unica" ||
     p.tipo === "cerrada_multiple" ||
     p.tipo === "ranking" ||
-    p.tipo === "matriz" ||
-    p.tipo === "escala"
+    p.tipo === "matriz"
   );
 }
 
@@ -423,6 +450,12 @@ function extractIdRefs(expr: string): string[] {
     "false",
     "TRUE",
     "FALSE",
+    "contains",
+    "selected",
+    "includes",
+    "include",
+    "equals",
+    "equal",
   ]);
   for (const t of tokens) {
     if (KEYWORDS.has(t)) continue;
@@ -437,16 +470,20 @@ function parseSaltarAFromOptionFlujo(flujo: string): string | null {
   return m ? m[1] : null;
 }
 
-/** Salidas explícitas: terminadores + saltos (todas con destino conocido). */
+/**
+ * Salidas de una pregunta para el análisis de alcanzabilidad.
+ *   - `jumpTargets`: destinos de `saltar_a` (a nivel pregunta y opción).
+ *   - `allOptionsExit`: true sólo si la pregunta tiene opciones y TODAS salen
+ *     (terminar o saltar_a). En ese caso no hay fall-through a la siguiente.
+ * Los terminadores a nivel pregunta son condicionales, así que no se reportan
+ * acá como corte de flujo.
+ */
 function analyzeExits(p: Question): {
-  hasTerminator: boolean;
   jumpTargets: string[];
   allOptionsExit: boolean;
 } {
-  let hasTerminator = false;
   const jumpTargets: string[] = [];
   for (const rule of p.flujo) {
-    if (rule.accion === "terminar") hasTerminator = true;
     if (rule.accion === "saltar_a" && rule.destino) jumpTargets.push(rule.destino);
   }
   let allOptionsExit = false;
@@ -462,7 +499,7 @@ function analyzeExits(p: Question): {
       return false;
     });
   }
-  return { hasTerminator, jumpTargets, allOptionsExit };
+  return { jumpTargets, allOptionsExit };
 }
 
 /** Construye un grafo dirigido sólo con las aristas explícitas de saltar_a. */

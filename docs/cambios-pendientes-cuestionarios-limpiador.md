@@ -4,12 +4,13 @@
 > **Cuestionarios** y **Limpiador**, con el análisis del código actual y las
 > decisiones tomadas hasta ahora.
 >
-> **Estado:** PARCIAL. Faltan todavía:
+> **Estado:** PARCIAL. Batch de parseo/validación implementado (2026-06-17).
+> Faltan todavía:
 > - ⏳ Los **ejemplos de sugerencias "tontas"** que el usuario va a pasar para
 >   diagnosticar el check de sugerencias.
 > - ⏳ La **lista de cambios de Limpiador** + ideas adicionales.
 >
-> Última actualización: 2026-06-12.
+> Última actualización: 2026-06-17.
 
 ---
 
@@ -17,11 +18,11 @@
 
 Archivos clave:
 - Vista/flujo: `src/tools/cuestionario/CuestionarioView.tsx`, `routes/*`
-- Lógica: `src/lib/cuestionario/` (`parser.ts`, `checks.ts`, `ai-checks.ts`,
-  `validation-job.ts`, `qp-publish.ts`, `questionnaire-repository.ts`, `types.ts`)
+- Lógica: `src/lib/cuestionario/` (`parser.ts`, `docx-extract.ts`, `checks.ts`,
+  `ai-checks.ts`, `validation-job.ts`, `qp-publish.ts`, `questionnaire-repository.ts`, `types.ts`)
 - Reporte/UI de issues: `src/tools/cuestionario/routes/ValidationReport.tsx`
 
-### 1. Porcentaje al parsear con IA
+### 1. Porcentaje al parsear con IA — ⏳ DIFERIDO
 
 **Hoy:** el parseo es **una sola llamada** a OpenAI (`gpt-5-mini`,
 `response_format: json_object`) en `parser.ts`. Solo se muestra un spinner.
@@ -31,7 +32,7 @@ La barra de progreso real ya existe, pero en la **validación** (6 checks IA,
 **Problema:** un porcentaje "real" sobre una sola llamada LLM es difícil sin
 inventarlo. Opciones:
 - **Streaming** de la respuesta + parseo del JSON parcial → mostrar "N preguntas
-  detectadas" en vivo (progreso real-ish). *(recomendado)*
+  detectadas" en vivo. *(recomendado)*
 - **Progreso por etapas** (Extrayendo texto → Enviando a IA → Estructurando →
   Validando) con indeterminado animado. Lo más barato y honesto.
 - **Chunking** del documento por bloques → porcentaje real, pero mucho más
@@ -40,19 +41,63 @@ inventarlo. Opciones:
 **Pendiente:** elegir enfoque (preliminar: streaming + contador de preguntas, o
 etapas si se quiere algo rápido).
 
-### 2. La matriz no toma las columnas
+### 2. La matriz no toma las columnas — ✅ RESUELTO (2026-06-17)
 
 **Confirmado (bug de prompt).** El modelo SÍ soporta matriz:
-filas = `enunciados[]`, columnas = `opciones[]` (`types.ts`). Pero el prompt de
-parseo (`parser.ts`, ~líneas 282-300) solo aclara bien los `enunciados` (filas)
-y **no instruye explícitamente que las columnas van en `opciones`**. Resultado:
-llena filas y deja columnas vacías.
+filas = `enunciados[]`, columnas = `opciones[]` (`types.ts`). El prompt de
+parseo no instruía explícitamente que las columnas van en `opciones`.
 
-**Fix:** prompt-engineering en `parser.ts` — agregar regla explícita
-(filas→`enunciados`, columnas→`opciones`) + un ejemplo de matriz completo.
-Bajo riesgo.
+**Fix aplicado:** prompt-engineering en `parser.ts` — regla explícita
+(filas→`enunciados`, columnas→`opciones`) + ejemplo de matriz (P8).
 
-### 3. Sugerencias "tontas"
+### 2b. Escalas marcadas en error "no tiene opciones" — ✅ RESUELTO (2026-06-17)
+
+**Causa:** `checks.ts` incluía `escala` en `isOptionedType()`, exigiendo
+`opciones[]` aunque el modelo canónico usa `min`/`max` (P9 "del 1 al 10").
+
+**Fix aplicado:** `escala` fuera de `isOptionedType()`; validación acepta
+`min/max` OR opciones explícitas. Alineado con `qp-publish.ts`.
+
+### 2c. Condiciones en lenguaje natural (`contains`) — ✅ RESUELTO (2026-06-17)
+
+**Causa:** la IA inventaba condiciones tipo `A1 contains…`. No se publican a QP
+pero generaban falsos errores en `checkConditionReferences`.
+
+**Fix aplicado:** prompt estricto (solo `ID=codigo` con AND/OR) +
+`sanitizeCondition()` post-parse + KEYWORDS extra en `extractIdRefs`.
+
+### 2d. Convenciones Word Mega (texto rojo, siglas, códigos) — ✅ RESUELTO (2026-06-17)
+
+**Contexto:** los Word de operaciones usan texto en **rojo** para instrucciones
+de programación (RU, RM, ROTAR, PROGRAMACIÓN, PROGRAMADOR, cuotas). Ese texto
+no va al encuestado pero la IA lo necesita para inferir estructura.
+
+**Arquitectura (dos canales):**
+- `docx-extract.ts` lee `word/document.xml` con JSZip y separa runs rojos vs.
+  visibles.
+- `visibleText` → enunciados y opciones.
+- `programmerHints` → bloque aparte en el prompt user (no se copia al JSON
+  visible).
+
+**Siglas documentadas en el prompt:**
+| Sigla | Significado | Acción en JSON |
+|-------|-------------|----------------|
+| RU | Respuesta única | `cerrada_unica` |
+| RM | Respuesta múltiple | `cerrada_multiple` |
+| ROTAR | Aleatorizar frases/opciones | `aleatorizar: true` |
+| RA | Respuesta abierta asociada | opción con `especificar` |
+| ANCLAR | Posición fija | opción con `fijar` |
+| EXCLUSIVA | Deselecciona resto | opción con `exclusiva` |
+
+**Códigos de pregunta:** `F1.`, `P9.`, `A4.` → van en `id`, nunca al inicio de
+`texto`. Post-procesado: `stripQuestionCodePrefix()`.
+
+**Referencia de prueba:** `incoming/676 - CUEST PEP - AMP Xtreme Guatemala.docx`.
+
+**Pegar texto:** sin color; mismas reglas en prompt + heurísticas
+(`PROGRAMACIÓN:`, `PROGRAMADOR:`).
+
+### 3. Sugerencias "tontas" — ⏳ PENDIENTE
 
 **Diagnóstico:** de los checks IA, las **advertencias** son 5 checks
 (redundancia, escalas invertidas, sesgo, tipo equivocado, opciones no-MECE) —
@@ -63,7 +108,7 @@ esos quedaron bien. Las **sugerencias** salen de **UN solo check**:
 **Pendiente:** ⏳ recibir los ejemplos para decidir si conviene endurecer el
 prompt, hacerlo más conservador, o reemplazarlo.
 
-### 4. Comentarios IA exportables con selección del usuario
+### 4. Comentarios IA exportables con selección del usuario — ⏳ DIFERIDO
 
 **Contexto:** el equipo de operaciones hace las encuestas pero no puede
 modificarlas a gusto; necesita exportar comentarios para que los revise/aplique
@@ -81,7 +126,7 @@ individuales ni exportar (el export estaba planeado y se difirió).
   seleccionados → agregar dependencia `docx`.
 - Esto además es el **cimiento del punto 6** (aprendizaje).
 
-### 5. Preguntas obligatorias (`required: true`)
+### 5. Preguntas obligatorias (`required: true`) — ⏳ DIFERIDO
 
 **Hoy:** `qp-publish.ts` crea **todas** las preguntas con `required: false`
 (comentario explícito: "por seguridad... así el usuario decide").
@@ -90,7 +135,7 @@ individuales ni exportar (el export estaba planeado y se difirió).
 Matiz: en tipos donde "obligatorio" no aplica (texto/instrucción/abierta) evaluar
 caso. Dejar la puerta para overrides por pregunta más adelante.
 
-### 6. IA que se retroalimenta de aceptación/rechazo (idea a futuro)
+### 6. IA que se retroalimenta de aceptación/rechazo (idea a futuro) — ⏳ DIFERIDO
 
 "Que la IA se modifique a sí misma" en sentido literal = fine-tuning (caro y
 complejo). Camino práctico (ya usado en Limpiador, que tiene few-shot):
@@ -120,3 +165,6 @@ casi gratis — y sirve igual para Limpiador. Se retoma más adelante.
 | Formato de export | Word (`.docx`), dependencia `docx` |
 | `required` por defecto | `true` para preguntas de respuesta |
 | Aprendizaje IA | A futuro; depende del accept/reject del punto 4 |
+| Word: texto rojo | Dos canales (`docx-extract.ts`): visible vs. programmerHints |
+| Escalas numéricas | `min`/`max` sin opciones; no exigir opciones en checks |
+| Condiciones | Solo `ID=codigo`; sanitizar `contains` y similares |

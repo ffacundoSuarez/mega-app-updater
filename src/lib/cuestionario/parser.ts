@@ -3,8 +3,9 @@
  *
  * - `parseTextToQuestionnaire` (Iteración 1): input = texto crudo pegado por el
  *   usuario.
- * - `parseDocxToQuestionnaire` (Iteración 5): extrae texto plano de un `.docx`
- *   con `mammoth` (browser build) y delega a `parseTextToQuestionnaire`.
+ * - `parseDocxToQuestionnaire` (Iteración 5): extrae texto del `.docx` en dos
+ *   canales (visible vs. instrucciones en rojo) vía `docx-extract.ts` y delega
+ *   a `parseTextToQuestionnaire`.
  * - `parsePdfToQuestionnaire` (Iteración 5): extrae texto con `pdfjs-dist`
  *   página a página y delega a `parseTextToQuestionnaire`. PDFs escaneados o
  *   con layout complejo fallan con un mensaje explícito pidiendo "pegar texto"
@@ -26,6 +27,7 @@
  */
 
 import { DEFAULT_CUESTIONARIO_MODEL, getOpenaiApiKey } from "@/lib/settings";
+import { extractDocxForParsing } from "./docx-extract";
 import type {
   FlowRule,
   OptionCondition,
@@ -38,6 +40,23 @@ import type {
 } from "./types";
 
 const OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
+
+/** Tope de tokens para la 1ª llamada. gpt-5-mini puede consumir muchos tokens de
+ *  razonamiento interno antes de emitir el JSON; 16k era insuficiente para
+ *  cuestionarios largos (finish_reason: "length" con content vacío). */
+const PARSE_MAX_TOKENS = 64000;
+/** Tope del reintento si la 1ª respuesta se corta por límite de tokens. */
+const PARSE_MAX_TOKENS_RETRY = 100000;
+
+interface OpenAiChoice {
+  message?: { content?: string | null };
+  finish_reason?: string;
+}
+
+interface OpenAiParseResult {
+  content: string;
+  finishReason: string | undefined;
+}
 
 const VALID_TYPES: readonly QuestionType[] = [
   "cerrada_unica",
@@ -67,6 +86,8 @@ export interface ParseOptions {
   hintIdioma?: string;
   /** País asociado al cuestionario (afecta sólo la metadata final). */
   hintPais?: string;
+  /** Instrucciones de programación (texto en rojo del Word). Solo para el prompt. */
+  programmerHints?: string;
 }
 
 export class MissingOpenaiApiKeyError extends Error {
@@ -107,45 +128,22 @@ export async function parseTextToQuestionnaire(
 
   const model = opts.model ?? DEFAULT_CUESTIONARIO_MODEL;
 
-  const body = {
-    model,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: buildUserPrompt(text, opts) },
-    ],
-    response_format: { type: "json_object" },
-    reasoning_effort: "minimal",
-    max_completion_tokens: 16000,
-  };
+  let result = await callOpenai(apiKey, model, text, opts, PARSE_MAX_TOKENS);
 
-  let res: Response;
-  try {
-    res = await fetch(OPENAI_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (err) {
-    throw new ParseError(
-      `Error de red al contactar a OpenAI: ${errorMessage(err)}`
+  // Reintento si la respuesta se cortó por límite (con o sin contenido parcial).
+  if (result.finishReason === "length") {
+    result = await callOpenai(
+      apiKey,
+      model,
+      text,
+      opts,
+      PARSE_MAX_TOKENS_RETRY
     );
   }
 
-  if (!res.ok) {
-    const errText = await safeText(res);
-    throw new ParseError(
-      `OpenAI HTTP ${res.status}: ${truncate(errText, 200)}`
-    );
-  }
+  assertParseableOpenAiResult(result);
 
-  const json = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  const content = json.choices?.[0]?.message?.content?.trim();
-  if (!content) throw new ParseError("OpenAI devolvió respuesta vacía.");
+  const content = result.content;
 
   let parsed: unknown;
   try {
@@ -161,8 +159,8 @@ export async function parseTextToQuestionnaire(
 /**
  * Parsea un Word (`.docx`) a un Questionnaire canónico.
  *
- * Extrae el texto plano con mammoth (browser build) y reusa
- * `parseTextToQuestionnaire`. El nombre del archivo se usa como `hintTitulo`
+ * Separa texto visible e instrucciones en rojo (RU, RM, PROGRAMACIÓN, etc.)
+ * antes de llamar a OpenAI. El nombre del archivo se usa como `hintTitulo`
  * por defecto si el caller no pasa uno.
  */
 export async function parseDocxToQuestionnaire(
@@ -170,24 +168,26 @@ export async function parseDocxToQuestionnaire(
   opts: ParseOptions & { fileName?: string } = {}
 ): Promise<Questionnaire> {
   const arrayBuffer = await file.arrayBuffer();
-  const mammoth = await import("mammoth");
-  let rawText: string;
+  let visibleText: string;
+  let programmerHints: string;
   try {
-    const { value } = await mammoth.extractRawText({ arrayBuffer });
-    rawText = value;
+    const extracted = await extractDocxForParsing(arrayBuffer);
+    visibleText = extracted.visibleText;
+    programmerHints = extracted.programmerHints;
   } catch (err) {
     throw new ParseError(
       `No se pudo leer el archivo Word: ${errorMessage(err)}`
     );
   }
-  if (!rawText.trim()) {
+  if (!visibleText.trim()) {
     throw new ParseError(
       "El Word no tiene texto extraíble. Probá pegando el contenido a mano."
     );
   }
   const fileName = opts.fileName ?? fileNameOf(file);
-  return parseTextToQuestionnaire(rawText, {
+  return parseTextToQuestionnaire(visibleText, {
     ...opts,
+    programmerHints: programmerHints.trim() || opts.programmerHints,
     hintTitulo: opts.hintTitulo ?? deriveTitleFromFilename(fileName),
   });
 }
@@ -285,18 +285,34 @@ Reglas estrictas:
 - Devolvé SIEMPRE un objeto JSON con exactamente estas claves de nivel superior: { "metadata": {...}, "preguntas": [...], "secciones": [...] }.
 - Cada pregunta tiene: { "id", "numero", "texto", "tipo", "condicion", "aleatorizar", "opciones", "flujo" } y opcionalmente "min", "max", "enunciados".
 - Tipos válidos (uno y sólo uno por pregunta): cerrada_unica, cerrada_multiple, escala, matriz, abierta_texto, abierta_marca, numerica, ranking, fecha, comentario.
-- Usá tipo "comentario" para textos informativos, introducciones, instrucciones o separadores que se muestran al participante pero no esperan respuesta.
-- "id" es un identificador corto y único de la pregunta. Preferí lo que use el cuestionario (ej. "P1", "S2", "F5"). Si el cuestionario no tiene IDs, generalos como "P1", "P2", ... siguiendo el orden.
+- Usá tipo "comentario" para textos informativos, introducciones o separadores visibles al participante que no esperan respuesta.
+- "id" es un identificador corto y único (ej. "P1", "F5", "A4"). Si el cuestionario no tiene IDs, generalos como "P1", "P2", ... siguiendo el orden.
 - "numero" es la posición 1-based en el orden del cuestionario.
-- "condicion" es la expresión lógica que controla si la pregunta se muestra (ej. "S1=3"). Si no aplica, mandá "".
-- "aleatorizar" es booleano: true si las opciones se deben presentar en orden aleatorio.
-- "opciones" es un array (vacío para preguntas abiertas o numéricas). Cada opción: { "codigo": <int>, "texto": <string>, "flujo": <string>, "condicion": <string[]> }. "flujo" puede ser "", "terminar" o "saltar_a <id>". "condicion" puede contener "fijar", "especificar" y/o "exclusiva" (array vacío si no aplica).
-- "flujo" es un array de reglas de salto: { "si_respuesta": <int|int[]>, "accion": "saltar_a" | "terminar" | "continuar", "destino": <id opcional> }.
-- "min" y "max" SÓLO para tipo "escala" o "numerica".
-- "enunciados" SÓLO para tipo "matriz" (cada uno con la misma forma que una opción: los ítems de las filas).
-- "secciones" es un array opcional para agrupar preguntas: { "nombre": <string>, "preguntas": <string[]> } donde "preguntas" son ids.
+- El campo "texto" es SOLO el enunciado para el encuestado: NUNCA incluyas el código de pregunta al inicio (ej. si el doc dice "F1. Tú eres…", id="F1" y texto="Tú eres…").
+- "condicion" controla si la pregunta se muestra. Formato EXCLUSIVO: "ID=codigo" o "ID=1,2,3" combinado con AND/OR (ej. "S1=3", "F5=1 OR F5=2"). PROHIBIDO usar contains, selected, includes u otro lenguaje natural. Si no podés expresarlo con códigos → "".
+- "aleatorizar" es booleano: true si las opciones o frases se presentan en orden aleatorio.
+- "opciones" es un array. Para cerradas/múltiples/ranking: cada opción { "codigo": <int>, "texto": <string>, "flujo": <string>, "condicion": <string[]> }. Para escalas numéricas simples (1 al 10): opciones vacías y usá min/max. Para matrices: opciones = COLUMNAS.
+- "flujo" en opciones puede ser "", "terminar" o "saltar_a <id>". "condicion" en opciones puede contener "fijar", "especificar" y/o "exclusiva".
+- "flujo" a nivel pregunta: array de { "si_respuesta": <int|int[]>, "accion": "saltar_a" | "terminar" | "continuar", "destino": <id opcional> }.
+- "min" y "max" SÓLO para tipo "escala" o "numerica" (ej. escala 1-10 → min=1, max=10, opciones=[]).
+- "enunciados" SÓLO para tipo "matriz": filas de la matriz (misma forma que opción). Las COLUMNAS van en "opciones".
+- Ejemplo matriz P8: enunciados=[filas/frases], opciones=[columnas/marcas con codigo y texto].
+- "secciones" es un array opcional: { "nombre": <string>, "preguntas": <string[]> } con ids de preguntas.
+
+Convenciones Word Mega (siglas — NO van en "texto", usalas para inferir estructura):
+- RU / Respuesta única → cerrada_unica
+- RM / Respuesta múltiple → cerrada_multiple
+- ROTAR / Rotar frases / Rotar opciones → aleatorizar: true
+- RA → opción con condicion ["especificar"]; ANCLAR → ["fijar"]; EXCLUSIVA → ["exclusiva"]
+- FINALIZAR / TERMINAR en flujo de opción → flujo "terminar"
+- CONTINUAR → flujo "" o accion "continuar"
+
+Instrucciones de programación (PROGRAMACIÓN:, PROGRAMADOR:, cuotas, syntax, rutas de archivo):
+- NO copiar ese texto a enunciados ni opciones.
+- Omitilas del array preguntas, o marcá tipo "comentario" solo si es intro visible al participante (ej. "INTRODUCCIÓN: A continuación…" sin ser instrucción interna).
+
 - Si no podés determinar algo, usá strings vacíos / arrays vacíos / false. NUNCA inventes opciones ni preguntas.
-- Sé fiel al texto original: no parafrasees enunciados ni reordenes preguntas.
+- Sé fiel al texto original visible: no parafrasees enunciados ni reordenes preguntas.
 - Sólo emití el JSON, sin texto antes o después, sin markdown, sin comentarios.`;
 
 function buildUserPrompt(text: string, opts: ParseOptions): string {
@@ -309,7 +325,16 @@ function buildUserPrompt(text: string, opts: ParseOptions): string {
         "\n"
       )}\n`
     : "";
-  return `Estructurá el siguiente cuestionario al JSON canónico descripto en el sistema.${hintBlock}\nCUESTIONARIO:\n${text}`;
+
+  const programmerBlock = opts.programmerHints?.trim()
+    ? `\nINSTRUCCIONES DE PROGRAMACIÓN (texto en rojo — NO copiar a enunciados ni opciones; usá solo para inferir tipo, aleatorizar, condicion, flujo y tags de opción):\n${opts.programmerHints.trim()}\n`
+    : "";
+
+  return (
+    `Estructurá el siguiente cuestionario al JSON canónico descripto en el sistema.${hintBlock}` +
+    `\nTEXTO DEL CUESTIONARIO (solo esto va al encuestado):\n${text}` +
+    programmerBlock
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -371,10 +396,12 @@ function coerceQuestion(raw: unknown, index: number): Question | null {
   if (!isRecord(raw)) return null;
   const tipo = asQuestionType(raw.tipo);
   if (!tipo) return null;
-  const texto = asString(raw.texto).trim();
+  let texto = asString(raw.texto).trim();
   if (!texto) return null;
 
   const id = asString(raw.id).trim() || `P${index + 1}`;
+  texto = stripQuestionCodePrefix(texto, id);
+
   const opciones = Array.isArray(raw.opciones)
     ? raw.opciones
         .map(coerceOption)
@@ -389,17 +416,22 @@ function coerceQuestion(raw: unknown, index: number): Question | null {
     numero: asInt(raw.numero) ?? index + 1,
     texto,
     tipo,
-    condicion: asString(raw.condicion),
+    condicion: sanitizeCondition(asString(raw.condicion)),
     aleatorizar: raw.aleatorizar === true,
     opciones,
     flujo,
   };
 
   if (tipo === "escala" || tipo === "numerica") {
-    const min = asInt(raw.min);
-    const max = asInt(raw.max);
-    if (min !== null) q.min = min;
-    if (max !== null) q.max = max;
+    const minRaw = asInt(raw.min);
+    const maxRaw = asInt(raw.max);
+    const inferred = inferScaleRange(
+      texto,
+      minRaw ?? undefined,
+      maxRaw ?? undefined
+    );
+    if (inferred.min !== undefined) q.min = inferred.min;
+    if (inferred.max !== undefined) q.max = inferred.max;
   }
   if (tipo === "matriz" && Array.isArray(raw.enunciados)) {
     q.enunciados = raw.enunciados
@@ -462,6 +494,124 @@ function coerceSection(raw: unknown): Section | null {
         .filter((p) => p.length > 0)
     : [];
   return { nombre, preguntas };
+}
+
+// ---------------------------------------------------------------------------
+// Post-procesado de la respuesta de la IA
+// ---------------------------------------------------------------------------
+
+/** Quita el prefijo de código del enunciado si la IA lo duplicó (ej. "P9. …"). */
+function stripQuestionCodePrefix(texto: string, id: string): string {
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return texto.replace(new RegExp(`^${escaped}\\.?\\s*`, "i"), "").trim();
+}
+
+/**
+ * Normaliza condiciones: solo IDs y códigos. Descarta lenguaje natural
+ * (contains, selected, etc.) que no se publica a QP pero genera falsos errores.
+ */
+function sanitizeCondition(cond: string): string {
+  const c = cond.trim();
+  if (!c) return "";
+  const lower = c.toLowerCase();
+  if (
+    /\b(contains|selected|includes|include|equals|equal|not\s+equal)\b/.test(
+      lower
+    )
+  ) {
+    return "";
+  }
+  if (!c.includes("=")) return "";
+  return c;
+}
+
+/** Infiere min/max de escalas cuando el enunciado lo dice pero la IA no los seteó. */
+function inferScaleRange(
+  texto: string,
+  min?: number,
+  max?: number
+): { min?: number; max?: number } {
+  if (min !== undefined && max !== undefined) return { min, max };
+  const m = texto.match(
+    /(?:escala|del)\s*(?:del\s*)?(\d+)\s*(?:al|a|-)\s*(\d+)/i
+  );
+  if (m) {
+    return {
+      min: min ?? parseInt(m[1], 10),
+      max: max ?? parseInt(m[2], 10),
+    };
+  }
+  return { min, max };
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI — llamada con reintento ante corte por límite de tokens
+// ---------------------------------------------------------------------------
+
+/**
+ * Llama a /v1/chat/completions para estructurar el cuestionario.
+ * Devuelve content y finish_reason; no parsea el JSON.
+ */
+async function callOpenai(
+  apiKey: string,
+  model: string,
+  text: string,
+  opts: ParseOptions,
+  maxTokens: number
+): Promise<OpenAiParseResult> {
+  const body = {
+    model,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: buildUserPrompt(text, opts) },
+    ],
+    response_format: { type: "json_object" },
+    reasoning_effort: "minimal",
+    max_completion_tokens: maxTokens,
+  };
+
+  let res: Response;
+  try {
+    res = await fetch(OPENAI_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    throw new ParseError(
+      `Error de red al contactar a OpenAI: ${errorMessage(err)}`
+    );
+  }
+
+  if (!res.ok) {
+    const errText = await safeText(res);
+    throw new ParseError(
+      `OpenAI HTTP ${res.status}: ${truncate(errText, 200)}`
+    );
+  }
+
+  const json = (await res.json()) as { choices?: OpenAiChoice[] };
+  const choice = json.choices?.[0];
+  return {
+    content: choice?.message?.content?.trim() ?? "",
+    finishReason: choice?.finish_reason,
+  };
+}
+
+/** Valida que la respuesta del modelo sea usable antes de parsear JSON. */
+function assertParseableOpenAiResult(result: OpenAiParseResult): void {
+  if (result.finishReason === "length") {
+    throw new ParseError(
+      "El cuestionario es demasiado largo y la IA no alcanzó a terminar. " +
+        "Dividilo por módulos y parsealos por separado."
+    );
+  }
+  if (!result.content) {
+    throw new ParseError("OpenAI devolvió respuesta vacía.");
+  }
 }
 
 // ---------------------------------------------------------------------------
