@@ -201,6 +201,11 @@ export async function publishQuestionnaireToQp(
  * El `orderNumber` se pasa explícito 1-based: no confiamos en el auto-asignado
  * porque depende del orden de llegada y queremos que coincida con la canónica.
  */
+function questionIsRequired(q: Question): boolean {
+  // Textos informativos / separadores no son obligatorios en QP.
+  return q.tipo !== "comentario";
+}
+
 function canonicalToQpQuestionPayload(
   q: Question,
   questionIndex: number
@@ -209,8 +214,6 @@ function canonicalToQpQuestionPayload(
   const displayNumber = questionIndex + 1;
   const text = q.texto.trim() || `Pregunta ${q.numero || displayNumber}`;
   const code = q.id || `Q${displayNumber}`;
-  // `required` no está en el canónico todavía — por seguridad creamos las
-  // preguntas no-obligatorias así el usuario decide.
   const base: QPCreateQuestionPayload = {
     type: "multiplechoice_radio",
     text,
@@ -220,7 +223,7 @@ function canonicalToQpQuestionPayload(
     // POST appendea la pregunta debajo de las ya creadas y conserva el orden
     // del cuestionario canónico.
     orderNumber: 0,
-    required: false,
+    required: questionIsRequired(q),
   };
 
   switch (q.tipo) {

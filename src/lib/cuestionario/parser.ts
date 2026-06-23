@@ -77,6 +77,20 @@ const VALID_OPTION_CONDITIONS: readonly OptionCondition[] = [
   "exclusiva",
 ];
 
+export type ParseStage =
+  | "extracting"
+  | "preparing"
+  | "ai"
+  | "structuring"
+  | "done";
+
+export interface ParseProgressEvent {
+  /** 0–100 */
+  percent: number;
+  stage: ParseStage;
+  message: string;
+}
+
 export interface ParseOptions {
   /** Override del modelo. Default: "gpt-5-mini". */
   model?: string;
@@ -88,6 +102,10 @@ export interface ParseOptions {
   hintPais?: string;
   /** Instrucciones de programación (texto en rojo del Word). Solo para el prompt. */
   programmerHints?: string;
+  /** Progreso por etapas durante el parseo (extracción → IA → estructuración). */
+  onProgress?: (event: ParseProgressEvent) => void;
+  /** Interno: mapea 0–1 del sub-flujo al rango global de percent. */
+  _progressRange?: { base: number; span: number };
 }
 
 export class MissingOpenaiApiKeyError extends Error {
@@ -123,27 +141,47 @@ export async function parseTextToQuestionnaire(
   if (!text) {
     throw new ParseError("El texto del cuestionario está vacío.");
   }
+
+  emitParseProgress(opts, 0, "preparing", "Preparando texto del cuestionario…");
   const apiKey = await getOpenaiApiKey();
   if (!apiKey) throw new MissingOpenaiApiKeyError();
 
   const model = opts.model ?? DEFAULT_CUESTIONARIO_MODEL;
 
-  let result = await callOpenai(apiKey, model, text, opts, PARSE_MAX_TOKENS);
+  emitParseProgress(opts, 0.08, "preparing", "Enviando a OpenAI…");
+
+  let result = await callOpenaiWithProgress(
+    apiKey,
+    model,
+    text,
+    opts,
+    PARSE_MAX_TOKENS,
+    0.75
+  );
 
   // Reintento si la respuesta se cortó por límite (con o sin contenido parcial).
   if (result.finishReason === "length") {
-    result = await callOpenai(
+    emitParseProgress(
+      opts,
+      0.76,
+      "ai",
+      "Reintentando — el cuestionario es largo…"
+    );
+    result = await callOpenaiWithProgress(
       apiKey,
       model,
       text,
       opts,
-      PARSE_MAX_TOKENS_RETRY
+      PARSE_MAX_TOKENS_RETRY,
+      0.88
     );
   }
 
   assertParseableOpenAiResult(result);
 
   const content = result.content;
+
+  emitParseProgress(opts, 0.9, "structuring", "Estructurando preguntas…");
 
   let parsed: unknown;
   try {
@@ -153,7 +191,14 @@ export async function parseTextToQuestionnaire(
       `OpenAI devolvió JSON inválido: ${truncate(content, 200)}`
     );
   }
-  return coerceQuestionnaire(parsed, opts);
+  const questionnaire = coerceQuestionnaire(parsed, opts);
+  emitParseProgress(
+    opts,
+    1,
+    "done",
+    `${questionnaire.preguntas.length} preguntas detectadas`
+  );
+  return questionnaire;
 }
 
 /**
@@ -167,10 +212,17 @@ export async function parseDocxToQuestionnaire(
   file: File | Blob,
   opts: ParseOptions & { fileName?: string } = {}
 ): Promise<Questionnaire> {
+  emitParseProgress(opts, 0, "extracting", "Leyendo archivo Word…");
   const arrayBuffer = await file.arrayBuffer();
   let visibleText: string;
   let programmerHints: string;
   try {
+    emitParseProgress(
+      opts,
+      0.12,
+      "extracting",
+      "Extrayendo texto e instrucciones de programación…"
+    );
     const extracted = await extractDocxForParsing(arrayBuffer);
     visibleText = extracted.visibleText;
     programmerHints = extracted.programmerHints;
@@ -184,11 +236,13 @@ export async function parseDocxToQuestionnaire(
       "El Word no tiene texto extraíble. Probá pegando el contenido a mano."
     );
   }
+  emitParseProgress(opts, 0.22, "extracting", "Texto extraído del Word");
   const fileName = opts.fileName ?? fileNameOf(file);
   return parseTextToQuestionnaire(visibleText, {
     ...opts,
     programmerHints: programmerHints.trim() || opts.programmerHints,
     hintTitulo: opts.hintTitulo ?? deriveTitleFromFilename(fileName),
+    _progressRange: { base: 22, span: 78 },
   });
 }
 
@@ -205,7 +259,9 @@ export async function parsePdfToQuestionnaire(
   file: File | Blob,
   opts: ParseOptions & { fileName?: string } = {}
 ): Promise<Questionnaire> {
+  emitParseProgress(opts, 0, "extracting", "Leyendo archivo PDF…");
   const arrayBuffer = await file.arrayBuffer();
+  emitParseProgress(opts, 0.1, "extracting", "Extrayendo texto del PDF…");
   const text = await extractPdfText(arrayBuffer);
   if (text.trim().length < 40) {
     throw new ParseError(
@@ -213,10 +269,12 @@ export async function parsePdfToQuestionnaire(
         "tener layout complejo). Copiá el contenido y usá la opción 'Pegar texto'."
     );
   }
+  emitParseProgress(opts, 0.2, "extracting", "Texto extraído del PDF");
   const fileName = opts.fileName ?? fileNameOf(file);
   return parseTextToQuestionnaire(text, {
     ...opts,
     hintTitulo: opts.hintTitulo ?? deriveTitleFromFilename(fileName),
+    _progressRange: { base: 20, span: 80 },
   });
 }
 
@@ -283,7 +341,7 @@ const SYSTEM_PROMPT = `Sos un asistente que estructura cuestionarios de encuesta
 
 Reglas estrictas:
 - Devolvé SIEMPRE un objeto JSON con exactamente estas claves de nivel superior: { "metadata": {...}, "preguntas": [...], "secciones": [...] }.
-- Cada pregunta tiene: { "id", "numero", "texto", "tipo", "condicion", "aleatorizar", "opciones", "flujo" } y opcionalmente "min", "max", "enunciados".
+- Cada pregunta tiene: { "id", "numero", "texto", "tipo", "condicion", "aleatorizar", "opciones", "flujo" } y opcionalmente "min", "max", "enunciados", "copiar_opciones_de".
 - Tipos válidos (uno y sólo uno por pregunta): cerrada_unica, cerrada_multiple, escala, matriz, abierta_texto, abierta_marca, numerica, ranking, fecha, comentario.
 - Usá tipo "comentario" para textos informativos, introducciones o separadores visibles al participante que no esperan respuesta.
 - "id" es un identificador corto y único (ej. "P1", "F5", "A4"). Si el cuestionario no tiene IDs, generalos como "P1", "P2", ... siguiendo el orden.
@@ -292,12 +350,21 @@ Reglas estrictas:
 - "condicion" controla si la pregunta se muestra. Formato EXCLUSIVO: "ID=codigo" o "ID=1,2,3" combinado con AND/OR (ej. "S1=3", "F5=1 OR F5=2"). PROHIBIDO usar contains, selected, includes u otro lenguaje natural. Si no podés expresarlo con códigos → "".
 - "aleatorizar" es booleano: true si las opciones o frases se presentan en orden aleatorio.
 - "opciones" es un array. Para cerradas/múltiples/ranking: cada opción { "codigo": <int>, "texto": <string>, "flujo": <string>, "condicion": <string[]> }. Para escalas numéricas simples (1 al 10): opciones vacías y usá min/max. Para matrices: opciones = COLUMNAS.
+- "copiar_opciones_de" (opcional): ID de otra pregunta cuya lista de opciones se reutiliza. Usalo cuando las instrucciones digan "mostrar marcas según M1", "mismas opciones que M1", "mostrar según M2", etc. Dejá "opciones" vacío y seteá "copiar_opciones_de" al ID fuente (ej. "M1").
 - "flujo" en opciones puede ser "", "terminar" o "saltar_a <id>". "condicion" en opciones puede contener "fijar", "especificar" y/o "exclusiva".
 - "flujo" a nivel pregunta: array de { "si_respuesta": <int|int[]>, "accion": "saltar_a" | "terminar" | "continuar", "destino": <id opcional> }.
+- Destinos de "saltar_a" (opción o pregunta): SOLO IDs de preguntas que existen en el cuestionario. Si la instrucción salta a una etiqueta de programación (ej. "PUESTO_ESPECIFICAR", "..._ESPECIFICAR", "..._otros") que NO es un ID de pregunta real del cuestionario, NO uses flujo — dejá flujo "" en la opción.
+- Opciones "Otros" / "Otras, ¿cuáles?" / RA (respuesta abierta asociada): NUNCA crear una pregunta separada (abierta_texto u otra) para capturar el especificar. Esas van SOLO como opción de la pregunta padre con condicion ["especificar"]. PROHIBIDO ids tipo "F5_otros", "P5_otros_consumo" u otras preguntas satélite.
 - "min" y "max" SÓLO para tipo "escala" o "numerica" (ej. escala 1-10 → min=1, max=10, opciones=[]).
 - "enunciados" SÓLO para tipo "matriz": filas de la matriz (misma forma que opción). Las COLUMNAS van en "opciones".
 - Ejemplo matriz P8: enunciados=[filas/frases], opciones=[columnas/marcas con codigo y texto].
 - "secciones" es un array opcional: { "nombre": <string>, "preguntas": <string[]> } con ids de preguntas.
+
+Preguntas tipo "pares" / elección forzada (RU POR FRASE, tablas con Par 1, Par 2…):
+- Cada fila "Par N" del documento = una pregunta cerrada_unica separada con su propio id (ej. A1_1, A1_2 o ids consecutivos según el doc).
+- "texto" = el enunciado introductorio del BLOQUE (ej. "Lee cada par de declaraciones y decidí con cuál estás más de acuerdo"), NUNCA "Par 1" ni "Par 2".
+- Las dos frases del par van en "opciones" (codigo 1 y 2), una por opción. NO concatenar las frases en "texto".
+- Si dice ROTAR FRASES → aleatorizar: true.
 
 Convenciones Word Mega (siglas — NO van en "texto", usalas para inferir estructura):
 - RU / Respuesta única → cerrada_unica
@@ -341,6 +408,9 @@ function buildUserPrompt(text: string, opts: ParseOptions): string {
 // Coerción / validación de la respuesta de la IA
 // ---------------------------------------------------------------------------
 
+/** Pregunta durante coerción; `copiarOpcionesDe` es transitorio (solo en parseo). */
+type QuestionDraft = Question & { copiarOpcionesDe?: string };
+
 /**
  * Convierte el JSON crudo de la IA en un Questionnaire bien tipado.
  *
@@ -359,21 +429,32 @@ export function coerceQuestionnaire(
   }
   const metadata = coerceMetadata(raw.metadata, opts);
   const preguntasRaw = Array.isArray(raw.preguntas) ? raw.preguntas : [];
-  const preguntas: Question[] = preguntasRaw
+  const drafts: QuestionDraft[] = preguntasRaw
     .map((p, i) => coerceQuestion(p, i))
-    .filter((p): p is Question => p !== null);
+    .filter((p): p is QuestionDraft => p !== null);
 
-  if (preguntas.length === 0) {
+  if (drafts.length === 0) {
     throw new ParseError(
       "La IA no devolvió preguntas reconocibles. Probá con un texto más estructurado o cargalas a mano."
     );
   }
 
-  const secciones = Array.isArray(raw.secciones)
+  resolveCopiedOptions(drafts);
+  const removedIds = removeSpecifyFollowUpQuestions(drafts);
+  stripInvalidFlowDestinations(drafts);
+  renumberQuestions(drafts);
+
+  const preguntas: Question[] = drafts.map(({ copiarOpcionesDe: _c, ...q }) => q);
+
+  const secciones = (Array.isArray(raw.secciones)
     ? raw.secciones
         .map(coerceSection)
         .filter((s): s is Section => s !== null)
-    : [];
+    : []
+  ).map((s) => ({
+    ...s,
+    preguntas: s.preguntas.filter((id) => !removedIds.has(id)),
+  }));
 
   return { metadata, preguntas, secciones };
 }
@@ -392,7 +473,7 @@ function coerceMetadata(
   };
 }
 
-function coerceQuestion(raw: unknown, index: number): Question | null {
+function coerceQuestion(raw: unknown, index: number): QuestionDraft | null {
   if (!isRecord(raw)) return null;
   const tipo = asQuestionType(raw.tipo);
   if (!tipo) return null;
@@ -400,7 +481,7 @@ function coerceQuestion(raw: unknown, index: number): Question | null {
   if (!texto) return null;
 
   const id = asString(raw.id).trim() || `P${index + 1}`;
-  texto = stripQuestionCodePrefix(texto, id);
+  texto = stripPairLabel(stripQuestionCodePrefix(texto, id));
 
   const opciones = Array.isArray(raw.opciones)
     ? raw.opciones
@@ -411,7 +492,9 @@ function coerceQuestion(raw: unknown, index: number): Question | null {
     ? raw.flujo.map(coerceFlow).filter((f): f is FlowRule => f !== null)
     : [];
 
-  const q: Question = {
+  const copiarOpcionesDe = asString(raw.copiar_opciones_de).trim() || undefined;
+
+  const q: QuestionDraft = {
     id,
     numero: asInt(raw.numero) ?? index + 1,
     texto,
@@ -420,6 +503,7 @@ function coerceQuestion(raw: unknown, index: number): Question | null {
     aleatorizar: raw.aleatorizar === true,
     opciones,
     flujo,
+    copiarOpcionesDe,
   };
 
   if (tipo === "escala" || tipo === "numerica") {
@@ -506,6 +590,138 @@ function stripQuestionCodePrefix(texto: string, id: string): string {
   return texto.replace(new RegExp(`^${escaped}\\.?\\s*`, "i"), "").trim();
 }
 
+/** Quita etiquetas residuales "Par N" que la IA a veces pone como enunciado. */
+function stripPairLabel(texto: string): string {
+  return texto.replace(/^Par\s*\d+\.?\s*/i, "").trim();
+}
+
+/**
+ * Clona opciones de preguntas fuente cuando la IA seteó `copiar_opciones_de`
+ * (ej. M2–M8 reutilizan la lista de M1).
+ */
+function resolveCopiedOptions(preguntas: QuestionDraft[]): void {
+  const byId = new Map(preguntas.map((p) => [p.id, p]));
+
+  for (const p of preguntas) {
+    if (p.opciones.length > 0 || !p.copiarOpcionesDe) continue;
+    const source = byId.get(p.copiarOpcionesDe);
+    if (!source || source.opciones.length === 0) continue;
+    p.opciones = cloneOptions(source.opciones);
+  }
+}
+
+/** Copia superficial de opciones (sin compartir referencias mutables). */
+function cloneOptions(opts: QuestionOption[]): QuestionOption[] {
+  return opts.map((o) => ({
+    codigo: o.codigo,
+    texto: o.texto,
+    flujo: o.flujo,
+    condicion: [...o.condicion],
+  }));
+}
+
+/**
+ * Elimina preguntas satélite que la IA inventa para "Otros"/especificar (ej.
+ * P5_otros_consumo, F6_otros). Esas capturas van en la opción padre con
+ * condicion ["especificar"], no como preguntas aparte — si no, se publican a QP.
+ */
+function removeSpecifyFollowUpQuestions(preguntas: QuestionDraft[]): Set<string> {
+  const byId = new Map(preguntas.map((p) => [p.id, p]));
+  const toRemove = new Set<string>();
+
+  for (const p of preguntas) {
+    if (!isSpecifyFollowUpQuestion(p)) continue;
+    toRemove.add(p.id);
+
+    const ref = parseSimpleCondition(p.condicion);
+    if (ref) {
+      const parent = byId.get(ref.parentId);
+      if (parent) ensureOptionSpecifyTag(parent, ref.code);
+    }
+  }
+
+  if (toRemove.size === 0) return toRemove;
+
+  preguntas.splice(
+    0,
+    preguntas.length,
+    ...preguntas.filter((p) => !toRemove.has(p.id))
+  );
+  return toRemove;
+}
+
+/** Detecta preguntas "Otros, ¿cuáles?" que no deberían existir como ítems aparte. */
+function isSpecifyFollowUpQuestion(p: QuestionDraft): boolean {
+  if (/_otros|_especificar/i.test(p.id)) return true;
+
+  if (p.tipo !== "abierta_texto" && p.tipo !== "abierta_marca") return false;
+  if (!p.condicion.trim()) return false;
+
+  const t = p.texto.trim();
+  if (/^(otros?|otras?)\b/i.test(t)) return true;
+  if (/^otros?[,\s].*¿cu[aá]l/i.test(t)) return true;
+  if (/^¿cu[aá]les?\??$/i.test(t)) return true;
+
+  return false;
+}
+
+/** Parsea condiciones simples "F5=97" (sin AND/OR). */
+function parseSimpleCondition(
+  cond: string
+): { parentId: string; code: number } | null {
+  const m = cond.trim().match(/^([A-Za-z][A-Za-z0-9_]*)=(\d+)$/);
+  if (!m) return null;
+  return { parentId: m[1], code: parseInt(m[2], 10) };
+}
+
+/** Marca la opción padre como especificar y limpia saltos de flujo innecesarios. */
+function ensureOptionSpecifyTag(parent: QuestionDraft, code: number): void {
+  const opt = parent.opciones.find((o) => o.codigo === code);
+  if (!opt) return;
+  if (!opt.condicion.includes("especificar")) {
+    opt.condicion = [...opt.condicion, "especificar"];
+  }
+  if (parseSaltarAFromOptionFlujo(opt.flujo)) {
+    opt.flujo = "";
+  }
+}
+
+/** Renumera preguntas 1-based tras eliminar satélites. */
+function renumberQuestions(preguntas: QuestionDraft[]): void {
+  preguntas.forEach((p, i) => {
+    p.numero = i + 1;
+  });
+}
+
+/**
+ * Descarta saltos a destinos que no son IDs de pregunta (ej. PUESTO_ESPECIFICAR).
+ * El flujo no se publica a QP hoy; evita errores falsos en validación.
+ */
+function stripInvalidFlowDestinations(preguntas: QuestionDraft[]): void {
+  const ids = new Set(preguntas.map((p) => p.id));
+
+  for (const p of preguntas) {
+    p.flujo = p.flujo.filter((rule) => {
+      if (rule.accion !== "saltar_a") return true;
+      const dest = (rule.destino ?? "").trim();
+      return dest.length > 0 && ids.has(dest);
+    });
+
+    for (const opt of p.opciones) {
+      const dest = parseSaltarAFromOptionFlujo(opt.flujo);
+      if (dest && !ids.has(dest)) {
+        opt.flujo = "";
+      }
+    }
+  }
+}
+
+/** Si `opt.flujo` arranca con "saltar_a", devuelve el id destino limpio. */
+function parseSaltarAFromOptionFlujo(flujo: string): string | null {
+  const m = flujo.trim().match(/^saltar_a\s+([A-Za-z0-9_]+)$/i);
+  return m ? m[1] : null;
+}
+
 /**
  * Normaliza condiciones: solo IDs y códigos. Descarta lenguaje natural
  * (contains, selected, etc.) que no se publica a QP pero genera falsos errores.
@@ -547,6 +763,52 @@ function inferScaleRange(
 // ---------------------------------------------------------------------------
 // OpenAI — llamada con reintento ante corte por límite de tokens
 // ---------------------------------------------------------------------------
+
+/** Emite progreso mapeando una fracción local (0–1) al rango global del parseo. */
+function emitParseProgress(
+  opts: ParseOptions,
+  fraction: number,
+  stage: ParseStage,
+  message: string
+): void {
+  if (!opts.onProgress) return;
+  const base = opts._progressRange?.base ?? 0;
+  const span = opts._progressRange?.span ?? 100;
+  const percent = Math.min(100, Math.round(base + fraction * span));
+  opts.onProgress({ percent, stage, message });
+}
+
+/**
+ * Llama a OpenAI avanzando el percent de forma gradual mientras espera respuesta.
+ * La IA no streamea JSON parcial hoy; el creep da feedback honesto de "en curso".
+ */
+async function callOpenaiWithProgress(
+  apiKey: string,
+  model: string,
+  text: string,
+  opts: ParseOptions,
+  maxTokens: number,
+  maxFraction: number
+): Promise<OpenAiParseResult> {
+  let creep = 0.12;
+  const timer = opts.onProgress
+    ? setInterval(() => {
+        creep = Math.min(maxFraction, creep + 0.025);
+        emitParseProgress(
+          opts,
+          creep,
+          "ai",
+          "La IA está estructurando el cuestionario…"
+        );
+      }, 900)
+    : null;
+
+  try {
+    return await callOpenai(apiKey, model, text, opts, maxTokens);
+  } finally {
+    if (timer) clearInterval(timer);
+  }
+}
 
 /**
  * Llama a /v1/chat/completions para estructurar el cuestionario.

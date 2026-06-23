@@ -3,7 +3,9 @@
 > **Tipo:** Documento de PLANIFICACIÓN (idea a futuro, todavía sin implementar).
 > Recopila la propuesta, pros/contras y decisiones a tomar antes de codear.
 >
-> **Estado:** PROPUESTA — pendiente de aprobación de alcance.
+> **Estado:** PROPUESTA — pendiente de aprobación de alcance. Verificado el
+> 2026-06-23: NADA de este plan está implementado todavía (no hay reparseo,
+> reemplazo de archivo ni re-ejecución de QC en el código). Sigue 100% sin codear.
 > Creado: 2026-06-17.
 
 ---

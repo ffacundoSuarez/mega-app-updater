@@ -5,12 +5,14 @@
 > decisiones tomadas hasta ahora.
 >
 > **Estado:** PARCIAL. Batch de parseo/validación implementado (2026-06-17).
-> Faltan todavía:
+> Re-verificado contra el código el 2026-06-23: todo lo marcado ✅ sigue en el
+> código y nada nuevo se implementó desde entonces. Faltan todavía:
 > - ⏳ Los **ejemplos de sugerencias "tontas"** que el usuario va a pasar para
->   diagnosticar el check de sugerencias.
+>   diagnosticar el check de sugerencias (`checkAmbiguousInstructions` en
+>   `ai-checks.ts` es el único que emite `sugerencia`).
 > - ⏳ La **lista de cambios de Limpiador** + ideas adicionales.
 >
-> Última actualización: 2026-06-17.
+> Última actualización: 2026-06-23 (verificación contra código; sin cambios de estado).
 
 ---
 

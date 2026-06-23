@@ -17,7 +17,7 @@ import { SettingsView } from "@/tools/settings/SettingsView";
 import { FilesView } from "@/tools/files/FilesView";
 import { checkForUpdate, type Update } from "@/lib/updater";
 
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.2.1";
 
 const TOOL_VIEWS: ToolId[] = [
   "brand-audit",

@@ -39,6 +39,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import {
   MissingOpenaiApiKeyError,
@@ -46,6 +47,7 @@ import {
   parsePdfToQuestionnaire,
   parseTextToQuestionnaire,
   ParseError,
+  type ParseProgressEvent,
 } from "@/lib/cuestionario/parser";
 import {
   fetchQuestionnaireFromQp,
@@ -96,6 +98,9 @@ export function NewQuestionnaire({
   const [surveyValid, setSurveyValid] = useState<{ id: string; name: string } | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
+  const [parseProgress, setParseProgress] = useState<ParseProgressEvent | null>(
+    null
+  );
   const [error, setError] = useState<string | null>(null);
   /** Si el error señala una key faltante, mostramos un shortcut a Ajustes. */
   const [missingKey, setMissingKey] = useState<"openai" | "questionpro" | null>(
@@ -130,6 +135,11 @@ export function NewQuestionnaire({
     setError(null);
     setMissingKey(null);
     setWarnings([]);
+    setParseProgress(null);
+  };
+
+  const parseProgressHandler = (event: ParseProgressEvent) => {
+    setParseProgress(event);
   };
 
   // ---------- Submit handlers por camino ----------
@@ -172,6 +182,7 @@ export function NewQuestionnaire({
           hintTitulo: nombreTrimmed,
           hintIdioma: idioma || "es",
           hintPais: pais.trim() || undefined,
+          onProgress: parseProgressHandler,
         }),
     });
   }
@@ -186,6 +197,7 @@ export function NewQuestionnaire({
           hintTitulo: nombreTrimmed,
           hintIdioma: idioma || "es",
           hintPais: pais.trim() || undefined,
+          onProgress: parseProgressHandler,
         }),
     });
   }
@@ -200,6 +212,7 @@ export function NewQuestionnaire({
           hintTitulo: nombreTrimmed,
           hintIdioma: idioma || "es",
           hintPais: pais.trim() || undefined,
+          onProgress: parseProgressHandler,
         }),
     });
   }
@@ -684,6 +697,11 @@ export function NewQuestionnaire({
         </Card>
       )}
 
+      {/* Progreso del parseo con IA. */}
+      {submitting && parseProgress && (
+        <ParseProgressPanel progress={parseProgress} />
+      )}
+
       {/* Error global del paso. */}
       {error && (
         <Card className="border-destructive/40 bg-destructive/5">
@@ -712,6 +730,24 @@ export function NewQuestionnaire({
 // ---------------------------------------------------------------------------
 // Subcomponentes
 // ---------------------------------------------------------------------------
+
+function ParseProgressPanel({ progress }: { progress: ParseProgressEvent }) {
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Loader2 className="size-4 animate-spin" />
+          Parseando con IA…
+        </CardTitle>
+        <CardDescription>{progress.message}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        <Progress value={progress.percent} className="h-2" />
+        <p className="text-xs text-muted-foreground">{progress.percent}%</p>
+      </CardContent>
+    </Card>
+  );
+}
 
 interface CaminoCardProps {
   icon: React.ComponentType<{ className?: string }>;

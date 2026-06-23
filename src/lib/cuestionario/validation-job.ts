@@ -18,6 +18,7 @@
 import {
   AI_CHECKS,
   AiCheckError,
+  filterPedanticAiIssues,
   MissingOpenaiApiKeyError,
 } from "./ai-checks";
 import { runDeterministicChecks } from "./checks";
@@ -27,8 +28,10 @@ import {
   getOpenaiApiKey,
 } from "@/lib/settings";
 import type {
+  IssueCategory,
   IssueSeverity,
   QCIssue,
+  Question,
   Questionnaire,
   QuestionnairePerQuestionIssues,
   QuestionnaireValidationReport,
@@ -135,10 +138,11 @@ export async function runValidation(
   }
 
   // 3) Armado del reporte + persistencia.
+  const filteredIssues = applyReportIssueFilters(questionnaire, issues);
   const report = buildReport({
     questionnaireId,
     questionnaire,
-    issues,
+    issues: filteredIssues,
     parsedAt: parsedAt ?? new Date().toISOString(),
   });
 
@@ -148,6 +152,31 @@ export async function runValidation(
 
   onProgress?.({ type: "done", report });
   return report;
+}
+
+/**
+ * Re-aplica los filtros de ruido sobre un reporte ya persistido (p. ej. generado
+ * antes de endurecer prompts/post-filtros). Mantiene fechas originales.
+ */
+export function sanitizeValidationReport(
+  questionnaire: Questionnaire,
+  report: QuestionnaireValidationReport
+): QuestionnaireValidationReport {
+  const allIssues = [
+    ...report.issues_globales,
+    ...report.issues_por_pregunta.flatMap((g) => g.issues),
+  ];
+  const filtered = applyReportIssueFilters(questionnaire, allIssues);
+  const rebuilt = buildReport({
+    questionnaireId: report.questionnaire_id,
+    questionnaire,
+    issues: filtered,
+    parsedAt: report.parsed_at,
+  });
+  return {
+    ...rebuilt,
+    validated_at: report.validated_at,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -230,6 +259,75 @@ function summarize(issues: QCIssue[]): QuestionnaireValidationReport["resumen"] 
     sugerencias: counters.sugerencia,
     total: issues.length,
   };
+}
+
+/**
+ * Red de seguridad: descarta issues sobre comentarios y sobre el patrón
+ * "pares" (mismo enunciado introductorio, 2 opciones) donde la IA suele
+ * inventar redundancia/instrucción repetida.
+ */
+function filterIssuesForReport(
+  questionnaire: Questionnaire,
+  issues: QCIssue[]
+): QCIssue[] {
+  const comentarioIds = new Set(
+    questionnaire.preguntas
+      .filter((p) => p.tipo === "comentario")
+      .map((p) => p.id)
+  );
+  const pairIds = detectPairQuestionIds(questionnaire.preguntas);
+  const noisyCategories = new Set<IssueCategory>([
+    "wording",
+    "semantica",
+    "logica",
+  ]);
+
+  return issues.filter((issue) => {
+    const pid = issue.pregunta_id;
+    if (pid && comentarioIds.has(pid)) return false;
+    if (
+      pid &&
+      pairIds.has(pid) &&
+      noisyCategories.has(issue.categoria)
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+/** Aplica el post-filtro de ruido IA sobre el resultado de filterIssuesForReport. */
+function applyReportIssueFilters(
+  questionnaire: Questionnaire,
+  issues: QCIssue[]
+): QCIssue[] {
+  return filterPedanticAiIssues(
+    questionnaire,
+    filterIssuesForReport(questionnaire, issues)
+  );
+}
+
+/** Preguntas "pares": cerrada_unica con 2 opciones y mismo texto que un vecino. */
+function detectPairQuestionIds(preguntas: Question[]): Set<string> {
+  const out = new Set<string>();
+  for (let i = 0; i < preguntas.length; i++) {
+    const p = preguntas[i];
+    if (p.tipo !== "cerrada_unica" || p.opciones.length !== 2) continue;
+    const texto = p.texto.trim();
+    for (const j of [i - 1, i + 1]) {
+      if (j < 0 || j >= preguntas.length) continue;
+      const other = preguntas[j];
+      if (
+        other.tipo === "cerrada_unica" &&
+        other.opciones.length === 2 &&
+        other.texto.trim() === texto
+      ) {
+        out.add(p.id);
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 function isAbortError(err: unknown): boolean {

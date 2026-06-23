@@ -10,7 +10,8 @@
 > - Para cosas grandes que necesitan diseño, dejar acá solo el resumen y el
 >   detalle en un `.md` aparte dentro de `docs/Plans/`.
 >
-> Última actualización: 2026-06-17.
+> Última actualización: 2026-06-23 (verificado contra código: drag & drop sigue
+> pendiente, no hay `onDragDropEvent`/`useFileDrop` implementado).
 
 ---
 
