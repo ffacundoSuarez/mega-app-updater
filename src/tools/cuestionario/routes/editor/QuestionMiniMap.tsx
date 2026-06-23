@@ -3,7 +3,7 @@
 // sección. Se usa como rail izquierdo del editor en modo "single-focus".
 
 import { Plus, Settings2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { StepperItem, StepStatus } from "./QuestionStepper";
@@ -61,6 +61,7 @@ export function QuestionMiniMap({
 }: QuestionMiniMapProps) {
   const [dialog, setDialog] = useState<SectionDialogState | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
+  const activeRowRef = useRef<HTMLButtonElement | null>(null);
 
   const validCount = items.filter((i) => i.status === "ok").length;
   const pct =
@@ -79,6 +80,14 @@ export function QuestionMiniMap({
     () => buildMapSegments(items, sections),
     [items, sections]
   );
+
+  // Scroll al ítem activo cuando se navega con flechas desde el editor.
+  useEffect(() => {
+    activeRowRef.current?.scrollIntoView({
+      block: "nearest",
+      behavior: "smooth",
+    });
+  }, [active, items.length]);
 
   const questionOptions: SectionQuestionOption[] = useMemo(
     () =>
@@ -152,6 +161,7 @@ export function QuestionMiniMap({
               return (
                 <MiniMapRow
                   key={`${seg.item.code}-${seg.index}`}
+                  ref={seg.index === active ? activeRowRef : undefined}
                   index={seg.index}
                   item={seg.item}
                   active={seg.index === active}
@@ -325,14 +335,17 @@ function MiniMapRow({
   item,
   active,
   onClick,
+  ref,
 }: {
   index: number;
   item: MiniMapItem;
   active: boolean;
   onClick: () => void;
+  ref?: React.Ref<HTMLButtonElement>;
 }) {
   return (
     <button
+      ref={ref}
       type="button"
       onClick={onClick}
       aria-current={active ? "true" : undefined}

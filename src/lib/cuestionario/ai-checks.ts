@@ -67,6 +67,20 @@ export interface AiCheckDef {
 // Catálogo
 // ---------------------------------------------------------------------------
 
+/** Reglas compartidas para reducir falsos positivos en todos los checks IA. */
+const STRICTNESS_RULES = `
+Reglas de severidad (aplican a TODOS los checks):
+- NUNCA devolvés una issue si tu conclusión es que la pregunta está bien, no requiere cambios, es intencional o el tipo asignado es correcto. En ese caso esa pregunta NO va en "issues".
+- Ignorá por completo las preguntas tipo "comentario" (textos informativos / separadores).
+- No marques convenciones obvias del rubro: edad en años, MAYÚSCULAS para enfatizar categoría de producto (ej. "BEBIDAS ENERGIZANTES"), formato tipográfico del cliente, frases estándar "En general, ¿…?" en tracking.
+- Si varias preguntas comparten el mismo enunciado introductorio (preguntas tipo "pares" / elección forzada con 2 opciones), es intencional: no lo marques como redundancia ni instrucción repetida.
+- NO pidas aclarar si la respuesta es única o múltiple cuando el tipo ya lo define (cerrada_unica / cerrada_multiple).
+- NO pidas unidades (días/semanas/meses) ni "formato de respuesta" cuando la pregunta es cerrada o escala con opciones que ya lo comunican.
+- NO marques como ambiguo mezclar "En general" con frecuencia o lugar de compra: es redacción habitual en encuestas de consumo.
+- Solo emití issues accionables y de alto impacto real para el encuestado o el análisis. Ante la duda, NO la incluyas.
+- Si el problema es menor o puramente estilístico, devolvé { "issues": [] }.
+`.trim();
+
 export const AI_CHECKS: readonly AiCheckDef[] = [
   {
     key: "redundancy",
@@ -126,7 +140,9 @@ async function checkRedundantQuestions(
     .map((p) => `- ${p.id} [${p.tipo}] "${p.texto}"`)
     .join("\n");
 
-  const system = `Sos un analista de investigación de mercado experto en cuestionarios. Detectás preguntas REDUNDANTES dentro de un cuestionario: distintas preguntas que miden esencialmente lo mismo (mismo constructo, fraseo muy similar, o propósito equivalente).
+  const system = `${STRICTNESS_RULES}
+
+Sos un analista de investigación de mercado experto en cuestionarios. Detectás preguntas REDUNDANTES dentro de un cuestionario: distintas preguntas que miden esencialmente lo mismo (mismo constructo, fraseo muy similar, o propósito equivalente).
 
 Reglas estrictas:
 - Devolvé un objeto JSON: { "issues": [{ "pregunta_id": "<id>", "descripcion": "<motivo, mencionando con qué pregunta es redundante>" }] }.
@@ -160,7 +176,9 @@ async function checkInvertedScales(
     .map((p) => `- ${p.id}: "${p.texto}" — ${formatScale(p)}`)
     .join("\n");
 
-  const system = `Sos un analista de investigación de mercado. Detectás ESCALAS INVERTIDAS / POLARIDADES INCONSISTENTES entre preguntas que conceptualmente deberían usar la misma dirección de respuesta.
+  const system = `${STRICTNESS_RULES}
+
+Sos un analista de investigación de mercado. Detectás ESCALAS INVERTIDAS / POLARIDADES INCONSISTENTES entre preguntas que conceptualmente deberían usar la misma dirección de respuesta.
 
 Ejemplos de problema:
 - P1: 1=Muy malo, 5=Muy bueno (positivo crece con el código)
@@ -188,11 +206,19 @@ async function checkBiasedWording(
     .map((p) => `- ${p.id}: "${p.texto}"`)
     .join("\n");
 
-  const system = `Sos un analista de investigación de mercado experto en redacción de cuestionarios. Detectás WORDING SESGADO o problemático en las preguntas:
+  const system = `${STRICTNESS_RULES}
+
+Sos un analista de investigación de mercado experto en redacción de cuestionarios. Detectás WORDING SESGADO o problemático en las preguntas:
 - Leading questions (sugieren la respuesta esperada).
 - Doble pregunta (dos preguntas en una, ej. "¿Qué pensás del precio y la calidad?").
 - Doble negación o negaciones confusas.
 - Lenguaje cargado emocionalmente o con asunciones implícitas.
+
+NO marques como sesgo: mayúsculas para enfatizar categoría de producto, convenciones tipográficas del cliente, ni redacción estándar de encuestas de mercado.
+
+Ejemplos que NO son sesgo (devolvé { "issues": [] } para estos casos):
+- "En general, ¿dónde sueles realizar tus compras de BEBIDAS ENERGIZANTES?" (mayúsculas intencionales del cliente).
+- "En general, ¿Cada cuánto realizas esas compras de…?" (fraseo habitual de tracking, no es doble pregunta).
 
 Reglas:
 - Devolvé { "issues": [{ "pregunta_id": "<id>", "descripcion": "<qué problema específico tiene y cómo se podría reescribir>" }] }.
@@ -216,19 +242,34 @@ async function checkAmbiguousInstructions(
   // claro cuántas opciones puede marcar el respondente, etc.
   const lista = q.preguntas
     .map(
-      (p) =>
-        `- ${p.id} [${p.tipo}${
-          p.tipo === "cerrada_multiple" ? "" : ""
-        }]: "${p.texto}"`
+      (p) => {
+        const opts =
+          p.opciones.length > 0
+            ? ` — opciones: ${p.opciones.map((o) => o.texto).join("; ")}`
+            : "";
+        return `- ${p.id} [${p.tipo}]: "${p.texto}"${opts}`;
+      }
     )
     .join("\n");
 
-  const system = `Sos un analista de investigación de mercado. Detectás INSTRUCCIONES AMBIGUAS dentro de los enunciados de las preguntas. Ejemplos:
-- Una pregunta multi-respuesta que no aclara que se pueden marcar varias.
-- Una pregunta abierta sin indicación de extensión esperada.
-- Pregunta numérica sin unidades ("¿Cuántas?" sin decir cuántas qué).
-- Pregunta con escala que no explica los extremos.
-- Ambigüedad temporal ("últimamente", "siempre") sin definir el período.
+  const system = `${STRICTNESS_RULES}
+
+Sos un analista de investigación de mercado. Detectás INSTRUCCIONES AMBIGUAS dentro de los enunciados de las preguntas. Ejemplos válidos:
+- Una pregunta multi-respuesta que no aclara que se pueden marcar varias (y el tipo no lo deja claro).
+- Pregunta numérica sin unidades cuando no es obvio (ej. "¿Cuántas unidades?" sin decir qué se cuenta).
+
+NO marques como ambiguo:
+- Edad en años ("¿Cuál es tu edad?").
+- Escalas cerradas cuyas opciones ya comunican el nivel (ej. "Bajo/Medio/Alto", frecuencias tipo "Todos los días").
+- Periodos temporales estándar en tracking ("En general", "Cada cuánto", "últimamente") cuando el contexto es habitual.
+- Preguntas cerrada_unica o cerrada_multiple donde el tipo ya define si es una o varias respuestas (no pidas aclararlo en el enunciado).
+- Preguntas cerrada_unica/escala con opciones de frecuencia o canal (no pidas unidades días/semanas/meses ni "formato cerrado vs numérico").
+- Pedir "granularidad" o ejemplos de opciones cuando las opciones ya están en el cuestionario.
+- Preguntas tipo comentario.
+
+Ejemplos que NO son ambigüedad (no emitir issue):
+- "En general, ¿dónde sueles realizar tus compras de…?" [cerrada_unica] — el tipo ya define selección única.
+- "En general, ¿Cada cuánto realizas esas compras…?" [cerrada_unica con opciones de frecuencia] — las opciones definen la escala.
 
 Reglas:
 - Devolvé { "issues": [{ "pregunta_id": "<id>", "descripcion": "<qué falta o qué se podría aclarar>" }] }.
@@ -259,7 +300,9 @@ async function checkWrongQuestionType(
     })
     .join("\n");
 
-  const system = `Sos un analista de investigación de mercado. Detectás cuándo una pregunta tiene asignado un TIPO INCORRECTO en relación a lo que pide su texto. Ejemplos:
+  const system = `${STRICTNESS_RULES}
+
+Sos un analista de investigación de mercado. Detectás cuándo una pregunta tiene asignado un TIPO INCORRECTO en relación a lo que pide su texto. Ejemplos:
 - El texto pide elegir UNA sola opción pero está marcada como cerrada_multiple.
 - El texto pide marcar TODAS las que correspondan pero está como cerrada_unica.
 - El texto sugiere una respuesta abierta numérica pero está como abierta_texto.
@@ -271,8 +314,9 @@ Tipos válidos: cerrada_unica, cerrada_multiple, escala, matriz, abierta_texto, 
 
 Reglas:
 - Devolvé { "issues": [{ "pregunta_id": "<id>", "descripcion": "<motivo + tipo sugerido>" }] }.
-- Una issue por pregunta con tipo dudoso.
-- Si los tipos son consistentes con el texto, devolvé { "issues": [] }.
+- Una issue por pregunta con tipo claramente incorrecto.
+- Si el tipo es consistente con el texto (aunque haya matices), devolvé { "issues": [] }.
+- NUNCA emitas una issue que diga que el tipo es correcto o que no hay cambio.
 - Sólo JSON, sin markdown.`;
 
   const user = `Preguntas:\n${lista}`;
@@ -301,15 +345,18 @@ async function checkNonMECEOptions(
     )
     .join("\n");
 
-  const system = `Sos un analista de investigación de mercado. Detectás OPCIONES NO MECE en preguntas cerradas de respuesta única (cerrada_unica):
+  const system = `${STRICTNESS_RULES}
+
+Sos un analista de investigación de mercado. Detectás OPCIONES NO MECE en preguntas cerradas de respuesta única (cerrada_unica):
 - Opciones que SE SOLAPAN (no son mutuamente excluyentes; ej. "18-25" y "20-30" en una pregunta de edad).
 - Categorías que NO SON EXHAUSTIVAS y deberían incluir un "Otro" o "Ninguna" obvio.
 - Opciones de distinto nivel de abstracción mezcladas (ej. tres marcas específicas + "Cualquier otra").
 
 Reglas:
 - Devolvé { "issues": [{ "pregunta_id": "<id>", "descripcion": "<qué problema MECE tiene>" }] }.
-- Una issue por pregunta. Si no hay problemas, devolvé { "issues": [] }.
+- Una issue por pregunta. Si no hay problemas reales, devolvé { "issues": [] }.
 - NO marques como problema una pregunta que claramente no necesita exhaustividad (ej. una pregunta de marca preferida puede no incluir todas las marcas).
+- NUNCA emitas una issue que concluya "no issue MECE", "polaridad intencional" o similar — si no hay problema, no incluyas la pregunta.
 - Sólo JSON, sin markdown.`;
 
   const user = `Preguntas cerrada_unica:\n${lista}`;
@@ -401,19 +448,116 @@ function parseIssuesResponse(
   for (const item of issuesRaw) {
     if (!isRecord(item)) continue;
     const desc = asString(item.descripcion).trim();
-    if (!desc) continue;
+    if (!desc || isSelfCancellingIssueDescription(desc)) continue;
     const pidRaw = asString(item.pregunta_id).trim();
     const severity = parseSeverity(asString(item.severidad)) ?? defaultSeverity;
-    out.push({
-      // Si la IA referencia un id desconocido, conservamos la issue como global
-      // (pregunta_id: null) en lugar de descartarla.
+    const issue: QCIssue = {
       pregunta_id: pidRaw && validIds.has(pidRaw) ? pidRaw : null,
       severidad: severity,
       categoria: defaultCategory,
       descripcion: desc,
-    });
+    };
+    if (isPedanticAiIssueDescription(issue.descripcion)) continue;
+    out.push(issue);
   }
   return out;
+}
+
+/**
+ * Post-filtro con contexto del cuestionario: descarta issues estilísticas que
+ * la IA suele inventar pese a las reglas del prompt (mayúsculas, "En general",
+ * granularidad, tipo ya definido, opciones de frecuencia, etc.).
+ */
+export function filterPedanticAiIssues(
+  questionnaire: Questionnaire,
+  issues: QCIssue[]
+): QCIssue[] {
+  const byId = new Map(questionnaire.preguntas.map((p) => [p.id, p]));
+  return issues.filter((issue) => {
+    if (isPedanticAiIssueDescription(issue.descripcion)) return false;
+    const question = issue.pregunta_id
+      ? byId.get(issue.pregunta_id)
+      : undefined;
+    return !isPedanticAiIssueForQuestion(issue, question);
+  });
+}
+
+/** Patrones en la descripción que por sí solos indican ruido estilístico. */
+function isPedanticAiIssueDescription(desc: string): boolean {
+  const d = desc.toLowerCase();
+  return (
+    /aunque las reglas/.test(d) ||
+    /convenciones tipográficas/.test(d) ||
+    /no marcar convenciones/.test(d) ||
+    /mayúscul/.test(d) ||
+    /\buppercase\b/.test(d) ||
+    /tipográfic/.test(d) ||
+    /enfatiz(ar|ando).*(producto|categoría)/.test(d) ||
+    /estilo normalizado/.test(d) ||
+    /doble redacción/.test(d) ||
+    /mezcla de.*en general/.test(d) ||
+    /en general.*(ambig|confus)/.test(d) ||
+    /(ambig|confus).*en general/.test(d) ||
+    /nivel de granularidad/.test(d) ||
+    /tipo de tienda vs canal/.test(d) ||
+    /granularidad/.test(d)
+  );
+}
+
+/** Filtros que requieren conocer el tipo/opciones de la pregunta. */
+function isPedanticAiIssueForQuestion(
+  issue: QCIssue,
+  question?: Question
+): boolean {
+  if (!question) return false;
+  const d = issue.descripcion.toLowerCase();
+
+  const closedType =
+    question.tipo === "cerrada_unica" ||
+    question.tipo === "cerrada_multiple" ||
+    question.tipo === "escala";
+
+  if (
+    closedType &&
+    /(única o múltiple|seleccionar múltiples|marcar varias|múltiples lugares|permite seleccionar|se permite seleccionar)/.test(
+      d
+    )
+  ) {
+    return true;
+  }
+
+  const hasOptions = question.opciones.length >= 2;
+  const frequencyOptions = question.opciones.some((o) =>
+    /d[ií]a|seman|mes|nunca|siempre|frecuen|a menudo|rara vez|ocasi/i.test(
+      o.texto
+    )
+  );
+
+  if (
+    hasOptions &&
+    /(unidades esperadas|d[ií]as,\s*semanas,\s*meses|formato de respuesta|opción cerrada o un n[uú]mero|define las unidades)/.test(
+      d
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    frequencyOptions &&
+    /(unidades|formato de respuesta|cada cuánto)/.test(d) &&
+    issue.categoria === "wording"
+  ) {
+    return true;
+  }
+
+  if (
+    hasOptions &&
+    /(ejemplos de opciones|indicar si es)/.test(d)
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -438,6 +582,22 @@ function parseSeverity(v: string): IssueSeverity | null {
   if (norm === "advertencia" || norm === "warning") return "advertencia";
   if (norm === "sugerencia" || norm === "suggestion") return "sugerencia";
   return null;
+}
+
+/** Descarta issues cuya descripción concluye que no hay problema. */
+function isSelfCancellingIssueDescription(desc: string): boolean {
+  const d = desc.toLowerCase();
+  return (
+    /ning[úu]n cambio/i.test(d) ||
+    /\bno issue\b/i.test(d) ||
+    /sin cambios?/i.test(d) ||
+    /no requiere cambio/i.test(d) ||
+    /es (correcto|intencional)/i.test(d) ||
+    /polaridad intencional/i.test(d) ||
+    /no (hay )?(ning[úu]n )?problema/i.test(d) ||
+    /tipo sugerido:\s*\w+\s*\(\s*ning[úu]n cambio/i.test(d) ||
+    /correcto tipo sugerido.*ning[úu]n cambio/i.test(d)
+  );
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {

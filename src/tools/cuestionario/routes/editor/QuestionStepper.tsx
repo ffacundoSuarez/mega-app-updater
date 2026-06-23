@@ -4,6 +4,7 @@
 // scrollear. Incluye un botón "+ pregunta" al final y atajos prev/next.
 
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +32,16 @@ export function QuestionStepper({
   disabled,
 }: QuestionStepperProps) {
   const safeActive = Math.min(Math.max(0, active), items.length - 1);
+  const activeRef = useRef<HTMLButtonElement | null>(null);
+
+  // Mantener el círculo activo visible al navegar con flechas o clic.
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({
+      inline: "center",
+      block: "nearest",
+      behavior: "smooth",
+    });
+  }, [safeActive, items.length]);
 
   return (
     <div className="rounded-xl border border-border bg-card p-3">
@@ -56,6 +67,7 @@ export function QuestionStepper({
         {items.map((item, i) => (
           <StepCircle
             key={`${item.code}-${i}`}
+            ref={i === safeActive ? activeRef : undefined}
             index={i}
             code={item.code}
             status={item.status}
@@ -125,11 +137,20 @@ interface StepCircleProps {
   status: StepStatus;
   active: boolean;
   onClick: () => void;
+  ref?: React.Ref<HTMLButtonElement>;
 }
 
-function StepCircle({ index, code, status, active, onClick }: StepCircleProps) {
+function StepCircle({
+  index,
+  code,
+  status,
+  active,
+  onClick,
+  ref,
+}: StepCircleProps) {
   return (
     <button
+      ref={ref}
       type="button"
       role="tab"
       aria-selected={active}

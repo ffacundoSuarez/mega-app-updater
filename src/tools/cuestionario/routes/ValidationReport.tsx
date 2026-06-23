@@ -16,6 +16,7 @@ import {
   Ban,
   CheckCircle2,
   Cloud,
+  Download,
   ExternalLink,
   Info,
   Loader2,
@@ -35,7 +36,13 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
+import {
+  flattenReportIssues,
+  makeIssueKey,
+  saveCommentsDocx,
+} from "@/lib/cuestionario/comments-export";
 import {
   getLatestValidation,
   getQuestionnaire,
@@ -43,6 +50,7 @@ import {
 } from "@/lib/cuestionario/questionnaire-repository";
 import {
   runValidation,
+  sanitizeValidationReport,
   type ValidationProgressEvent,
 } from "@/lib/cuestionario/validation-job";
 import {
@@ -58,6 +66,8 @@ import type {
   IssueCategory,
   IssueSeverity,
   QCIssue,
+  Question,
+  Questionnaire,
   QuestionnaireRow,
   QuestionnaireValidationReport,
 } from "@/lib/cuestionario/types";
@@ -447,13 +457,17 @@ export function ValidationReport({
           validating={validating}
         />
       ) : (
-        <ReportBody
-          report={report}
-          severityFilter={severityFilter}
-          onToggleSeverity={(s) => toggleInSet(setSeverityFilter, s)}
-          categoryFilter={categoryFilter}
-          onToggleCategory={(c) => toggleInSet(setCategoryFilter, c)}
-        />
+        row.questionnaire_json && (
+          <ReportBody
+            report={report}
+            questionnaire={row.questionnaire_json}
+            nombre={row.nombre}
+            severityFilter={severityFilter}
+            onToggleSeverity={(s) => toggleInSet(setSeverityFilter, s)}
+            categoryFilter={categoryFilter}
+            onToggleCategory={(c) => toggleInSet(setCategoryFilter, c)}
+          />
+        )
       )}
     </div>
   );
@@ -971,8 +985,20 @@ function EmptyState({
 // Cuerpo del reporte (resumen + filtros + groups)
 // ---------------------------------------------------------------------------
 
+/** Issue con clave estable para selección/export. */
+type KeyedIssue = { issue: QCIssue; key: string };
+
+type FilteredQuestionGroup = {
+  pregunta_id: string;
+  pregunta_numero: number;
+  pregunta_texto: string;
+  issues: KeyedIssue[];
+};
+
 interface ReportBodyProps {
   report: QuestionnaireValidationReport;
+  questionnaire: Questionnaire;
+  nombre: string;
   severityFilter: Set<IssueSeverity>;
   onToggleSeverity: (s: IssueSeverity) => void;
   categoryFilter: Set<IssueCategory>;
@@ -981,25 +1007,84 @@ interface ReportBodyProps {
 
 function ReportBody({
   report,
+  questionnaire,
+  nombre,
   severityFilter,
   onToggleSeverity,
   categoryFilter,
   onToggleCategory,
 }: ReportBodyProps) {
-  const validatedAt = useMemo(
-    () => new Date(report.validated_at).toLocaleString(),
-    [report.validated_at]
+  const displayReport = useMemo(
+    () => sanitizeValidationReport(questionnaire, report),
+    [questionnaire, report]
   );
+
+  const validatedAt = useMemo(
+    () => new Date(displayReport.validated_at).toLocaleString(),
+    [displayReport.validated_at]
+  );
+
+  const flatItems = useMemo(
+    () => flattenReportIssues(displayReport),
+    [displayReport]
+  );
+
+  const [includedKeys, setIncludedKeys] = useState<Set<string>>(
+    () => new Set(flatItems.map((i) => i.key))
+  );
+  const [focusQuestionId, setFocusQuestionId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    setIncludedKeys(new Set(flatItems.map((i) => i.key)));
+    setFocusQuestionId(null);
+    setExportMsg(null);
+  }, [displayReport.validated_at, flatItems]);
+
+  const toggleIncluded = useCallback((key: string, included: boolean) => {
+    setIncludedKeys((cur) => {
+      const next = new Set(cur);
+      if (included) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+
+  const handleExport = useCallback(async () => {
+    const selected = flatItems.filter((i) => includedKeys.has(i.key));
+    if (selected.length === 0) {
+      setExportMsg("Seleccioná al menos un comentario para exportar.");
+      return;
+    }
+    setExporting(true);
+    setExportMsg(null);
+    try {
+      const stem = nombre.replace(/[^\w\s-]/g, "").trim() || "cuestionario";
+      const path = await saveCommentsDocx(
+        questionnaire,
+        selected,
+        `${stem}-comentarios.docx`
+      );
+      setExportMsg(
+        path ? `Exportado: ${path}` : "Exportación cancelada."
+      );
+    } catch (err) {
+      setExportMsg(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExporting(false);
+    }
+  }, [flatItems, includedKeys, nombre, questionnaire]);
 
   // Determinar qué categorías están presentes en el reporte para mostrar
   // sólo esos filtros (evita ofrecer "Tipos" si no hay ningún issue de tipos).
   const presentCategories = useMemo(() => {
     const set = new Set<IssueCategory>();
-    for (const i of report.issues_globales) set.add(i.categoria);
-    for (const g of report.issues_por_pregunta)
+    for (const i of displayReport.issues_globales) set.add(i.categoria);
+    for (const g of displayReport.issues_por_pregunta)
       for (const i of g.issues) set.add(i.categoria);
     return ALL_CATEGORIES.filter((c) => set.has(c));
-  }, [report]);
+  }, [displayReport]);
 
   const filterIssue = useCallback(
     (i: QCIssue) =>
@@ -1007,19 +1092,76 @@ function ReportBody({
     [severityFilter, categoryFilter]
   );
 
-  const filteredGlobales = report.issues_globales.filter(filterIssue);
-  const filteredGroups = report.issues_por_pregunta
-    .map((g) => ({ ...g, issues: g.issues.filter(filterIssue) }))
+  const filteredGlobales = displayReport.issues_globales
+    .map((issue, i) => ({
+      issue,
+      key: makeIssueKey("global", "all", i, issue),
+    }))
+    .filter(({ issue }) => filterIssue(issue));
+
+  const filteredGroups: FilteredQuestionGroup[] = displayReport.issues_por_pregunta
+    .map((g) => ({
+      pregunta_id: g.pregunta_id,
+      pregunta_numero: g.pregunta_numero,
+      pregunta_texto: g.pregunta_texto,
+      issues: g.issues
+        .map((issue, i) => ({
+          issue,
+          key: makeIssueKey("question", g.pregunta_id, i, issue),
+        }))
+        .filter(({ issue }) => filterIssue(issue)),
+    }))
     .filter((g) => g.issues.length > 0);
 
-  const allClean = report.resumen.total === 0;
+  const allClean = displayReport.resumen.total === 0;
   const someHidden =
     !allClean &&
     filteredGlobales.length + filteredGroups.reduce((acc, g) => acc + g.issues.length, 0) === 0;
 
+  const focusQuestion = focusQuestionId
+    ? questionnaire.preguntas.find((p) => p.id === focusQuestionId) ?? null
+    : null;
+  const focusIssues = focusQuestionId
+    ? filteredGroups.find((g) => g.pregunta_id === focusQuestionId)?.issues.map(
+        (x) => x.issue
+      ) ?? []
+    : [];
+
+  const includedCount = flatItems.filter((i) => includedKeys.has(i.key)).length;
+
   return (
     <div className="flex flex-col gap-4">
-      <Summary report={report} validatedAt={validatedAt} />
+      <Summary report={displayReport} validatedAt={validatedAt} />
+
+      {!allClean && (
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-6">
+            <div className="text-sm text-muted-foreground">
+              {includedCount} de {flatItems.length} comentarios incluidos en
+              el export
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled={exporting || includedCount === 0}
+              onClick={() => void handleExport()}
+            >
+              {exporting ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Download className="size-4" />
+              )}
+              Exportar comentarios (.docx)
+            </Button>
+          </CardContent>
+          {exportMsg && (
+            <CardContent className="pt-0 text-xs text-muted-foreground">
+              {exportMsg}
+            </CardContent>
+          )}
+        </Card>
+      )}
 
       {!allClean && (
         <Filters
@@ -1050,12 +1192,45 @@ function ReportBody({
         </Card>
       )}
 
-      {filteredGlobales.length > 0 && (
-        <GlobalIssues issues={filteredGlobales} />
-      )}
-
-      {filteredGroups.length > 0 && (
-        <PerQuestionIssues groups={filteredGroups} />
+      {(filteredGlobales.length > 0 || filteredGroups.length > 0) && (
+        <div className="grid gap-4 lg:grid-cols-[1fr_minmax(280px,340px)] lg:items-start">
+          <Card className="flex max-h-[calc(100vh-14rem)] flex-col overflow-hidden">
+            <CardHeader className="shrink-0 border-b pb-3">
+              <CardTitle className="text-base">Comentarios</CardTitle>
+              <CardDescription>
+                Revisá y seleccioná qué incluir en el export. Usá la rueda
+                del mouse acá sin bajar toda la página.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex-1 overflow-y-auto overscroll-contain p-4 [scrollbar-width:thin]">
+              <div className="flex flex-col gap-4">
+                {filteredGlobales.length > 0 && (
+                  <GlobalIssues
+                    items={filteredGlobales}
+                    includedKeys={includedKeys}
+                    onToggleIncluded={toggleIncluded}
+                    onFocusQuestion={setFocusQuestionId}
+                  />
+                )}
+                {filteredGroups.length > 0 && (
+                  <PerQuestionIssues
+                    groups={filteredGroups}
+                    includedKeys={includedKeys}
+                    onToggleIncluded={toggleIncluded}
+                    focusQuestionId={focusQuestionId}
+                    onFocusQuestion={setFocusQuestionId}
+                  />
+                )}
+              </div>
+            </CardContent>
+          </Card>
+          <div className="max-h-[calc(100vh-14rem)] overflow-y-auto overscroll-contain [scrollbar-width:thin] lg:sticky lg:top-4">
+            <QuestionContextPanel
+              question={focusQuestion}
+              issues={focusIssues}
+            />
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1215,7 +1390,17 @@ function severityColor(s: IssueSeverity): string {
 // Listas de issues
 // ---------------------------------------------------------------------------
 
-function GlobalIssues({ issues }: { issues: QCIssue[] }) {
+function GlobalIssues({
+  items,
+  includedKeys,
+  onToggleIncluded,
+  onFocusQuestion,
+}: {
+  items: Array<{ issue: QCIssue; key: string }>;
+  includedKeys: Set<string>;
+  onToggleIncluded: (key: string, included: boolean) => void;
+  onFocusQuestion: (id: string | null) => void;
+}) {
   return (
     <Card>
       <CardHeader>
@@ -1226,8 +1411,15 @@ function GlobalIssues({ issues }: { issues: QCIssue[] }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
-        {issues.map((issue, i) => (
-          <IssueRow key={i} issue={issue} />
+        {items.map(({ issue, key }) => (
+          <IssueRow
+            key={key}
+            issue={issue}
+            issueKey={key}
+            included={includedKeys.has(key)}
+            onToggleIncluded={onToggleIncluded}
+            onSelect={() => onFocusQuestion(null)}
+          />
         ))}
       </CardContent>
     </Card>
@@ -1236,8 +1428,16 @@ function GlobalIssues({ issues }: { issues: QCIssue[] }) {
 
 function PerQuestionIssues({
   groups,
+  includedKeys,
+  onToggleIncluded,
+  focusQuestionId,
+  onFocusQuestion,
 }: {
-  groups: QuestionnaireValidationReport["issues_por_pregunta"];
+  groups: FilteredQuestionGroup[];
+  includedKeys: Set<string>;
+  onToggleIncluded: (key: string, included: boolean) => void;
+  focusQuestionId: string | null;
+  onFocusQuestion: (id: string) => void;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -1245,8 +1445,16 @@ function PerQuestionIssues({
         Por pregunta
       </h3>
       {groups.map((g) => (
-        <Card key={g.pregunta_id}>
-          <CardHeader>
+        <Card
+          key={g.pregunta_id}
+          className={cn(
+            focusQuestionId === g.pregunta_id && "ring-2 ring-primary/30"
+          )}
+        >
+          <CardHeader
+            className="cursor-pointer"
+            onClick={() => onFocusQuestion(g.pregunta_id)}
+          >
             <CardTitle className="text-sm">
               <span className="font-mono text-xs text-muted-foreground">
                 {g.pregunta_id}
@@ -1258,8 +1466,15 @@ function PerQuestionIssues({
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-2">
-            {g.issues.map((issue, i) => (
-              <IssueRow key={i} issue={issue} />
+            {g.issues.map(({ issue, key }) => (
+              <IssueRow
+                key={key}
+                issue={issue}
+                issueKey={key}
+                included={includedKeys.has(key)}
+                onToggleIncluded={onToggleIncluded}
+                onSelect={() => onFocusQuestion(g.pregunta_id)}
+              />
             ))}
           </CardContent>
         </Card>
@@ -1268,9 +1483,39 @@ function PerQuestionIssues({
   );
 }
 
-function IssueRow({ issue }: { issue: QCIssue }) {
+function IssueRow({
+  issue,
+  issueKey,
+  included,
+  onToggleIncluded,
+  onSelect,
+}: {
+  issue: QCIssue;
+  issueKey: string;
+  included: boolean;
+  onToggleIncluded: (key: string, included: boolean) => void;
+  onSelect: () => void;
+}) {
   return (
-    <div className="flex items-start gap-3 rounded-md border border-border/60 bg-muted/20 p-3">
+    <div
+      className="flex items-start gap-3 rounded-md border border-border/60 bg-muted/20 p-3"
+      onClick={onSelect}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+    >
+      <Checkbox
+        checked={included}
+        onCheckedChange={(v) => onToggleIncluded(issueKey, v === true)}
+        onClick={(e) => e.stopPropagation()}
+        aria-label="Incluir en export"
+        className="mt-0.5"
+      />
       <SeverityIcon severity={issue.severidad} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
@@ -1282,6 +1527,98 @@ function IssueRow({ issue }: { issue: QCIssue }) {
         <p className="text-sm leading-snug">{issue.descripcion}</p>
       </div>
     </div>
+  );
+}
+
+/** Panel lateral: contexto de la pregunta seleccionada + sus issues. */
+function QuestionContextPanel({
+  question,
+  issues,
+}: {
+  question: Question | null;
+  issues: QCIssue[];
+}) {
+  return (
+    <Card className="sticky top-4 h-fit">
+      <CardHeader>
+        <CardTitle className="text-base">Contexto</CardTitle>
+        <CardDescription>
+          {question
+            ? "Enunciado y opciones de la pregunta seleccionada."
+            : "Seleccioná un comentario para ver la pregunta."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3 text-sm">
+        {!question ? (
+          <p className="text-xs text-muted-foreground">
+            Tocá un issue o una tarjeta de pregunta para ver el detalle acá.
+          </p>
+        ) : (
+          <>
+            <div>
+              <span className="font-mono text-xs text-muted-foreground">
+                {question.id}
+              </span>
+              <p className="mt-1 font-medium leading-snug">{question.texto}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Tipo: {question.tipo}
+                {question.condicion.trim()
+                  ? ` · Condición: ${question.condicion}`
+                  : ""}
+              </p>
+            </div>
+            {question.opciones.length > 0 && (
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Opciones
+                </p>
+                <ul className="flex flex-col gap-1 text-xs">
+                  {question.opciones.map((o) => (
+                    <li key={o.codigo} className="rounded border bg-muted/30 px-2 py-1">
+                      <span className="font-mono text-muted-foreground">
+                        {o.codigo}.
+                      </span>{" "}
+                      {o.texto}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {question.enunciados && question.enunciados.length > 0 && (
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Filas (matriz)
+                </p>
+                <ul className="flex flex-col gap-1 text-xs">
+                  {question.enunciados.map((e, i) => (
+                    <li key={i} className="rounded border bg-muted/30 px-2 py-1">
+                      {e.texto}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {(question.min !== undefined || question.max !== undefined) && (
+              <p className="text-xs text-muted-foreground">
+                Rango: {question.min ?? "?"} – {question.max ?? "?"}
+              </p>
+            )}
+            {issues.length > 0 && (
+              <div>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Issues en esta pregunta ({issues.length})
+                </p>
+                <ul className="flex flex-col gap-1 text-xs text-muted-foreground">
+                  {issues.map((issue, i) => (
+                    <li key={i}>· {issue.descripcion}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
