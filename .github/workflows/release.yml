@@ -53,6 +53,30 @@ jobs:
       - name: Install npm deps
         run: npm ci
 
+      - name: Verify version files in sync
+        shell: pwsh
+        run: |
+          $pkg = (Get-Content package.json | ConvertFrom-Json).version
+          $tauri = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $cargo = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          $app = (Select-String -Path src/App.tsx -Pattern 'APP_VERSION = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          if ($pkg -ne $tauri -or $pkg -ne $cargo -or $pkg -ne $app) {
+            Write-Error "Version mismatch: package=$pkg tauri=$tauri cargo=$cargo app=$app"
+            exit 1
+          }
+          Write-Host "Version sync OK: $pkg"
+
+      - name: Verify tag matches package version
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME -replace '^v',''
+          $pkg = (Get-Content package.json | ConvertFrom-Json).version
+          if ($tag -ne $pkg) {
+            Write-Error "El tag v$tag no coincide con package.json ($pkg)"
+            exit 1
+          }
+          Write-Host "Tag v$tag coincide con package.json"
+
       # tauri-action hace build, firma los instaladores, genera latest.json y
       # crea el GitHub Release con todo adjunto. Usa GITHUB_TOKEN automático.
       - name: Build and publish release

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -73,7 +74,26 @@ export function EditJob({ jobId, onBack, onSaved }: EditJobProps) {
     Array<{ id: string; question: string }>
   >([]);
 
-  const bookInputRef = useRef<HTMLInputElement>(null);
+  const pickCategoryBookExcel = async () => {
+    const selected = await open({
+      title: "Seleccioná el libro de códigos",
+      multiple: false,
+      filters: [{ name: "Excel", extensions: ["xlsx", "xls", "csv"] }],
+    });
+    if (typeof selected !== "string") return;
+    try {
+      const { categories: imported, errors } =
+        await parseCategoryBookExcel(selected);
+      if (imported.length) setCategories(imported);
+      if (errors.length) {
+        toast.warning(
+          `Importado con advertencias: ${errors.slice(0, 3).join(" · ")}`
+        );
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -313,34 +333,11 @@ export function EditJob({ jobId, onBack, onSaved }: EditJobProps) {
               Carga un archivo Excel con tus categorías predefinidas, o créalas
               manualmente abajo.
             </p>
-            <input
-              ref={bookInputRef}
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                try {
-                  const { categories: imported, errors } =
-                    await parseCategoryBookExcel(file);
-                  if (imported.length) setCategories(imported);
-                  if (errors.length) {
-                    toast.warning(
-                      `Importado con advertencias: ${errors.slice(0, 3).join(" · ")}`
-                    );
-                  }
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : String(err));
-                }
-                e.target.value = "";
-              }}
-            />
             <Button
               type="button"
               variant="outline"
               className="mt-2 gap-2"
-              onClick={() => bookInputRef.current?.click()}
+              onClick={() => void pickCategoryBookExcel()}
             >
               <Upload className="size-4" />
               Cargar archivo

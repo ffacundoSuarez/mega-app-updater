@@ -568,7 +568,9 @@ def run_brand_audit():
             usar_summary = getattr(config, "USE_AI_SUMMARY", False)
             if usar_summary:
                 print("\n📊 2. Redactando el Executive Summary Global...")
-                texto_summary = generador_ia.redactar_executive_summary(MI_API_KEY, mochila_ia)
+                texto_summary = generador_ia.redactar_executive_summary(
+                    MI_API_KEY, mochila_ia, diccionario_titulos or None
+                )
                 
                 if texto_summary:
                     print("✅ Executive Summary generado.")

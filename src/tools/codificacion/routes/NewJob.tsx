@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   ArrowLeft,
   Check,
@@ -31,6 +32,7 @@ import {
   parseResponsesExcel,
   type PendingQuestionProSelection,
 } from "@/lib/codificacion/excel-upload";
+import { notifyError, notifyWarning } from "@/lib/notify";
 import type {
   CodificacionProject,
   ExcelUploadData,
@@ -71,8 +73,9 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
   const [projectJobs, setProjectJobs] = useState<Array<{ id: string; question: string }>>([]);
   const [submitting, setSubmitting] = useState(false);
 
-  const excelInputRef = useRef<HTMLInputElement>(null);
-  const bookInputRef = useRef<HTMLInputElement>(null);
+  const excelFilters = [
+    { name: "Excel", extensions: ["xlsx", "xls", "csv"] as string[] },
+  ];
 
   useEffect(() => {
     void listProjects().then(setProjects);
@@ -111,7 +114,7 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
           .sort((a, b) => a.id - b.id)
       );
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : String(err));
+      notifyError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -128,21 +131,54 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
     resetExcel();
   };
 
-  const handleFile = async (file: File) => {
+  const handleResponsesPath = async (path: string) => {
     try {
-      const result = await parseResponsesExcel(file, platform);
+      const result = await parseResponsesExcel(path, platform);
       if (result.kind === "ready") {
         setExcelData(result.data);
         setPendingQP(null);
       } else {
-        // QuestionPro: el usuario debe elegir la columna de respuesta.
         setPendingQP(result.pending);
         setExcelData(null);
         setSelectedResponseCol(null);
         setColumnSearch("");
       }
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : String(err));
+      notifyError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const pickResponsesExcel = async () => {
+    const selected = await open({
+      title: "Seleccioná el Excel de respuestas",
+      multiple: false,
+      filters: excelFilters,
+    });
+    if (typeof selected === "string") {
+      await handleResponsesPath(selected);
+    }
+  };
+
+  const pickCategoryBookExcel = async () => {
+    const selected = await open({
+      title: "Seleccioná el libro de códigos",
+      multiple: false,
+      filters: excelFilters,
+    });
+    if (typeof selected !== "string") return;
+    try {
+      const { categories: imported, errors } =
+        await parseCategoryBookExcel(selected);
+      if (imported.length) {
+        setCategories(imported);
+      }
+      if (errors.length) {
+        notifyWarning(
+          `Importado con advertencias: ${errors.slice(0, 5).join(" · ")}`
+        );
+      }
+    } catch (err) {
+      notifyError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -154,7 +190,7 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
 
   const handleSubmit = async () => {
     if (!projectId || !question.trim() || !excelData || categories.length < 2) {
-      window.alert("Completá proyecto, pregunta, Excel y al menos 2 categorías");
+      notifyWarning("Completá proyecto, pregunta, Excel y al menos 2 categorías");
       return;
     }
     setSubmitting(true);
@@ -187,7 +223,7 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
       await createResponsesFromExcel(job.id, processed);
       onCreated(job.id);
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : String(err));
+      notifyError(err instanceof Error ? err.message : String(err));
     } finally {
       setSubmitting(false);
     }
@@ -298,18 +334,6 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
 
             <div>
               <Label>Excel de respuestas *</Label>
-              <input
-                ref={excelInputRef}
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  await handleFile(file);
-                  e.target.value = "";
-                }}
-              />
               {excelData ? (
                 <div className="mt-2 flex items-center justify-between rounded-lg border bg-muted/30 p-3">
                   <div className="flex items-center gap-2">
@@ -344,7 +368,7 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
                   type="button"
                   variant="outline"
                   className="mt-2 gap-2"
-                  onClick={() => excelInputRef.current?.click()}
+                  onClick={() => void pickResponsesExcel()}
                 >
                   <Upload className="size-4" />
                   Subir archivo
@@ -390,36 +414,11 @@ export function NewJob({ initialProjectId, onCancel, onCreated }: NewJobProps) {
 
             <div>
               <Label>Cargar libro desde Excel</Label>
-              <input
-                ref={bookInputRef}
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                className="hidden"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  try {
-                    const { categories: imported, errors } =
-                      await parseCategoryBookExcel(file);
-                    if (imported.length) {
-                      setCategories(imported);
-                    }
-                    if (errors.length) {
-                      window.alert(
-                        `Importado con advertencias:\n${errors.slice(0, 5).join("\n")}`
-                      );
-                    }
-                  } catch (err) {
-                    window.alert(err instanceof Error ? err.message : String(err));
-                  }
-                  e.target.value = "";
-                }}
-              />
               <Button
                 type="button"
                 variant="outline"
                 className="mt-2 gap-2"
-                onClick={() => bookInputRef.current?.click()}
+                onClick={() => void pickCategoryBookExcel()}
               >
                 <Upload className="size-4" />
                 Cargar libro

@@ -18,6 +18,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { notifyError } from "@/lib/notify";
 import {
   deleteProject,
   listProjects,
@@ -66,7 +68,7 @@ export function ProjectList({ onCreateNew, onOpenProject }: ProjectListProps) {
         await deleteProject(project.id);
         await load();
       } catch (err) {
-        window.alert(
+        notifyError(
           `No se pudo eliminar el proyecto: ${
             err instanceof Error ? err.message : String(err)
           }`
@@ -94,10 +96,16 @@ export function ProjectList({ onCreateNew, onOpenProject }: ProjectListProps) {
 
   if (loading) {
     return (
-      <div className="flex min-h-[200px] items-center justify-center">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" />
-          Cargando proyectos…
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-4">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-9 w-32" />
+        </div>
+        <Skeleton className="h-10 w-full max-w-sm" />
+        <div className="flex flex-col gap-2">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-20 rounded-xl" />
+          ))}
         </div>
       </div>
     );
@@ -163,10 +171,11 @@ export function ProjectList({ onCreateNew, onOpenProject }: ProjectListProps) {
         </Card>
       ) : (
         <ul className="flex flex-col gap-2">
-          {filtered.map((p) => (
+          {filtered.map((p, i) => (
             <li
               key={p.id}
-              className="rounded-lg border bg-muted/20 p-4 transition-colors hover:bg-muted/40"
+              className="stagger-item rounded-lg border bg-muted/20 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted/40 hover:shadow-sm"
+              style={{ animationDelay: `${i * 50}ms` }}
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">

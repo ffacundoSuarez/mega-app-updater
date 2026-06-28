@@ -31,6 +31,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { notifyError } from "@/lib/notify";
 import { getLimpiadorDebugPrompts } from "@/lib/settings";
 import { getProject } from "@/lib/cleaning/projects-repository";
 import {
@@ -230,7 +231,7 @@ export function ProjectDetail({
         await deleteVersion(version.id);
         await load();
       } catch (err) {
-        window.alert(
+        notifyError(
           `No se pudo eliminar la versión: ${
             err instanceof Error ? err.message : String(err)
           }`

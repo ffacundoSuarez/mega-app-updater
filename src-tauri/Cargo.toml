@@ -26,7 +26,12 @@ tauri-plugin-fs = "2"
 tauri-plugin-store = "2"
 chrono = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-# Lector de Excel en streaming. Necesario para abrir el export crudo de QP
-# (hoja "Datos sin procesar") que rompe el límite de string de V8 en el WebView,
-# y para parsear/insertar archivos grandes sin saturar la RAM del renderer.
 calamine = "0.26"
+tokio = { version = "1", features = ["time"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
+panic = "abort"
+opt-level = "s"

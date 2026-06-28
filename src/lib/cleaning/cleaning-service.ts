@@ -266,14 +266,26 @@ Ejemplo J — señal automática descartada por contexto → NO flaguear
  * `SEÑAL AUTOMÁTICA (...)` y el prompt instruye al modelo a confirmarla o
  * descartarla con criterio.
  */
-export function buildPrompt(
-  rows: CleaningRow[],
-  schema: VersionSchema,
-  rules: CleaningRule[],
-  deterministicHints?: Map<string, DeterministicHit>
-): string {
-  const promptColumns = selectPromptColumns(schema);
+/**
+ * Construye el prompt de análisis (en español). Excluye metadata, enriquece
+ * el schema con tipo+opciones de QP y filtra valores vacíos del input.
+ */
+const staticPromptCache = new Map<string, string>();
 
+function promptCacheKey(schema: VersionSchema, rules: CleaningRule[]): string {
+  return `${schema.columns.map((c) => c.id).join(",")}:${rules.map((r) => r.id).join(",")}`;
+}
+
+/** Prefijo estático del prompt (schema + reglas + few-shot). Se cachea por job. */
+function buildStaticPromptPrefix(
+  schema: VersionSchema,
+  rules: CleaningRule[]
+): string {
+  const key = promptCacheKey(schema, rules);
+  const cached = staticPromptCache.get(key);
+  if (cached) return cached;
+
+  const promptColumns = selectPromptColumns(schema);
   const schemaDescription = promptColumns
     .map(describeSchemaColumn)
     .join("\n");
@@ -283,20 +295,7 @@ export function buildPrompt(
       ? rules.map((rule, i) => describeRule(rule, i, schema)).join("\n")
       : "(No hay reglas definidas — usar sólo detección general de calidad.)";
 
-  const rowsData = rows
-    .map((row, i) => {
-      const rowDataStr = serializeRowData(row, promptColumns);
-      const hint = deterministicHints?.get(row.id);
-      const hintLine = hint
-        ? `\n  SEÑAL AUTOMÁTICA (${hint.ruleId}): ${hint.reason}`
-        : "";
-      return `ROW ${i + 1} (row_number: ${row.row_number}, response_id: ${
-        row.response_id ?? "N/A"
-      }):\n${rowDataStr}${hintLine}`;
-    })
-    .join("\n\n");
-
-  return `Sos un analista de calidad de datos revisando respuestas de encuesta para identificar datos potencialmente inválidos.
+  const prefix = `Sos un analista de calidad de datos revisando respuestas de encuesta para identificar datos potencialmente inválidos.
 
 ESQUEMA DE LA ENCUESTA (columnId [tipo]: "pregunta" — opciones si aplica):
 ${schemaDescription}
@@ -334,7 +333,36 @@ REGLAS IMPORTANTES DE INTERPRETACIÓN:
 
 PRIORIDAD: primero verificá las reglas del usuario fila por fila. Recién después, evaluá los patrones generales con criterio conservador (ante la duda, no flaguees).
 
-FILAS A ANALIZAR:
+FILAS A ANALIZAR:`;
+
+  staticPromptCache.set(key, prefix);
+  return prefix;
+}
+
+export function buildPrompt(
+  rows: CleaningRow[],
+  schema: VersionSchema,
+  rules: CleaningRule[],
+  deterministicHints?: Map<string, DeterministicHit>
+): string {
+  const promptColumns = selectPromptColumns(schema);
+
+  const rowsData = rows
+    .map((row, i) => {
+      const rowDataStr = serializeRowData(row, promptColumns);
+      const hint = deterministicHints?.get(row.id);
+      const hintLine = hint
+        ? `\n  SEÑAL AUTOMÁTICA (${hint.ruleId}): ${hint.reason}`
+        : "";
+      return `ROW ${i + 1} (row_number: ${row.row_number}, response_id: ${
+        row.response_id ?? "N/A"
+      }):\n${rowDataStr}${hintLine}`;
+    })
+    .join("\n\n");
+
+  const staticPrefix = buildStaticPromptPrefix(schema, rules);
+
+  return `${staticPrefix}
 ${rowsData}
 
 Para cada fila respondé un objeto JSON. Devolvé un OBJETO JSON con una sola
@@ -624,9 +652,13 @@ function mergeAiResults(
   rows: CleaningRow[],
   parsed: RawAiRowResult[]
 ): AnalyzeResult[] {
+  const parsedByRow = new Map(
+    parsed.map((r) => [r.row_number, r] as const)
+  );
+
   return rows.map((row, index) => {
     const aiResult =
-      parsed.find((r) => r.row_number === row.row_number) ?? parsed[index];
+      parsedByRow.get(row.row_number) ?? parsed[index];
 
     if (!aiResult) {
       return {

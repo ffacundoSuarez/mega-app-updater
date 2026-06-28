@@ -29,6 +29,7 @@
 [CmdletBinding()]
 param(
     [string]$PythonVersion = "3.12",
+    [string]$PinnedReleaseTag = "",
     [switch]$Force
 )
 
@@ -78,10 +79,13 @@ New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
 
 # --- 2. Resolver último release de python-build-standalone ---------------
 if (-not (Test-Path $runtimeDir)) {
-    Write-Step "Consultando último release de python-build-standalone..."
+    Write-Step "Consultando release de python-build-standalone..."
 
-    # Query a GitHub API: buscamos el asset que matchea Python X.Y, x86_64, install_only.
-    $apiUrl   = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
+    if ($PinnedReleaseTag) {
+        $apiUrl = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/tags/$PinnedReleaseTag"
+    } else {
+        $apiUrl = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
+    }
     $headers  = @{ "User-Agent" = "mega-app-updater-bundler" }
     $release  = Invoke-RestMethod -Uri $apiUrl -Headers $headers
 
@@ -134,11 +138,19 @@ Write-Step "Verificando python embebido..."
 $actualVersion = & $pythonExe --version
 Write-Host "  $actualVersion"
 
-# --- 6. Instalar dependencias con pip --------------------------------------
-Write-Step "Instalando dependencias de requirements.txt..."
-# Usamos el pip del propio runtime embebido. No tocamos el Python del host.
-& $pythonExe -m pip install --disable-pip-version-check --no-warn-script-location -r $requirements
-if ($LASTEXITCODE -ne 0) { throw "Falló pip install." }
+# --- 6. Instalar dependencias con pip (omitir si requirements no cambió) ----
+$hashFile = Join-Path $runtimeDir ".requirements.sha256"
+$reqHash = (Get-FileHash $requirements -Algorithm SHA256).Hash
+$skipPip = (Test-Path $hashFile) -and ((Get-Content $hashFile -Raw).Trim() -eq $reqHash)
+
+if ($skipPip -and -not $Force) {
+    Write-Host "requirements.txt sin cambios; omitiendo pip install." -ForegroundColor DarkGray
+} else {
+    Write-Step "Instalando dependencias de requirements.txt..."
+    & $pythonExe -m pip install --disable-pip-version-check --no-warn-script-location -r $requirements
+    if ($LASTEXITCODE -ne 0) { throw "Falló pip install." }
+    Set-Content -Path $hashFile -Value $reqHash -NoNewline
+}
 
 # --- 7. Copiar scripts Python al bundle ------------------------------------
 Write-Step "Copiando python-scripts/ al bundle..."

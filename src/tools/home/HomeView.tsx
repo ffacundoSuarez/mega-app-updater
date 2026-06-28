@@ -59,33 +59,37 @@ interface QuickTool {
   icon: React.ComponentType<{ className?: string }>;
 }
 
-const QUICK_TOOLS_PROYECTOS: QuickTool[] = [
+const QUICK_TOOLS_PROYECTOS: (QuickTool & { accent: string })[] = [
   {
     id: "cuestionario",
     label: "Cuestionarios QPro",
     description: "Validar y publicar cuestionarios.",
     icon: ClipboardCheck,
+    accent: "tool-cuestionario",
   },
   {
     id: "limpiador",
     label: "Limpiador",
     description: "QC de respuestas Qualtrics / QuestionPro.",
     icon: Sparkles,
+    accent: "tool-limpiador",
   },
   {
     id: "codificacion",
     label: "Codificación",
     description: "Clasificación de abiertas con libro de códigos.",
     icon: Tags,
+    accent: "tool-codificacion",
   },
 ];
 
-const QUICK_TOOLS_HERRAMIENTAS: QuickTool[] = [
+const QUICK_TOOLS_HERRAMIENTAS: (QuickTool & { accent: string })[] = [
   {
     id: "brand-audit",
     label: "Brand Audit · YPF",
     description: "Informe PPT + Excel (estudio YPF).",
     icon: BarChart3,
+    accent: "tool-brand-audit",
   },
 ];
 
@@ -189,8 +193,12 @@ export function HomeView({
         <section className="flex flex-col gap-3">
           <h2 className="text-lg font-semibold tracking-tight">En curso</h2>
           <div className="flex flex-col gap-2">
-            {runningJobs.map((job) => (
-              <Card key={job.id}>
+            {runningJobs.map((job, i) => (
+              <Card
+                key={job.id}
+                className="stagger-item border-primary/20"
+                style={{ animationDelay: `${i * 60}ms` }}
+              >
                 <CardContent className="flex items-center gap-3 py-3">
                   <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
                   <div className="min-w-0 flex-1">
@@ -241,8 +249,12 @@ export function HomeView({
           </Card>
         ) : (
           <ul className="flex flex-col gap-2">
-            {recent.map((ev) => (
-              <li key={ev.id}>
+            {recent.map((ev, i) => (
+              <li
+                key={ev.id}
+                className="stagger-item"
+                style={{ animationDelay: `${i * 50}ms` }}
+              >
                 <button
                   type="button"
                   onClick={() => handleActivityClick(ev)}
@@ -304,10 +316,12 @@ export function HomeView({
           Proyectos
         </p>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {QUICK_TOOLS_PROYECTOS.map((tool) => (
+          {QUICK_TOOLS_PROYECTOS.map((tool, i) => (
             <QuickToolCard
               key={tool.id}
               tool={tool}
+              accent={tool.accent}
+              staggerMs={i * 70}
               onOpen={() => onOpenTool(tool.id)}
             />
           ))}
@@ -316,10 +330,12 @@ export function HomeView({
           Herramientas
         </p>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {QUICK_TOOLS_HERRAMIENTAS.map((tool) => (
+          {QUICK_TOOLS_HERRAMIENTAS.map((tool, i) => (
             <QuickToolCard
               key={tool.id}
               tool={tool}
+              accent={tool.accent}
+              staggerMs={(QUICK_TOOLS_PROYECTOS.length + i) * 70}
               onOpen={() => onOpenTool(tool.id)}
             />
           ))}
@@ -415,19 +431,41 @@ export function HomeView({
   );
 }
 
+const TOOL_ACCENT_CLASSES: Record<string, string> = {
+  "tool-limpiador": "bg-tool-limpiador/10 text-tool-limpiador",
+  "tool-brand-audit": "bg-tool-brand-audit/10 text-tool-brand-audit",
+  "tool-cuestionario": "bg-tool-cuestionario/10 text-tool-cuestionario",
+  "tool-codificacion": "bg-tool-codificacion/10 text-tool-codificacion",
+};
+
 function QuickToolCard({
   tool,
+  accent,
+  staggerMs,
   onOpen,
 }: {
   tool: QuickTool;
+  accent: string;
+  staggerMs: number;
   onOpen: () => void;
 }) {
   const Icon = tool.icon;
+  const accentClass = TOOL_ACCENT_CLASSES[accent] ?? "bg-muted text-muted-foreground";
   return (
-    <button type="button" onClick={onOpen} className="group text-left">
-      <Card className="h-full transition-colors hover:border-primary/30 hover:bg-accent/20">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group stagger-item text-left"
+      style={{ animationDelay: `${staggerMs}ms` }}
+    >
+      <Card className="h-full transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md active:scale-[0.99]">
         <CardHeader className="pb-2">
-          <div className="flex size-9 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+          <div
+            className={cn(
+              "flex size-9 items-center justify-center rounded-lg transition-transform group-hover:scale-105",
+              accentClass
+            )}
+          >
             <Icon className="size-4" />
           </div>
         </CardHeader>
@@ -436,7 +474,7 @@ function QuickToolCard({
           <CardDescription className="mt-1 text-xs">
             {tool.description}
           </CardDescription>
-          <span className="mt-3 flex items-center gap-1 text-xs font-medium text-muted-foreground group-hover:text-foreground">
+          <span className="mt-3 flex items-center gap-1 text-xs font-medium text-primary transition-all duration-200 group-hover:gap-2">
             Abrir
             <ArrowRight className="size-3" />
           </span>
@@ -450,9 +488,9 @@ function StatusPill({ ok, label }: { ok: boolean; label: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1",
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 transition-colors",
         ok
-          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+          ? "border-success/40 bg-success/10 text-success"
           : "border-muted bg-muted/50 text-muted-foreground"
       )}
     >

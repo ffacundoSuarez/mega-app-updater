@@ -57,6 +57,7 @@ import {
   setSupabaseUrl,
   type CuestionarioModel,
 } from "@/lib/settings";
+import { resetCleaningSupabaseClient } from "@/lib/cleaning/supabase-client";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -379,6 +380,7 @@ export function SettingsView() {
     setSbUrlSave("saving");
     try {
       await setSupabaseUrl(sbUrl.trim() || null);
+      resetCleaningSupabaseClient();
       setHasSbUrl(!!sbUrl.trim());
       setSbUrlSave("saved");
       setTimeout(() => setSbUrlSave("idle"), 2000);
@@ -390,6 +392,7 @@ export function SettingsView() {
 
   const clearSbUrl = useCallback(async () => {
     await setSupabaseUrl(null);
+    resetCleaningSupabaseClient();
     setSbUrl("");
     setHasSbUrl(false);
     setSbUrlSave("idle");
@@ -399,6 +402,7 @@ export function SettingsView() {
     setSbAnonSave("saving");
     try {
       await setSupabaseAnonKey(sbAnon.trim() || null);
+      resetCleaningSupabaseClient();
       setHasSbAnon(!!sbAnon.trim());
       setSbAnonSave("saved");
       setTimeout(() => setSbAnonSave("idle"), 2000);
@@ -410,6 +414,7 @@ export function SettingsView() {
 
   const clearSbAnon = useCallback(async () => {
     await setSupabaseAnonKey(null);
+    resetCleaningSupabaseClient();
     setSbAnon("");
     setHasSbAnon(false);
     setSbAnonSave("idle");

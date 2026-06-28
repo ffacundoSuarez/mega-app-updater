@@ -14,7 +14,7 @@
 // similares collapsable, grilla de la fila completa, decisión keep/remove,
 // y el botón "Sincronizar con QuestionPro" (5.C) sigue en el header.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   AlertTriangle,
@@ -67,6 +67,8 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { notifyError } from "@/lib/notify";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   bulkUpdateFlagDecisions,
   createManualRemoveFlag,
@@ -233,7 +235,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
       setUnflaggedRows(rows);
       setUnflaggedLoaded(true);
     } catch (err) {
-      window.alert(
+      notifyError(
         `No se pudieron cargar las filas sin flags: ${
           err instanceof Error ? err.message : String(err)
         }`
@@ -317,6 +319,17 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
       return a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0;
     });
   }, [flags, virtualItems, filterRecommendation, filterColor, filterColumn, colorOf]);
+
+  /** Virtualización simple de la lista de flags (solo renderiza filas visibles). */
+  const FLAG_ROW_HEIGHT = 56;
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  const [listScrollTop, setListScrollTop] = useState(0);
+  const listVirtStart = Math.max(0, Math.floor(listScrollTop / FLAG_ROW_HEIGHT) - 3);
+  const listVirtEnd = Math.min(
+    visibleFlags.length,
+    listVirtStart + Math.ceil(480 / FLAG_ROW_HEIGHT) + 6
+  );
+  const listVirtSlice = visibleFlags.slice(listVirtStart, listVirtEnd);
 
   // Heatmap: flags por columna afectada (sobre el set ya filtrado por
   // tipo/decisión), con el color de severidad del peor flag de cada columna.
@@ -426,7 +439,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
           await loadFlags();
           setCounts(await getReviewFlagCounts(versionId));
         } catch (err) {
-          window.alert(
+          notifyError(
             `No se pudo marcar para eliminar: ${
               err instanceof Error ? err.message : String(err)
             }`
@@ -457,7 +470,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
         );
         setCounts(await getReviewFlagCounts(versionId));
       } catch (err) {
-        window.alert(
+        notifyError(
           `No se pudo actualizar el flag: ${
             err instanceof Error ? err.message : String(err)
           }`
@@ -509,7 +522,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
         setSelected(new Set());
         setCounts(await getReviewFlagCounts(versionId));
       } catch (err) {
-        window.alert(
+        notifyError(
           `No se pudieron actualizar los flags: ${
             err instanceof Error ? err.message : String(err)
           }`
@@ -532,7 +545,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
       await loadAll();
       await loadFlags();
     } catch (err) {
-      window.alert(
+      notifyError(
         `No se pudo resetear: ${
           err instanceof Error ? err.message : String(err)
         }`
@@ -570,7 +583,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
           return next;
         });
       } catch (err) {
-        window.alert(
+        notifyError(
           `No se pudo guardar el edit: ${
             err instanceof Error ? err.message : String(err)
           }`
@@ -598,7 +611,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
           return next;
         });
       } catch (err) {
-        window.alert(
+        notifyError(
           `No se pudo revertir: ${
             err instanceof Error ? err.message : String(err)
           }`
@@ -613,7 +626,11 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
   const toggleSelect = (id: string) =>
     setSelected((s) => {
       const next = new Set(s);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
 
@@ -636,9 +653,13 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-        Cargando review…
+      <div className="flex flex-col gap-3">
+        <Skeleton className="h-8 w-72" />
+        <Skeleton className="h-10 w-full max-w-xl" />
+        <div className="flex gap-4">
+          <Skeleton className="h-[480px] w-80 shrink-0 rounded-lg" />
+          <Skeleton className="h-[480px] flex-1 rounded-lg" />
+        </div>
       </div>
     );
   }
@@ -781,7 +802,11 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
               </div>
             )}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div
+            ref={listScrollRef}
+            className="min-h-0 flex-1 overflow-y-auto"
+            onScroll={(e) => setListScrollTop(e.currentTarget.scrollTop)}
+          >
             {visibleFlags.length === 0 ? (
               <div className="flex flex-col items-center gap-2 px-3 py-10 text-center text-xs text-muted-foreground">
                 {allFlagsCount === 0 ? (
@@ -797,19 +822,28 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
                 )}
               </div>
             ) : (
-              visibleFlags.map((flag) => (
-                <FlagListItem
-                  key={flag.id}
-                  flag={flag}
-                  schema={version.schema.columns}
-                  color={colorOf(flag)}
-                  active={flag.id === selectedFlagId}
-                  selected={selected.has(flag.id)}
-                  edited={flag.row ? editsMap.has(flag.row.id) : false}
-                  onSelect={() => setSelectedFlagId(flag.id)}
-                  onToggleSelect={() => toggleSelect(flag.id)}
-                />
-              ))
+              <div
+                style={{ height: visibleFlags.length * FLAG_ROW_HEIGHT }}
+                className="relative"
+              >
+                <div
+                  style={{ transform: `translateY(${listVirtStart * FLAG_ROW_HEIGHT}px)` }}
+                >
+                  {listVirtSlice.map((flag) => (
+                    <FlagListItem
+                      key={flag.id}
+                      flag={flag}
+                      schema={version.schema.columns}
+                      color={colorOf(flag)}
+                      active={flag.id === selectedFlagId}
+                      selected={selected.has(flag.id)}
+                      edited={flag.row ? editsMap.has(flag.row.id) : false}
+                      onSelect={() => setSelectedFlagId(flag.id)}
+                      onToggleSelect={() => toggleSelect(flag.id)}
+                    />
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         </div>

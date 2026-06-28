@@ -39,6 +39,7 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
   BRAND_AUDIT_PROGRESS_EVENT,
+  cancelPythonSidecar,
   runBrandAudit,
   type BrandAuditProgressPayload,
   type BrandAuditResult,
@@ -135,6 +136,19 @@ export function BrandAuditView() {
     !!waveName.trim() &&
     Number.isFinite(Number(waveFilter)) &&
     status !== "running";
+
+  const handleCancel = useCallback(async () => {
+    try {
+      await cancelPythonSidecar();
+      setError("Ejecución cancelada por el usuario.");
+      setStatus("error");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setStatus("error");
+    } finally {
+      void endRunningJob("brand-audit-run");
+    }
+  }, []);
 
   const handleRun = useCallback(async () => {
     if (!canRun || !savPrincipal) return;
@@ -326,12 +340,24 @@ export function BrandAuditView() {
           Todo se procesa localmente en tu máquina. Nada se sube a internet
           {(useAiInsights || useAiSummary) && " (excepto los datos que manda a Gemini si activás IA)"}.
         </p>
-        <Button
-          size="lg"
-          onClick={handleRun}
-          disabled={!canRun}
-          className="gap-2"
-        >
+        <div className="flex items-center gap-2">
+          {status === "running" && (
+            <Button
+              size="lg"
+              variant="outline"
+              onClick={() => void handleCancel()}
+              className="gap-2"
+            >
+              <X className="size-4" />
+              Cancelar
+            </Button>
+          )}
+          <Button
+            size="lg"
+            onClick={handleRun}
+            disabled={!canRun}
+            className="gap-2"
+          >
           {status === "running" ? (
             <>
               <Loader2 className="size-4 animate-spin" />
@@ -344,6 +370,7 @@ export function BrandAuditView() {
             </>
           )}
         </Button>
+        </div>
       </div>
 
       {/* Progreso (durante run) */}

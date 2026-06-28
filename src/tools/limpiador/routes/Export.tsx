@@ -50,8 +50,7 @@ import { cn } from "@/lib/utils";
 import { getCleaningSupabaseClient } from "@/lib/cleaning/supabase-client";
 import { getVersion } from "@/lib/cleaning/cleaning-repository";
 import {
-  countEditedRows,
-  getCleanedRows,
+  getCleanedRowsWithMeta,
 } from "@/lib/cleaning/row-edits-repository";
 import { getReviewFlagCounts } from "@/lib/cleaning/flags-repository";
 import { getProject } from "@/lib/cleaning/projects-repository";
@@ -102,12 +101,11 @@ export function Export({ projectId, versionId, onBack, onGoToReview }: ExportPro
     setError(null);
     try {
       const client = await getCleaningSupabaseClient();
-      const [p, v, c, rows, edited, sync] = await Promise.all([
+      const [p, v, c, { rows, editedCount: edited }, sync] = await Promise.all([
         getProject(projectId),
         getVersion(client, versionId),
         getReviewFlagCounts(versionId),
-        getCleanedRows(versionId),
-        countEditedRows(versionId),
+        getCleanedRowsWithMeta(versionId),
         getReviewSyncStatus(versionId).catch(() => null),
       ]);
       setProject(p);

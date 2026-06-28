@@ -71,7 +71,7 @@ export function LimpiadorView({
     return () => {
       cancelled = true;
     };
-  }, [view]);
+  }, []);
 
   const navigate = (next: LimpiadorView, opts: NavigateOpts = {}) => {
     setView(next);

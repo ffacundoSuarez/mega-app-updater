@@ -144,14 +144,18 @@ export async function reorderRules(
   ruleIds: string[]
 ): Promise<void> {
   const client = await getCleaningSupabaseClient();
-  for (let i = 0; i < ruleIds.length; i++) {
-    const { error } = await client
-      .from("cleaning_rules")
-      .update({ order_index: i })
-      .eq("id", ruleIds[i])
-      .eq("project_id", projectId);
-    if (error) {
-      throw new Error(`No se pudo reordenar la regla ${i}: ${error.message}`);
-    }
-  }
+  await Promise.all(
+    ruleIds.map((id, i) =>
+      client
+        .from("cleaning_rules")
+        .update({ order_index: i })
+        .eq("id", id)
+        .eq("project_id", projectId)
+        .then(({ error }) => {
+          if (error) {
+            throw new Error(`No se pudo reordenar la regla ${i}: ${error.message}`);
+          }
+        })
+    )
+  );
 }

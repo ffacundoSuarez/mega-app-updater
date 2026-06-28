@@ -1,4 +1,5 @@
 // Contexto React para actividad local + sincronización del badge de taskbar.
+// Separado en datos (cambia seguido) y acciones (estable) para limitar re-renders.
 
 import {
   createContext,
@@ -21,16 +22,20 @@ import {
 } from "@/lib/activity";
 import { syncTaskbarBadge } from "@/lib/taskbar-badge";
 
-interface ActivityContextValue {
+interface ActivityDataValue {
   events: ActivityEvent[];
   runningJobs: RunningJob[];
   unreadCount: number;
+}
+
+interface ActivityActionsValue {
   refresh: () => Promise<void>;
   markRead: (id: string) => Promise<void>;
   markAllRead: () => Promise<void>;
 }
 
-const ActivityContext = createContext<ActivityContextValue | null>(null);
+const ActivityDataContext = createContext<ActivityDataValue | null>(null);
+const ActivityActionsContext = createContext<ActivityActionsValue | null>(null);
 
 export function ActivityProvider({ children }: { children: ReactNode }) {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
@@ -69,27 +74,39 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     await refresh();
   }, [refresh]);
 
-  const value = useMemo(
-    () => ({
-      events,
-      runningJobs,
-      unreadCount,
-      refresh,
-      markRead,
-      markAllRead,
-    }),
-    [events, runningJobs, unreadCount, refresh, markRead, markAllRead]
+  const dataValue = useMemo(
+    () => ({ events, runningJobs, unreadCount }),
+    [events, runningJobs, unreadCount]
+  );
+
+  const actionsValue = useMemo(
+    () => ({ refresh, markRead, markAllRead }),
+    [refresh, markRead, markAllRead]
   );
 
   return (
-    <ActivityContext.Provider value={value}>{children}</ActivityContext.Provider>
+    <ActivityActionsContext.Provider value={actionsValue}>
+      <ActivityDataContext.Provider value={dataValue}>
+        {children}
+      </ActivityDataContext.Provider>
+    </ActivityActionsContext.Provider>
   );
 }
 
-export function useActivity(): ActivityContextValue {
-  const ctx = useContext(ActivityContext);
-  if (!ctx) {
+export function useActivity(): ActivityDataValue & ActivityActionsValue {
+  const data = useContext(ActivityDataContext);
+  const actions = useContext(ActivityActionsContext);
+  if (!data || !actions) {
     throw new Error("useActivity debe usarse dentro de ActivityProvider");
   }
-  return ctx;
+  return { ...data, ...actions };
+}
+
+/** Solo acciones estables (no re-renderiza cuando cambian events/unread). */
+export function useActivityActions(): ActivityActionsValue {
+  const actions = useContext(ActivityActionsContext);
+  if (!actions) {
+    throw new Error("useActivityActions debe usarse dentro de ActivityProvider");
+  }
+  return actions;
 }

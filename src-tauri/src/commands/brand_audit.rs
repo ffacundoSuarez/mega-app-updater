@@ -252,6 +252,8 @@ pub async fn run_brand_audit(
         env,
         cwd: Some(output_dir.clone()),
         stream_event: Some(PROGRESS_EVENT.to_string()),
+        timeout_secs: Some(7200),
+        track_for_cancel: true,
     };
     let py_out = run_python_script(&app, "run_brand_audit.py", &args, opts).await?;
 

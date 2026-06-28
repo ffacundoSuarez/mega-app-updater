@@ -2,6 +2,7 @@
 //! con los `#[tauri::command]` que expone al frontend.
 
 pub mod brand_audit;
+pub mod codificacion_import;
 pub mod python;
 pub mod questionpro;
 pub mod survey_import;

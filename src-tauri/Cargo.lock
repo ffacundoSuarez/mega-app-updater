@@ -2172,6 +2172,7 @@ dependencies = [
  "tauri-plugin-store",
  "tauri-plugin-updater",
  "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]

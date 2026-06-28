@@ -141,6 +141,14 @@ export async function getVersionEdits(
 export async function getCleanedRows(
   versionId: string
 ): Promise<CleaningRow[]> {
+  const { rows } = await getCleanedRowsWithMeta(versionId);
+  return rows;
+}
+
+/** Igual que getCleanedRows pero devuelve también el conteo de filas editadas. */
+export async function getCleanedRowsWithMeta(
+  versionId: string
+): Promise<{ rows: CleaningRow[]; editedCount: number }> {
   const client = await getCleaningSupabaseClient();
 
   const [{ data: removeFlags, error: flagsErr }, { data: allRows, error: rowsErr }, edits] =
@@ -173,17 +181,20 @@ export async function getCleanedRows(
 
   const rows = (allRows ?? []) as unknown as CleaningRow[];
 
-  return rows
-    .filter((r) => !removeIds.has(r.id))
-    .map((r) => {
-      const perRowEdits = edits.get(r.id);
-      if (!perRowEdits || perRowEdits.size === 0) return r;
-      const merged: Record<string, unknown> = { ...r.data };
-      for (const [columnId, edit] of perRowEdits) {
-        merged[columnId] = edit.new_value;
-      }
-      return { ...r, data: merged };
-    });
+  return {
+    rows: rows
+      .filter((r) => !removeIds.has(r.id))
+      .map((r) => {
+        const perRowEdits = edits.get(r.id);
+        if (!perRowEdits || perRowEdits.size === 0) return r;
+        const merged: Record<string, unknown> = { ...r.data };
+        for (const [columnId, edit] of perRowEdits) {
+          merged[columnId] = edit.new_value;
+        }
+        return { ...r, data: merged };
+      }),
+    editedCount: edits.size,
+  };
 }
 
 /** Cantidad de filas con al menos un edit en la versión. Útil para el resumen. */

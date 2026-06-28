@@ -97,7 +97,7 @@ export function CodificacionView({ onOpenSettings }: CodificacionViewProps) {
 
   useEffect(() => {
     void checkKeys();
-  }, [screen, checkKeys]);
+  }, [checkKeys]);
 
   // Cancelar la corrida al salir de la herramienta (se desmonta la vista).
   useEffect(() => {

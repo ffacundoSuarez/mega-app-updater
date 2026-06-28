@@ -61,6 +61,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { notifyError } from "@/lib/notify";
 import { getProject } from "@/lib/cleaning/projects-repository";
 import {
   createRule,
@@ -433,7 +434,7 @@ export function Rules({ projectId, onBack, onGoToUpload }: RulesProps) {
       await setRuleDrafts(projectId, null);
       await loadAll();
     } catch (err) {
-      window.alert(
+      notifyError(
         `No se pudieron guardar los cambios: ${
           err instanceof Error ? err.message : String(err)
         }`
@@ -509,7 +510,7 @@ export function Rules({ projectId, onBack, onGoToUpload }: RulesProps) {
       setPendingSuggestions([]);
       await loadAll();
     } catch (err) {
-      window.alert(
+      notifyError(
         `No se pudieron guardar las sugerencias: ${
           err instanceof Error ? err.message : String(err)
         }`
@@ -667,7 +668,7 @@ export function Rules({ projectId, onBack, onGoToUpload }: RulesProps) {
         // Limpiar cualquier estado in-flight asociado a la regla borrada.
         discardPendingEdit(rule.id);
       } catch (err) {
-        window.alert(
+        notifyError(
           `No se pudo eliminar: ${
             err instanceof Error ? err.message : String(err)
           }`

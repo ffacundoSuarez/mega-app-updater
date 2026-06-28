@@ -8,9 +8,9 @@ import type {
   VersionSchema,
 } from "@/lib/cleaning/types";
 
-/** Ejemplo de comando heredado del scaffold. Se puede borrar cuando se quite de Rust. */
-export function greet(name: string): Promise<string> {
-  return invoke<string>("greet", { name });
+/** Cancela el sidecar Python en ejecución (Brand Audit, etc.). */
+export function cancelPythonSidecar(): Promise<void> {
+  return invoke("cancel_python_sidecar");
 }
 
 // --- Sidecar Python -------------------------------------------------------

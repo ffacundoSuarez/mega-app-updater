@@ -80,7 +80,15 @@ def redactar_titulos_con_gemini(api_key, mochila_datos):
         logging.error(f"Error al comunicarse con Gemini: {e}")
         return {}
     
-def redactar_executive_summary(api_key, mochila_datos):
+def _resumir_para_summary(mochila_datos, titulos_generados=None):
+    """Reduce el payload para el executive summary (evita reenviar mochila_ia completa)."""
+    if titulos_generados:
+        return json.dumps({"titulos_por_slide": titulos_generados}, ensure_ascii=False, indent=2)
+    claves = list(mochila_datos.keys())[:40]
+    digest = {k: mochila_datos.get(k, {}) for k in claves}
+    return json.dumps(digest, ensure_ascii=False, indent=2)
+
+def redactar_executive_summary(api_key, mochila_datos, titulos_generados=None):
     """
     Redacta el Resumen Ejecutivo con formato de "Elevator Pitch" basado en datos.
     """
@@ -89,7 +97,7 @@ def redactar_executive_summary(api_key, mochila_datos):
 
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-2.5-flash') 
-    datos_texto = json.dumps(mochila_datos, indent=2, ensure_ascii=False)
+    datos_texto = _resumir_para_summary(mochila_datos, titulos_generados)
 
     # =========================================================
     # 🧠 PROMPT PARA EXECUTIVE SUMMARY (Enfoque McKinsey)
