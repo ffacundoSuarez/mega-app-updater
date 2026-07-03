@@ -45,6 +45,14 @@ export interface SchemaColumn {
   qp_options?: Array<{ answerID: number; text: string }>;
   /** True para columnas metadata exportadas (ID Respuesta, Fecha y Hora, …) */
   is_metadata?: boolean;
+  /**
+   * True para variables personalizadas / embebidas / de sistema que NO son
+   * preguntas de la encuesta (ej. "Variable personalizada 12", ORIGEN, NSE,
+   * Seq. Número). Se marcan también `is_metadata: true` para que queden fuera
+   * del análisis de IA y del enrich, pero se conservan en el schema (siguen en
+   * `cleaning_rows.data` y se pueden referenciar con `@` en una regla).
+   */
+  is_custom_var?: boolean;
 }
 
 export interface VersionSchema {

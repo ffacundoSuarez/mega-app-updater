@@ -102,6 +102,7 @@ import {
   RULE_COLOR_ACCENT,
   RULE_COLOR_DOT,
   RULE_COLOR_LABEL,
+  RULE_COLOR_MEANING,
   RULE_COLOR_PILL,
   RULE_COLOR_RANK,
   type RuleColor,
@@ -673,7 +674,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
             <span className="font-medium">No se pudo cargar el review</span>
           </div>
           <pre className="whitespace-pre-wrap font-mono text-xs text-muted-foreground">
-            {error ?? "Versión no encontrada"}
+            {error ?? "Base no encontrada"}
           </pre>
           <div>
             <Button size="sm" onClick={onBack}>
@@ -689,7 +690,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
   const allFlagsCount = counts.red + counts.yellow;
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
@@ -725,6 +726,9 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
 
       {/* Stats compactas */}
       <ReviewStats counts={counts} editedRows={editedRowsCount} />
+
+      {/* Leyenda de severidad: qué significa cada color */}
+      <SeverityLegend />
 
       {/* Toggle "Mostrar filas sin flags" */}
       <UnflaggedToggle
@@ -934,6 +938,38 @@ function UnflaggedToggle({
         )}
         {enabled ? "Ocultar filas sin flags" : "Mostrar todas las filas"}
       </Button>
+    </div>
+  );
+}
+
+// --- SeverityLegend ------------------------------------------------------
+
+/**
+ * Leyenda fija que explica qué riesgo/acción implica cada color de severidad.
+ * Apunta al punto de confusión del usuario: los colores del score no se
+ * entendían. Cada color muestra su etiqueta + el significado completo en
+ * tooltip.
+ */
+function SeverityLegend() {
+  const order: RuleColor[] = ["red", "orange", "yellow", "green"];
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md border bg-card/50 px-3 py-2 text-[11px]">
+      <span className="font-medium uppercase tracking-wide text-muted-foreground">
+        Severidad
+      </span>
+      {order.map((c) => (
+        <span
+          key={c}
+          title={RULE_COLOR_MEANING[c]}
+          className="inline-flex cursor-help items-center gap-1.5"
+        >
+          <span className={cn("size-2.5 rounded-full", RULE_COLOR_DOT[c])} />
+          <span className="font-medium">{RULE_COLOR_LABEL[c]}</span>
+          <span className="text-muted-foreground">
+            {RULE_COLOR_MEANING[c].split(" — ")[1] ?? RULE_COLOR_MEANING[c]}
+          </span>
+        </span>
+      ))}
     </div>
   );
 }
@@ -1232,9 +1268,13 @@ interface ColumnHeatmapProps {
 }
 
 const HEATMAP_MAX = 50;
-const BAR_MIN_PX = 6;
-const BAR_MAX_PX = 40;
 
+/**
+ * Lista de columnas (preguntas) con flags. Antes eran barras anónimas donde no
+ * se entendía qué columna era cada una; ahora cada fila muestra el texto de la
+ * pregunta + su id + un mini-bar proporcional + el conteo, y es clickeable para
+ * filtrar. La lista tiene scroll propio para no estirar la pantalla.
+ */
 function ColumnHeatmap({
   stats,
   schemaById,
@@ -1249,7 +1289,7 @@ function ColumnHeatmap({
     <div className="rounded-lg border bg-card p-3">
       <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         <BarChart3 className="size-3.5" />
-        Columnas con flags ({stats.length})
+        Preguntas con flags ({stats.length})
         {activeColumn && (
           <button
             type="button"
@@ -1260,13 +1300,12 @@ function ColumnHeatmap({
           </button>
         )}
       </div>
-      <div className="flex items-end gap-1 overflow-x-auto pb-1">
+      <div className="flex max-h-44 flex-col gap-0.5 overflow-y-auto pr-1">
         {shown.map((s) => {
           const col = schemaById.get(s.columnId);
           const label = col?.question || s.columnId;
-          const barPx =
-            BAR_MIN_PX +
-            Math.round((s.count / max) * (BAR_MAX_PX - BAR_MIN_PX));
+          const showId = col?.question && col.question !== s.columnId;
+          const pct = Math.max(4, Math.round((s.count / max) * 100));
           const isActive = activeColumn === s.columnId;
           return (
             <button
@@ -1275,22 +1314,35 @@ function ColumnHeatmap({
               onClick={() => onPick(s.columnId)}
               title={`${label} — ${s.count} flag${s.count === 1 ? "" : "s"}`}
               className={cn(
-                "flex w-7 shrink-0 flex-col items-center gap-0.5 rounded-sm p-0.5 outline-none transition-colors",
+                "flex items-center gap-2 rounded-sm px-1.5 py-1 text-left outline-none transition-colors",
                 isActive ? "bg-foreground/10 ring-1 ring-foreground/30" : "hover:bg-muted/40"
               )}
             >
-              <span className="text-[9px] tabular-nums text-muted-foreground">
+              <span
+                className={cn("size-2 shrink-0 rounded-full", RULE_COLOR_DOT[s.worst])}
+              />
+              <span className="min-w-0 flex-1 truncate text-xs">
+                {label}
+                {showId && (
+                  <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">
+                    {s.columnId}
+                  </span>
+                )}
+              </span>
+              <span className="hidden h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted sm:block">
+                <span
+                  className={cn("block h-full rounded-full", RULE_COLOR_DOT[s.worst])}
+                  style={{ width: `${pct}%` }}
+                />
+              </span>
+              <span className="w-7 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
                 {s.count}
               </span>
-              <span
-                className={cn("w-full rounded-t-sm", RULE_COLOR_DOT[s.worst])}
-                style={{ height: `${barPx}px` }}
-              />
             </button>
           );
         })}
         {stats.length > HEATMAP_MAX && (
-          <span className="ml-2 self-center text-[10px] text-muted-foreground">
+          <span className="px-1.5 py-1 text-[10px] text-muted-foreground">
             +{stats.length - HEATMAP_MAX} más
           </span>
         )}
@@ -1697,8 +1749,9 @@ function FlagDetailPanel({
         {/* Badges + meta */}
         <div className="flex flex-wrap items-center gap-2">
           <span
+            title={RULE_COLOR_MEANING[color]}
             className={cn(
-              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+              "inline-flex cursor-help items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
               RULE_COLOR_PILL[color]
             )}
           >

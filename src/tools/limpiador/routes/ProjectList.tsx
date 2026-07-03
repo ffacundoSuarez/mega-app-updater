@@ -58,7 +58,7 @@ export function ProjectList({ onCreateNew, onOpenProject }: ProjectListProps) {
     async (project: CleaningProject) => {
       const confirmed = window.confirm(
         `¿Eliminar el proyecto "${project.name}"?\n\n` +
-          "Se borran en cascada todas las versiones, filas, reglas y flags " +
+          "Se borran en cascada todas las bases, filas, reglas y flags " +
           "asociados. Esta acción no se puede deshacer."
       );
       if (!confirmed) return;

@@ -583,6 +583,8 @@ function AppShell() {
 
               componentProps={limpiadorProps}
 
+              fill
+
             />
 
           )}

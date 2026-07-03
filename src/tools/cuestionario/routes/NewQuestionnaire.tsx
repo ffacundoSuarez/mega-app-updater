@@ -64,6 +64,9 @@ import { extractQuestionProSurveyId, validateSurvey } from "@/lib/questionpro";
 import { getQuestionproApiKey, getQuestionproUserId } from "@/lib/settings";
 import { SurveyPicker } from "@/components/SurveyPicker";
 import { logActivity } from "@/lib/activity";
+import { useFileDrop } from "@/lib/useFileDrop";
+import { readFile } from "@tauri-apps/plugin-fs";
+import { notifyError } from "@/lib/notify";
 
 type Camino = "blanco" | "texto" | "docx" | "pdf" | "questionpro_api";
 
@@ -806,14 +809,30 @@ function FileCaminoCard({
   confirmLabel,
 }: FileCaminoCardProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [dragActive, setDragActive] = useState(false);
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setDragActive(false);
-    const f = e.dataTransfer.files?.[0];
-    if (f) onPick(f);
-  };
+  // Drag & drop nativo (Tauri): leemos los bytes de la ruta dropeada y armamos
+  // un File, que es lo que esperan los parsers (mammoth / pdfjs).
+  const { isDragging: dragActive } = useFileDrop({
+    extensions: [accept],
+    enabled: !submitting,
+    onDrop: async (paths) => {
+      const path = paths[0];
+      try {
+        const bytes = await readFile(path);
+        const name = path.split(/[\\/]/).pop() || path;
+        onPick(new File([bytes], name));
+      } catch (err) {
+        // Lo más común: el archivo está fuera del scope de `fs`
+        // (HOME/Documentos/Descargas/Escritorio). Avisamos en vez de no hacer
+        // nada para que el usuario sepa por qué el drop "no hizo nada".
+        notifyError(
+          `No se pudo leer el archivo arrastrado: ${
+            err instanceof Error ? err.message : String(err)
+          }. Probá moverlo a Documentos/Descargas o usar el botón para elegirlo.`
+        );
+      }
+    },
+  });
 
   return (
     <Card>
@@ -824,12 +843,6 @@ function FileCaminoCard({
       <CardContent className="flex flex-col gap-3">
         <div
           onClick={() => inputRef.current?.click()}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragActive(true);
-          }}
-          onDragLeave={() => setDragActive(false)}
-          onDrop={handleDrop}
           className={cn(
             "flex cursor-pointer flex-col items-center gap-3 rounded-lg border-2 border-dashed p-8 text-center transition-colors",
             dragActive

@@ -44,6 +44,8 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { enrichSchemaWithQuestionPro } from "@/lib/cleaning/enrich-schema";
+import { normalizeQuestionproSchema } from "@/lib/cleaning/normalize-schema";
+import { useFileDrop } from "@/lib/useFileDrop";
 import { getProject } from "@/lib/cleaning/projects-repository";
 import { createVersion } from "@/lib/cleaning/versions-repository";
 import type {
@@ -159,10 +161,15 @@ export function Upload({
                 "subir el Excel para poder cruzar las preguntas con la API."
             );
           }
+          // Antes de cruzar con la API: marcar variables custom / embebidas /
+          // de sistema (no-preguntas) y limpiar el formato RAW ("N - "). Así el
+          // enrich no matchea variables embebidas en lugar de las preguntas
+          // reales, y la IA no analiza columnas que no son preguntas.
+          const normalized = normalizeQuestionproSchema(result.schema);
           const enriched = await enrichSchemaWithQuestionPro({
             surveyId: project.qp_survey_id,
             apiKey,
-            schema: result.schema,
+            schema: normalized.schema,
           });
           schema = enriched.schema;
           setQpCatalog(enriched.qpQuestions);
@@ -315,6 +322,13 @@ export function Upload({
     setPhase({ kind: "ready" });
   };
 
+  // Drag & drop nativo: sólo activo cuando el picker está visible y libre.
+  const { isDragging } = useFileDrop({
+    extensions: [".xlsx", ".xls"],
+    enabled: !!project && phase.kind === "ready",
+    onDrop: (paths) => void handleFile(paths[0]),
+  });
+
   // Render -------------------------------------------------------------
 
   return (
@@ -329,7 +343,7 @@ export function Upload({
       <div>
         <h2 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
           <UploadIcon className="size-5" />
-          Subir nueva versión
+          Subir nueva base
         </h2>
         {project && (
           <p className="text-sm text-muted-foreground">
@@ -381,6 +395,7 @@ export function Upload({
         <FilePicker
           source={project.source}
           parsing={phase.kind === "parsing"}
+          dragActive={isDragging}
           onBrowse={() => void handlePick()}
         />
       )}
@@ -408,11 +423,13 @@ export function Upload({
 interface FilePickerProps {
   source: CleaningProject["source"];
   parsing: boolean;
+  /** True mientras se arrastra un archivo válido sobre la ventana. */
+  dragActive: boolean;
   /** Abre el diálogo nativo para elegir el archivo. */
   onBrowse: () => void;
 }
 
-function FilePicker({ source, parsing, onBrowse }: FilePickerProps) {
+function FilePicker({ source, parsing, dragActive, onBrowse }: FilePickerProps) {
   return (
     <Card>
       <CardContent className="pt-6">
@@ -422,7 +439,9 @@ function FilePicker({ source, parsing, onBrowse }: FilePickerProps) {
           }}
           className={cn(
             "flex cursor-pointer flex-col items-center gap-3 rounded-lg border-2 border-dashed p-10 text-center transition-colors",
-            "border-muted-foreground/25 hover:border-primary/50",
+            dragActive
+              ? "border-primary bg-primary/5"
+              : "border-muted-foreground/25 hover:border-primary/50",
             parsing && "pointer-events-none opacity-60"
           )}
         >
@@ -438,11 +457,20 @@ function FilePicker({ source, parsing, onBrowse }: FilePickerProps) {
             </>
           ) : (
             <>
-              <UploadIcon className="size-12 text-muted-foreground" />
+              <UploadIcon
+                className={cn(
+                  "size-12",
+                  dragActive ? "text-primary" : "text-muted-foreground"
+                )}
+              />
               <div className="flex flex-col gap-1">
-                <p className="text-base font-medium">Subí tu archivo Excel</p>
+                <p className="text-base font-medium">
+                  {dragActive
+                    ? "Soltá el archivo acá"
+                    : "Subí tu archivo Excel"}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  Hacé clic para elegir un .xlsx o .xls.
+                  Arrastrá un .xlsx/.xls o hacé clic para elegirlo.
                 </p>
               </div>
 

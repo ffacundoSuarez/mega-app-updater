@@ -127,7 +127,7 @@ export function ProjectDetail({
       void startRunningJob(
         jobId,
         "limpiador",
-        `Control de calidad · ${projectName} v${version.version_number}`
+        `Control de calidad · ${projectName} · base ${version.version_number}`
       );
 
       const controller = runCleaningJob(version.id, {
@@ -162,7 +162,7 @@ export function ProjectDetail({
             void logActivity({
               type: "limpiador_qc_done",
               title: `QC terminado: ${projectName}`,
-              body: `Versión ${version.version_number}`,
+              body: `Base ${version.version_number}`,
               toolId: "limpiador",
               viewId: "limpiador",
               payload: {
@@ -219,7 +219,7 @@ export function ProjectDetail({
   const handleDeleteVersion = useCallback(
     async (version: CleaningVersion) => {
       const confirmed = window.confirm(
-        `¿Eliminar la versión ${version.version_number} ` +
+        `¿Eliminar la base ${version.version_number} ` +
           `(${version.filename})?\n\n` +
           "Se borran en cascada todas las filas y flags asociados. Esta " +
           "acción no se puede deshacer."
@@ -232,7 +232,7 @@ export function ProjectDetail({
         await load();
       } catch (err) {
         notifyError(
-          `No se pudo eliminar la versión: ${
+          `No se pudo eliminar la base: ${
             err instanceof Error ? err.message : String(err)
           }`
         );
@@ -315,9 +315,9 @@ export function ProjectDetail({
           <Card>
             <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
               <div>
-                <CardTitle className="text-base">Versiones</CardTitle>
+                <CardTitle className="text-base">Bases</CardTitle>
                 <CardDescription>
-                  Cada versión es un Excel cargado para limpiar. Podés tener
+                  Cada base es un Excel cargado para limpiar. Podés tener
                   varias por proyecto (rondas, ediciones).
                 </CardDescription>
               </div>
@@ -333,7 +333,7 @@ export function ProjectDetail({
                 </Button>
                 <Button onClick={onUpload} size="sm" className="gap-2">
                   <UploadIcon className="size-4" />
-                  Subir nueva versión
+                  Subir nueva base
                 </Button>
               </div>
             </CardHeader>
@@ -341,7 +341,7 @@ export function ProjectDetail({
               {versions.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-muted-foreground">
                   <FileSpreadsheet className="size-8 opacity-50" />
-                  <p>Todavía no hay versiones cargadas.</p>
+                  <p>Todavía no hay bases cargadas.</p>
                 </div>
               ) : (
                 <ul className="flex flex-col gap-2">
@@ -522,7 +522,7 @@ function VersionRow({
           size="icon"
           onClick={onDelete}
           disabled={deleting || isJobRunning}
-          aria-label="Eliminar versión"
+          aria-label="Eliminar base"
         >
           {deleting ? (
             <Loader2 className="size-4 animate-spin" />

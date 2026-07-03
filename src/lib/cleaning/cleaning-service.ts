@@ -24,6 +24,11 @@
 
 import type { DeterministicHit } from "./pre-ai-checks";
 import { deterministicHitToResult } from "./pre-ai-checks";
+import {
+  DET_RULE_DURACION_CORTA,
+  DET_RULE_DURACION_LARGA,
+  DET_RULE_IP_DUPLICADA,
+} from "./field-checks";
 import type {
   AnalyzeResult,
   CleaningRow,
@@ -132,26 +137,51 @@ function isPromptColumn(col: SchemaColumn): boolean {
   return true;
 }
 
+/** IDs de columna referenciados con `@` por las reglas activas (lowercase). */
+function collectRuleMentionedIds(rules: CleaningRule[]): Set<string> {
+  const ids = new Set<string>();
+  for (const r of rules) {
+    if (r.is_active === false) continue;
+    const text = r.description || r.rule_config?.description || "";
+    for (const m of text.matchAll(/@(\w+)/g)) ids.add(m[1].toLowerCase());
+  }
+  return ids;
+}
+
 /**
  * Columnas que efectivamente van al prompt de la IA.
  *
- * Para proyectos QuestionPro (schema enriquecido contra la API), la IA mira
- * SÓLO las columnas que matchearon una pregunta real (`qp_question_id`
- * seteado). Así se ignoran las customs / variables personalizadas / templates
- * (`$[ESTRATO_ARG]`, `Variable personalizada N`, etc.) que vienen en el export
- * crudo o de Automatizaciones: no se borran del archivo (siguen en
- * `cleaning_rows.data` para el export), pero no ensucian ni encarecen el QC.
+ * Las variables custom / personalizadas / embebidas ya vienen marcadas
+ * `is_metadata: true` por el normalizador (`normalize-schema.ts`), así que
+ * `isPromptColumn` las excluye: no se borran del archivo (siguen en
+ * `cleaning_rows.data` para el export) pero no ensucian ni encarecen el QC.
  *
- * Detección por schema (sin depender del `source`): `qp_question_id` lo setea
- * únicamente el enrich de la API de QP; el Validador sólo agrega
- * `qp_question_type`/`qp_options`. Si NINGUNA columna tiene `qp_question_id`
- * (caso Qualtrics, o QP sin matches), caemos al comportamiento previo: todas
- * las no-metadata.
+ * Sobre las preguntas reales (no-metadata) aplicamos el enrich de QP: si la
+ * MAYORÍA matcheó una pregunta de la API, nos quedamos con esas (formato
+ * "limpio", donde una columna sin match suele ser ruido). Pero si matchearon
+ * pocas (export RAW, o enrich pobre), NO descartamos: la clasificación de
+ * customs ya la hizo el normalizador y queremos analizar todas las preguntas.
+ *
+ * Además, cualquier columna (custom/metadata) referenciada con `@` por una
+ * regla activa se vuelve a incluir, para poder evaluar esa regla.
  */
-function selectPromptColumns(schema: VersionSchema): SchemaColumn[] {
-  const base = schema.columns.filter(isPromptColumn);
-  const hasQpMatches = base.some((c) => c.qp_question_id != null);
-  return hasQpMatches ? base.filter((c) => c.qp_question_id != null) : base;
+function selectPromptColumns(
+  schema: VersionSchema,
+  rules: CleaningRule[] = []
+): SchemaColumn[] {
+  const realQ = schema.columns.filter(isPromptColumn);
+  const matched = realQ.filter((c) => c.qp_question_id != null);
+  const useMatched = matched.length > 0 && matched.length >= realQ.length * 0.5;
+  const chosen = useMatched ? matched : realQ;
+
+  const mentioned = collectRuleMentionedIds(rules);
+  if (mentioned.size === 0) return chosen;
+
+  const chosenIds = new Set(chosen.map((c) => c.id));
+  const extra = schema.columns.filter(
+    (c) => !chosenIds.has(c.id) && mentioned.has(c.id.toLowerCase())
+  );
+  return extra.length > 0 ? [...chosen, ...extra] : chosen;
 }
 
 /**
@@ -252,6 +282,15 @@ Ejemplo J — señal automática descartada por contexto → NO flaguear
   Q9 (¿Por qué elegiste esa marca?): "Estaba disponible"
   SEÑAL AUTOMÁTICA (abierta_pocas_palabras): Respuesta abierta con menos de 3 palabras.
   → flag: "none"  (la respuesta es corta pero concreta y responde la pregunta; la señal se descarta)
+
+Ejemplo K — opción cerrada popular elegida por muchos → NO flaguear
+  Q5 (ORIGEN / variable de muestra): "OFFER"   (cientos de respuestas con el mismo valor)
+  → flag: "none"  (es una opción válida de una pregunta cerrada / variable de muestra; que muchos encuestados compartan el mismo valor es ESPERABLE, no es fraude. "Coincide con otras respuestas" NO es evidencia por sí sola.)
+
+Ejemplo L — IP duplicada confirmada → flaguear la COLUMNA IP, no el contenido
+  Q5 (ORIGEN): "OFFER"
+  SEÑAL AUTOMÁTICA (ip_duplicada): La IP 200.45.10.7 se repite EXACTA en 3 respuestas (filas #82, #226).
+  → flag: "yellow", recommendation: "review", matched_rules: ["ip_duplicada"], affected_question_ids: ["META_IP"], reason: "La IP 200.45.10.7 se repite en 3 respuestas; conviene revisar envíos repetidos."  (NO atribuir a ORIGEN ni decir que "OFFER coincide con otras respuestas")
 `;
 
 /**
@@ -285,7 +324,7 @@ function buildStaticPromptPrefix(
   const cached = staticPromptCache.get(key);
   if (cached) return cached;
 
-  const promptColumns = selectPromptColumns(schema);
+  const promptColumns = selectPromptColumns(schema, rules);
   const schemaDescription = promptColumns
     .map(describeSchemaColumn)
     .join("\n");
@@ -318,11 +357,14 @@ PATRONES ADICIONALES A DETECTAR (sólo si NO hay regla del usuario que aplique; 
 - Respuestas abiertas que no responden lógicamente la pregunta
 - Contradicciones internas SÓLO cuando una respuesta ABIERTA de texto contradice otra respuesta (ej: edad dice 25 pero en un comentario menciona nietos). NO flaguees combinaciones de respuestas cerradas/numéricas (edad, tamaño del hogar, ingresos, ocupación, NSE) por parecer atípicas o improbables — las cerradas son contexto, no objeto de juicio de plausibilidad.
 - Respuestas excesivamente cortas o vagas ("bien", "ok", "sí") en preguntas que piden desarrollo
+- NO flaguees una respuesta de pregunta CERRADA (una opción de menú, o una variable de muestra tipo origen / marca / canal) sólo porque su valor se repite en muchas filas: que una opción popular sea elegida por cientos de encuestados es ESPERABLE. "Coincide con otras entradas / respuestas" no es, por sí solo, motivo de flag.
 
 SEÑALES AUTOMÁTICAS (chequeos determinísticos previos):
 - Algunas filas incluyen una línea "SEÑAL AUTOMÁTICA (<regla>): <motivo>". Son hallazgos de chequeos automáticos simples, NO un veredicto.
 - Evaluá cada señal mirando el contenido de la fila: si el problema es real, flagueá la fila e incluí el nombre de la regla (ej: "abierta_pocas_palabras") en "matched_rules"; si la respuesta es legítima en contexto (ej: corta pero concreta), devolvé "none" — la señal se descarta.
 - Las señales "ip_duplicada", "duracion_corta" y "duracion_larga" reportan hechos verificados sobre toda la base (no podés recomputarlos). No los descartes como falsos: ponderá si, junto con el contenido de la fila, ameritan "yellow" para revisión humana o si la fila se ve genuina y alcanza con "none".
+- Cuando confirmes una señal "ip_duplicada" / "duracion_*", el problema es de la columna de IP/duración, NO de la respuesta de contenido: poné la columna de la señal (ej. "META_IP") en "affected_question_ids" y el nombre de la regla (ej. "ip_duplicada") en "matched_rules". No atribuyas el flag a una respuesta de contenido (origen, marca, etc.) ni digas que esa respuesta "coincide con otras".
+- Si una REGLA del usuario pide esencialmente lo mismo que una señal interna (ej. la regla pide marcar IPs duplicadas), NO lo reportes dos veces: tratá la señal interna como la fuente, mencioná la regla una sola vez y atribuí a la columna de la señal.
 
 ${FEW_SHOT_BLOCK}
 REGLAS IMPORTANTES DE INTERPRETACIÓN:
@@ -345,7 +387,7 @@ export function buildPrompt(
   rules: CleaningRule[],
   deterministicHints?: Map<string, DeterministicHit>
 ): string {
-  const promptColumns = selectPromptColumns(schema);
+  const promptColumns = selectPromptColumns(schema, rules);
 
   const rowsData = rows
     .map((row, i) => {
@@ -562,7 +604,8 @@ export async function analyzeBatch(
         return getFallbackResults(rows, deterministicHints);
       }
 
-      const results = mergeAiResults(rows, parsed);
+      const merged = mergeAiResults(rows, parsed);
+      const results = applyDeterministicAttribution(merged, deterministicHints);
       const flaggedCount = results.filter((r) => r.flag !== "none").length;
       log("info", `Analysis complete: ${flaggedCount}/${rows.length} rows flagged`);
       return results;
@@ -586,6 +629,51 @@ export async function analyzeBatch(
 
   log("error", `AI analysis failed after retries: ${errorMessage(lastError)}`);
   return getFallbackResults(rows, deterministicHints);
+}
+
+/**
+ * Señales determinísticas que viven en una columna META (cross-row): el
+ * "problema" es de esa columna (IP/duración), NO de la respuesta de contenido.
+ */
+const META_SIGNAL_RULES: ReadonlySet<string> = new Set([
+  DET_RULE_IP_DUPLICADA,
+  DET_RULE_DURACION_CORTA,
+  DET_RULE_DURACION_LARGA,
+]);
+
+/**
+ * Corrige la atribución de los flags que confirman una señal META (IP/duración).
+ *
+ * Sin esto, cuando la IA confirma una señal de IP duplicada tiende a (a) pegar
+ * el flag a la columna de contenido (ej. ORIGEN) en vez de a la IP, y (b)
+ * reescribir el motivo "inventando" detalle. Para esas filas forzamos la
+ * columna afectada, el motivo y la explicación a los valores determinísticos
+ * (exactos y honestos: nombran la IP literal y las filas del grupo), y nos
+ * aseguramos de que la regla quede en `matched_rules`. Respetamos el veredicto
+ * de la IA sobre severidad (flag/recommendation/confidence): la señal no es
+ * veredicto, la IA decide si amerita flag.
+ */
+function applyDeterministicAttribution(
+  results: AnalyzeResult[],
+  hints?: Map<string, DeterministicHit>
+): AnalyzeResult[] {
+  if (!hints || hints.size === 0) return results;
+  return results.map((r) => {
+    if (r.flag === "none") return r;
+    const hint = hints.get(r.row_id);
+    if (!hint || !META_SIGNAL_RULES.has(hint.ruleId)) return r;
+    // Sólo corregimos atribución/motivo si la IA confirmó ESTA señal (la citó
+    // en matched_rules, como instruye el prompt). Si flagueó por una razón de
+    // contenido que apenas coincide con un outlier de duración, respetamos su
+    // veredicto y no lo pisamos con el texto de la señal.
+    if (!r.matched_rules?.includes(hint.ruleId)) return r;
+    return {
+      ...r,
+      affected_question_ids: hint.affected_question_ids,
+      reason: hint.reason,
+      friendly_explanation: hint.friendly_explanation,
+    };
+  });
 }
 
 /**

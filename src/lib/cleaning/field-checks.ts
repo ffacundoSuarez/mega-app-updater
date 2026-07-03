@@ -36,22 +36,32 @@ export const DETERMINISTIC_RULE_IDS: ReadonlySet<string> = new Set([
 // ---------------------------------------------------------------------------
 
 /**
- * Para cada fila, indica si su IP aparece en otra fila (y cuántas veces en
- * total). Ignora filas con la columna IP vacía o nula.
+ * Para cada fila, indica si su IP aparece en otra fila, cuántas veces en total
+ * y los **índices** de todas las filas que comparten esa IP (para poder
+ * reportar el grupo duplicado). Ignora filas con la columna IP vacía o nula.
+ * La comparación es exacta (igualdad de string normalizado por trim).
  */
 export function checkIpDuplicates(
   rows: FieldRow[],
   ipColumn: string
-): Array<{ duplicada: boolean; total: number; ip: string }> {
-  const counts = new Map<string, number>();
-  for (const row of rows) {
+): Array<{ duplicada: boolean; total: number; ip: string; memberIndexes: number[] }> {
+  const byIp = new Map<string, number[]>();
+  rows.forEach((row, i) => {
     const ip = normalizeStr(row[ipColumn]);
-    if (ip) counts.set(ip, (counts.get(ip) ?? 0) + 1);
-  }
+    if (!ip) return;
+    const arr = byIp.get(ip);
+    if (arr) arr.push(i);
+    else byIp.set(ip, [i]);
+  });
   return rows.map((row) => {
     const ip = normalizeStr(row[ipColumn]);
-    const total = ip ? counts.get(ip) ?? 0 : 0;
-    return { duplicada: total > 1, total, ip };
+    const members = ip ? byIp.get(ip) ?? [] : [];
+    return {
+      duplicada: members.length > 1,
+      total: members.length,
+      ip,
+      memberIndexes: members,
+    };
   });
 }
 

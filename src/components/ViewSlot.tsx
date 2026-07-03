@@ -12,6 +12,13 @@ export interface ViewSlotProps<P extends object> {
   viewId: string;
   Component: ComponentType<P>;
   componentProps: P;
+  /**
+   * Si la vista maneja su propia altura/scroll interno (ej. el Limpiador, que
+   * tiene un split-pane con scroll independiente), el slot debe ocupar todo el
+   * alto del `<main>` para que la cadena `h-full`/`min-h-0` funcione. Por
+   * defecto el slot es de alto natural y el scroll lo maneja `<main>`.
+   */
+  fill?: boolean;
 }
 
 function ViewSlotInner<P extends object>({
@@ -19,6 +26,7 @@ function ViewSlotInner<P extends object>({
   viewId,
   Component,
   componentProps,
+  fill,
 }: ViewSlotProps<P>) {
   const [mounted, setMounted] = useState(active);
 
@@ -31,7 +39,7 @@ function ViewSlotInner<P extends object>({
   return (
     <div
       data-view={viewId}
-      className={cn(active ? "block" : "hidden")}
+      className={cn(active ? (fill ? "flex h-full min-h-0" : "block") : "hidden")}
       aria-hidden={!active}
     >
       <Component {...componentProps} />
