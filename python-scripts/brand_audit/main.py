@@ -7,11 +7,21 @@ from . import config, utils, process_data, create_slides, config_loader, generad
 from .tabulation_engine import TabulationEngine
 import json
 import warnings
+import pickle
 
 # Apagamos los warnings de futuras versiones de Pandas para tener la consola limpia
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-# --- NUEVA CONFIGURACIÓN DE LOGGING (Consola + Archivo) ---
+# 1. DEFINICIÓN DEL INTERRUPTOR
+MODO_PRODUCCION = False  # Cambialo a True para la primera corrida o cuando cambies datos
+
+_suffix_filtro = ""
+if getattr(config, "FILTRAR_BASE", False):
+    _suffix_filtro = f"_{config.VARIABLE_FILTRO}_{config.VALOR_FILTRO}"
+
+CACHE_FILE = f"memoria_datos_{config.STUDY_ID}{_suffix_filtro}.pkl"
+
+# --- CONFIGURACIÓN DE LOGGING ---
 logging.basicConfig(
     level=logging.INFO,
     format="%(levelname)s: %(message)s",
@@ -20,280 +30,399 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout)
     ]
 )
-# ----------------------------------------------------------
+
+if not hasattr(config, 'CACHE_COLUMNAS_BLOQUES'):
+    config.CACHE_COLUMNAS_BLOQUES = {}
 
 def run_brand_audit():
-    # ==============================================================
-    # 1. CARGAMOS LA BASE PRINCIPAL
-    # ==============================================================
-    try:
-        df, meta = utils.load_data_and_apply_base_filter(config.SAV_FILE)
-    except Exception as e:
-        logging.error(f"Error FATAL en la carga del archivo principal: {e}")
-        sys.exit(1)
-
-    try:
-        banner_vars = config.BANNER_VARIABLES 
-        banner_info, master_col = utils.prepare_banner_info(df, banner_vars, meta.variable_value_labels)
-    except Exception as e:
-        logging.error(f"Error en configuración de Banner: {e}")
-        sys.exit(1)
-
-    # ==============================================================
-    # 2. CARGAMOS LA BASE SECUNDARIA APARTE
-    # ==============================================================
-    df_sec = None
-    meta_sec = None
-    banner_sec = None
-    master_col_sec = None 
-    try:
-        archivo_sec = getattr(config, "SAV_FILE_SECUNDARIO", None)
-        banners_sec_config = getattr(config, "BANNER_VARIABLES_SECUNDARIO", config.BANNER_VARIABLES)
-        
-        if archivo_sec:
-            df_sec, meta_sec = utils.load_data_and_apply_base_filter(archivo_sec, is_secundaria=True)
-            
-            peso_sec = getattr(config, "WEIGHT_VAR_SECUNDARIO", None)            
-            if peso_sec and peso_sec in df_sec.columns and peso_sec != "ponderacion":
-                df_sec = df_sec.rename(columns={peso_sec: "ponderacion"})
-                logging.info(f"⚖️ Columna '{peso_sec}' renombrada a 'ponderacion' para el motor.")
-            
-            banner_sec, master_col_sec = utils.prepare_banner_info(df_sec, banners_sec_config, meta_sec.variable_value_labels)
-            logging.info("✅ Base Secundaria cargada en la sombra.")
-            
-    except Exception as e:
-        logging.warning(f"No hay base secundaria o falló su carga: {e}")
-
-    # ==============================================================
-    # 3. DICCIONARIO Y MOTORES
-    # ==============================================================
-    ruta_cuestionario = getattr(config, "QUESTIONNAIRE_EXCEL", "cuestionario.xlsx")
-    diccionario_cuestionario = utils.load_questionnaire_dict(ruta_cuestionario)
-    
-    engine = TabulationEngine(df, meta, banner_info, quest_dict=diccionario_cuestionario)
-
-    engine_sec = None
-    if df_sec is not None:
-        ruta_cuestionario_sec = getattr(config, "QUESTIONNAIRE_EXCEL_SECUNDARIO", None)
-        
-        if ruta_cuestionario_sec:
-            diccionario_sec = utils.load_questionnaire_dict(ruta_cuestionario_sec)
-            logging.info(f"📖 Diccionario secundario cargado: {ruta_cuestionario_sec}")
-        else:
-            diccionario_sec = None 
-            
-        engine_sec = TabulationEngine(df_sec, meta_sec, banner_sec, quest_dict=diccionario_sec)
-
-    # ==============================================================
-    # 4. GESTIÓN DE TAREAS Y LIMPIEZA
-    # ==============================================================
-    banner_list = list(config.BANNER_VARIABLES[0]) if isinstance(config.BANNER_VARIABLES, tuple) else list(config.BANNER_VARIABLES)
-    vars_intocables = banner_list + [config.WEIGHT_VAR]
-
-    basura_prin = getattr(config, "BASURA_SPSS", [])
-    if basura_prin:
-        df = df.drop(columns=basura_prin, errors='ignore')
-        logging.info(f"🧹 Se eliminaron {len(basura_prin)} variables basura de la base Principal.")
-
-    if df_sec is not None:
-        basura_sec = getattr(config, "BASURA_SPSS_SECUNDARIO", [])
-        if basura_sec:
-            df_sec = df_sec.drop(columns=basura_sec, errors='ignore')
-            logging.info(f"🧹 Se eliminaron {len(basura_sec)} variables basura de la base Secundaria.")
-
-    vars_a_rescatar = ["Vinculo"]
-    vars_a_excluir = [var for var in vars_intocables if var not in vars_a_rescatar]
-
-    auto_tasks = utils.generate_default_tasks(df, meta, vars_a_excluir)
-    manual_tasks = config_loader.load_manual_tasks_from_csv(config.MANUAL_TASKS_CSV)
-    
-    final_tasks = auto_tasks.copy()
-    final_tasks.update(manual_tasks)
-
-    tareas_extra = getattr(config, "TAREAS_MANUALES_EXTRA", {})
-    if tareas_extra:
-        vars_manuales = [str(t.get("VARIABLE_NAME")) for t in tareas_extra.values() if t.get("VARIABLE_NAME")]
-        claves_duplicadas = []
-        for k, v in final_tasks.items():
-            auto_var = str(v.get("VARIABLE_NAME", ""))
-            for v_man in vars_manuales:
-                if auto_var == v_man or auto_var.startswith(f"{v_man} (") or auto_var.startswith(f"{v_man}_"):
-                    claves_duplicadas.append(k)
-                    break 
-        for k in claves_duplicadas:
-            del final_tasks[k]
-            
-        final_tasks.update(tareas_extra) 
-
-    # ==============================================================
-    # 🚀 ORDENAMIENTO DE TAREAS Y "PASE VIP" PARA BATERÍAS
-    # ==============================================================
-    column_order = list(df.columns)
-    def get_task_index(task):
-        var_name = task.get("VARIABLE_NAME", "")
-        tipo_tarea = task.get("TYPE", task.get("VARIABLE_TYPE", ""))
-        
-        # 1. Si es una variable normal que existe en la base
-        if var_name in column_order:
-            return column_order.index(var_name)
-            
-        # 2. Si es una batería (Grid) buscamos por su primera sub-columna
-        exact_cols = task.get("EXACT_COLS")
-        if exact_cols and isinstance(exact_cols, list) and len(exact_cols) > 0:
-            # Aunque la variable madre no exista, si la primera hija existe, la dejamos pasar
-            if exact_cols[0] in column_order:
-                return column_order.index(exact_cols[0])
-                
-        # 3. Si es una batería por prefijo (ej: "P119_")
-        prefix = task.get("COLS_PREFIX") or task.get("ITEMS_PREFIX") or var_name
-        for i, col in enumerate(column_order):
-            if str(col).startswith(str(prefix)):
-                return i
-                
-        # 4. PASE VIP DE EMERGENCIA: Si es un Grid explícito, lo mandamos al final pero NO lo borramos
-        if "GRID" in str(tipo_tarea).upper() or "CATEGORICAL" in str(tipo_tarea).upper():
-            return len(column_order) 
-            
-        return len(column_order)
-
-    # Ordenamos y mantenemos TODAS las tareas (las que devuelven len(column_order) van al final)
-    final_tasks = dict(sorted(final_tasks.items(), key=lambda item: get_task_index(item[1])))
-
-    # =====================================================================
-    # 5. EL SÚPER BUCLE: PREPARACIÓN DE LAS DOS BASES
-    # =====================================================================
-    all_findings = []
+    usar_cache = False
     excel_results_prin = []
     excel_results_sec = []
+    excel_results_hist = []
+    df_auditoria_total = pd.DataFrame()
+    lista_dfs_auditoria = []
+    all_findings = []
 
-    paquetes_a_procesar = [
-        {
-            "nombre": "PRINCIPAL",
-            "df": df, "meta": meta, "banner": banner_info, "engine": engine, 
-            "tareas": final_tasks, "resultados": excel_results_prin,
-            "master_col": master_col 
-        }
-    ]
+    # 2. INTENTO DE CARGA DE MEMORIA
+    if not MODO_PRODUCCION and os.path.exists(CACHE_FILE):
+        logging.info("🚀 [MODO PRUEBA] Saltando cálculos. Cargando memoria...")
+        try:
+            with open(CACHE_FILE, 'rb') as f:
+                cache = pickle.load(f)
+            
+            excel_results_prin = cache['prin']
+            excel_results_sec = cache['sec']
+            excel_results_hist = cache['hist']
+            df_auditoria_total = cache['audit_total']
+            lista_dfs_auditoria = cache['audit_lista']
+            all_findings = cache.get('findings', [])
 
-    if df_sec is not None and engine_sec is not None:
-        logging.info("Generando mapa de tareas COMPLETO para la Base Secundaria...")
-        auto_tasks_sec = utils.generate_default_tasks(df_sec, meta_sec, vars_a_excluir)
-        
-        manuales_sec = {k: v for k, v in tareas_extra.items() if v.get("ORIGEN") == "secundaria"}
-        auto_tasks_sec.update(manuales_sec)
-        
-        paquetes_a_procesar.append({
-            "nombre": "SECUNDARIA",
-            "df": df_sec, "meta": meta_sec, "banner": banner_sec, "engine": engine_sec, 
-            "tareas": auto_tasks_sec, "resultados": excel_results_sec,
-            "master_col": master_col_sec 
-        })
+            usar_cache = True  
+            logging.info("✅ Memoria cargada con éxito. Yendo directo al PPT.")
+        except Exception as e:
+            logging.error(f"❌ Error al cargar memoria: {e}. Re-calculando...")
+    else:
+        logging.info("⏳ [MODO PRODUCCIÓN] Iniciando motor completo...")
 
-    # =====================================================================
-    # EJECUCIÓN DEL SÚPER BUCLE (Procesa ambas cajas limpiamente)
-    # =====================================================================
-    for paquete in paquetes_a_procesar:
-        _p_nombre = paquete["nombre"]
-        _p_df = paquete["df"]
-        _p_meta = paquete["meta"]
-        _p_banner = paquete["banner"]
-        _p_engine = paquete["engine"]
-        _p_tareas = paquete["tareas"]
-        _p_resultados = paquete["resultados"]
-        _p_master_col = paquete["master_col"] 
-        
-        logging.info(f"--- Iniciando tabulación completa de la base {_p_nombre} ({len(_p_tareas)} variables) ---")
-        
-        for t_id, task in _p_tareas.items():
-            try:
-                res = None
-                tab = None
-                v_name = task.get("VARIABLE_NAME")
-                v_type = task.get("VARIABLE_TYPE", "SRQ")
+    if not usar_cache:        
+        # ==============================================================
+        # 1. CARGAMOS LA BASE PRINCIPAL
+        # ==============================================================
+        try:
+            df, df_hist, meta = utils.load_data_and_apply_base_filter(config.SAV_FILE)
+        except Exception as e:
+            logging.error(f"Error FATAL en la carga del archivo principal: {e}")
+            sys.exit(1)
 
-                if task["TYPE"] == "SINGLE":
-                    try:
-                        res = process_data.process_single(_p_df, _p_meta, task, _p_banner, _p_master_col)
-                    except AttributeError as e:
-                        if "split" in str(e):
-                            logging.debug(f"⚠️ Omitiendo textos IA para '{v_name}': Variable sin datos o inexistente.")
-                        else:
-                            logging.debug(f"Aviso menor en '{v_name}': {e}")
-                    except Exception as e:
-                        pass
-                    
-                    if v_type == "SRQ":
+        # ==============================================================
+        # ⚡ 🚀 FILTRO GLOBAL DE SEGMENTACIÓN (CON SALVAGUARDA HISTÓRICA)
+        # ==============================================================
+        aplicar_filtro = getattr(config, "FILTRAR_BASE", False)
+        if aplicar_filtro:
+            v_filtro = getattr(config, "VARIABLE_FILTRO", None)
+            val_filtro = getattr(config, "VALOR_FILTRO", None)
+            lbl_filtro = getattr(config, "LABEL_FILTRO", f"Valor {val_filtro}")
+
+            if v_filtro and val_filtro is not None:
+                if v_filtro in df.columns:
+                    base_antes = len(df)
+                    df = df[df[v_filtro] == val_filtro].copy()
+                    logging.info(f"⚡ [FILTRO ACTIVO] Base Principal recortada por {v_filtro} == {val_filtro}. Casos: {base_antes} -> {len(df)}")
+                else:
+                    logging.error(f"❌ [FILTRO ERROR] La variable '{v_filtro}' no existe en la base Principal actual.")
+
+                # Proteger histórico de YPF para mantener intacto el evolutivo de olas
+                if v_filtro in df_hist.columns:
+                    logging.info(f"🛡️ [PROTECCIÓN AUDITORÍA] Base Histórica preservada con sus {len(df_hist)} casos intactos.")
+
+        try:
+            banner_vars = config.BANNER_VARIABLES 
+            banner_info, master_col = utils.prepare_banner_info(df, banner_vars, meta.variable_value_labels)
+        
+            var_ola_hist = getattr(config, 'WAVE_VAR', 'Wave')
+            banner_vars_hist = [var_ola_hist] 
+            
+            banner_info_hist, master_col_hist = utils.prepare_banner_info(
+                df_hist, banner_vars_hist, meta.variable_value_labels
+            )    
+        except Exception as e:
+            logging.error(f"Error en configuración de Banner: {e}")
+            sys.exit(1)
+
+        # ==============================================================
+        # 2. CARGAMOS LA BASE SECUNDARIA APARTE
+        # ==============================================================
+        df_sec = None
+        meta_sec = None
+        banner_sec = None
+        master_col_sec = None 
+        try:
+            archivo_sec = getattr(config, "SAV_FILE_SECUNDARIO", None)
+            banners_sec_config = getattr(config, "BANNER_VARIABLES_SECUNDARIO", config.BANNER_VARIABLES)
+            
+            if archivo_sec:
+                df_sec, df_sec_hist, meta_sec = utils.load_data_and_apply_base_filter(archivo_sec, is_secundaria=True)
+                
+                if aplicar_filtro and v_filtro and val_filtro is not None:
+                    if v_filtro in df_sec.columns:
+                        base_sec_antes = len(df_sec)
+                        df_sec = df_sec[df_sec[v_filtro] == val_filtro].copy()
+                        logging.info(f"⚡ [FILTRO ACTIVO] Base Secundaria recortada. Casos: {base_sec_antes} -> {len(df_sec)}")
+
+                peso_sec = getattr(config, "WEIGHT_VAR_SECUNDARIO", None)            
+                if peso_sec and peso_sec in df_sec.columns and peso_sec != "ponderacion":
+                    df_sec = df_sec.rename(columns={peso_sec: "ponderacion"})
+                    logging.info(f"⚖️ Columna '{peso_sec}' renombrada a 'ponderacion' para el motor.")
+                
+                banner_sec, master_col_sec = utils.prepare_banner_info(df_sec, banners_sec_config, meta_sec.variable_value_labels)
+                logging.info("✅ Base Secundaria cargada en la sombra.")
+                
+        except Exception as e:
+            logging.warning(f"No hay base secundaria o falló su carga: {e}")
+
+        # ==============================================================
+        # 🧹 LIMPIEZA PRE-MOTOR
+        # ==============================================================
+        basura_prin = getattr(config, "BASURA_SPSS", [])
+        if basura_prin:
+            df = df.drop(columns=basura_prin, errors='ignore')
+            logging.info(f"🧹 Se eliminaron {len(basura_prin)} variables basura de la base Principal.")
+
+        if df_sec is not None:
+            basura_sec = getattr(config, "BASURA_SPSS_SECUNDARIO", [])
+            if basura_sec:
+                df_sec = df_sec.drop(columns=basura_sec, errors='ignore')
+                logging.info(f"🧹 Se eliminaron {len(basura_sec)} variables basura de la base Secundaria.")
+
+        # ==============================================================
+        # 3. DICCIONARIO Y MOTORES
+        # ==============================================================
+        ruta_cuestionario = getattr(config, "QUESTIONNAIRE_EXCEL", "cuestionario.xlsx")
+        diccionario_cuestionario = utils.load_questionnaire_dict(ruta_cuestionario)
+        
+        engine = TabulationEngine(df, meta, banner_info, quest_dict=diccionario_cuestionario)
+        engine_hist = TabulationEngine(df_hist, meta, banner_info_hist, quest_dict=diccionario_cuestionario)
+
+        engine_sec = None
+        if df_sec is not None:
+            ruta_cuestionario_sec = getattr(config, "QUESTIONNAIRE_EXCEL_SECUNDARIO", None)
+            if ruta_cuestionario_sec:
+                diccionario_sec = utils.load_questionnaire_dict(ruta_cuestionario_sec)
+                logging.info(f"📖 Diccionario secundario cargado: {ruta_cuestionario_sec}")
+            else:
+                diccionario_sec = None 
+            engine_sec = TabulationEngine(df_sec, meta_sec, banner_sec, quest_dict=diccionario_sec)
+
+        # ==============================================================
+        # 4. GESTIÓN DE TAREAS Y LIMPIEZA
+        # ==============================================================
+        banner_list = list(config.BANNER_VARIABLES[0]) if isinstance(config.BANNER_VARIABLES, tuple) else list(config.BANNER_VARIABLES)
+        vars_intocables = banner_list + [config.WEIGHT_VAR]
+
+        vars_a_rescatar = ["Vinculo"]
+        vars_a_excluir = [var for var in vars_intocables if var not in vars_a_rescatar]
+
+        if basura_prin:
+            vars_a_excluir.extend(basura_prin)
+
+        auto_tasks = utils.generate_default_tasks(df, meta, vars_a_excluir)
+        manual_tasks = config_loader.load_manual_tasks_from_csv(config.MANUAL_TASKS_CSV)
+        
+        final_tasks = auto_tasks.copy()
+        final_tasks.update(manual_tasks)
+
+        tareas_extra = getattr(config, "TAREAS_MANUALES_EXTRA", {})
+        if tareas_extra:
+            vars_manuales = [str(t.get("VARIABLE_NAME")) for t in tareas_extra.values() if t.get("VARIABLE_NAME")]
+            claves_duplicadas = []
+            for k, v in final_tasks.items():
+                auto_var = str(v.get("VARIABLE_NAME", ""))
+                for v_man in vars_manuales:
+                    if auto_var == v_man or auto_var.startswith(f"{v_man} (") or auto_var.startswith(f"{v_man}_"):
+                        claves_duplicadas.append(k)
+                        break 
+            for k in claves_duplicadas:
+                del final_tasks[k]
+            final_tasks.update(tareas_extra) 
+
+        # ==============================================================
+        # 🛡️ FILTRO DE MODO PRUEBA
+        # ==============================================================
+        modo_prueba = getattr(config, "MODO_PRUEBA", False)
+        if modo_prueba:
+            vars_permitidas = getattr(config, "VARIABLES_DE_PRUEBA", [])
+            if vars_permitidas:
+                final_tasks = {
+                    k: v for k, v in final_tasks.items() 
+                    if str(v.get("VARIABLE_NAME", "")) in vars_permitidas
+                }
+                logging.warning(f"⚠️ MODO PRUEBA ACTIVO: Se tabularán SOLO {len(final_tasks)} variables.")
+
+        # ==============================================================
+        # 🚀 ORDENAMIENTO DE TAREAS
+        # ==============================================================
+        column_order = list(df.columns)
+        def get_task_index(task):
+            var_name = task.get("VARIABLE_NAME", "")
+            tipo_tarea = task.get("TYPE", task.get("VARIABLE_TYPE", ""))
+            if var_name in column_order: return column_order.index(var_name)
+            exact_cols = task.get("EXACT_COLS")
+            if exact_cols and isinstance(exact_cols, list) and len(exact_cols) > 0:
+                if exact_cols[0] in column_order: return column_order.index(exact_cols[0])
+            prefix = task.get("COLS_PREFIX") or task.get("ITEMS_PREFIX") or var_name
+            for i, col in enumerate(column_order):
+                if str(col).startswith(str(prefix)): return i
+            if "GRID" in str(tipo_tarea).upper() or "CATEGORICAL" in str(tipo_tarea).upper():
+                return len(column_order) 
+            return len(column_order)
+
+        final_tasks = dict(sorted(final_tasks.items(), key=lambda item: get_task_index(item[1])))
+
+        # =====================================================================
+        # 5. EL SÚPER BUCLE: PREPARACIÓN DE LAS DOS BASES CON YTD NATIVO SPSS
+        # =====================================================================
+        all_findings = []
+        excel_results_prin = []
+        excel_results_hist = [] 
+        excel_results_sec = []
+
+        # ---------------------------------------------------------------------
+        # 🎯 APLICAMOS LA REGLA EXACTA DE RECODE WAVE DE SPSS A LA BASE HISTÓRICA
+        # ---------------------------------------------------------------------
+        mes_corte_audit = getattr(config, "MES_CORTE", 8)
+        var_wave_name = getattr(config, "WAVE_VAR", "Wave")
+        
+        # 1. Asignamos la columna 'YTD_GRUPO' directamente en los microdatos según la regla SPSS
+        df_hist = utils.aplicar_recode_ytd_spss(df_hist, mes_corte_audit, var_wave=var_wave_name)
+        logging.info(f"📊 [YTD SPSS NATIVO] Variable 'YTD_GRUPO' generada en df_hist con mes corte: {mes_corte_audit}")
+
+        # 2. Re-preparamos el banner histórico para incluir 'YTD_GRUPO' si existe
+        banner_vars_hist = ['YTD_GRUPO'] if 'YTD_GRUPO' in df_hist.columns else [var_wave_name]
+        banner_info_hist, master_col_hist = utils.prepare_banner_info(
+            df_hist, banner_vars_hist, meta.variable_value_labels
+        )
+        engine_hist = TabulationEngine(df_hist, meta, banner_info_hist, quest_dict=diccionario_cuestionario)
+        # ---------------------------------------------------------------------
+
+        paquetes_a_procesar = [
+            {"nombre": "PRINCIPAL", "df": df, "meta": meta, "banner": banner_info, "engine": engine, "tareas": final_tasks, "resultados": excel_results_prin, "master_col": master_col},
+            {"nombre": "PRINCIPAL_HISTORICA", "df": df_hist, "meta": meta, "banner": banner_info_hist, "engine": engine_hist, "tareas": final_tasks, "resultados": excel_results_hist, "master_col": master_col_hist}        
+        ]
+
+        if df_sec is not None and engine_sec is not None:
+            auto_tasks_sec = utils.generate_default_tasks(df_sec, meta_sec, vars_a_excluir)
+            manuales_sec = {k: v for k, v in tareas_extra.items() if v.get("ORIGEN") == "secundaria"}
+            auto_tasks_sec.update(manuales_sec)
+            paquetes_a_procesar.append({"nombre": "SECUNDARIA", "df": df_sec, "meta": meta_sec, "banner": banner_sec, "engine": engine_sec, "tareas": auto_tasks_sec, "resultados": excel_results_sec, "master_col": master_col_sec})
+
+        for paquete in paquetes_a_procesar:
+            _p_nombre = paquete["nombre"]
+            _p_df = paquete["df"]
+            _p_meta = paquete["meta"]
+            _p_banner = paquete["banner"]
+            _p_engine = paquete["engine"]
+            _p_tareas = paquete["tareas"]
+            _p_resultados = paquete["resultados"]
+            _p_master_col = paquete["master_col"] 
+
+            _p_engine.segments = _p_banner["segment_keys"]
+            logging.info(f"--- Iniciando tabulación completa de la base {_p_nombre} ({len(_p_tareas)} variables) ---")
+
+            for t_id, task in _p_tareas.items():
+                try:
+                    res = None
+                    tab = None
+                    v_name = task.get("VARIABLE_NAME")
+                    v_type = task.get("VARIABLE_TYPE", "SRQ")
+
+                    if task["TYPE"] == "SINGLE":
+                        try:
+                            res = process_data.process_single(_p_df, _p_meta, task, _p_banner, _p_master_col)
+                        except AttributeError as e:
+                            if "split" in str(e): logging.debug(f"Omitiendo textos IA para '{v_name}'.")
+                            else: logging.debug(f"Aviso menor en '{v_name}': {e}")
+                        except Exception: pass
+                        
+                        if v_type == "SRQ": tab = _p_engine.tabulate_srq(v_name)
+                        elif v_type == "MRQ": tab = _p_engine.tabulate_mrq(v_name, task.get("COLS_PREFIX"))
+                        elif task["VARIABLE_TYPE"] == "MRQ_CATEGORICAL": tab = _p_engine.tabulate_mrq_categorical(v_name, task.get("EXACT_COLS"))
+                        elif v_type == "NUMERIC": tab = _p_engine.tabulate_numeric(v_name)                        
+                        elif v_type == "NUMERIC_GRID" or task.get("TYPE") == "NUMERIC_GRID" or task.get("VARIABLE_TYPE") == "NUMERIC_GRID":
+                            cols = task.get("EXACT_COLS", task.get("COLS", []))
+                            tab = _p_engine.tabulate_numeric_grid(v_name, cols)
+
+                    elif task["TYPE"] == "SCALE_PROFILE":
+                        try:
+                            res = process_data.process_scale(_p_df, _p_meta, task, _p_banner, _p_master_col)
+                        except Exception: pass
+
+                        cols_grid = task.get("EXACT_COLS", [c for c in _p_df.columns if str(c).startswith(task.get("ITEMS_PREFIX", v_name))])
                         cajas_solicitadas = task.get("BOXES", ["T2B", "B2B"])
-                        tab = _p_engine.tabulate_srq(v_name)
-                    elif v_type == "MRQ":
-                        tab = _p_engine.tabulate_mrq(v_name, task.get("COLS_PREFIX"))
-                    elif task["VARIABLE_TYPE"] == "MRQ_CATEGORICAL":
-                        cols = task.get("EXACT_COLS")
-                        tab = _p_engine.tabulate_mrq_categorical(v_name, cols)
-                    elif v_type == "NUMERIC":
-                        tab = _p_engine.tabulate_numeric(v_name)                        
-                    # =========================================================
-                    # 🚀 EL NUEVO CARRIL: BATERÍA NUMÉRICA
-                    # =========================================================
-                    elif v_type == "NUMERIC_GRID" or task.get("TYPE") == "NUMERIC_GRID" or task.get("VARIABLE_TYPE") == "NUMERIC_GRID":
-                        # Buscamos la lista de sub-preguntas en el task (igual que en MRQ_CAT)
-                        cols = task.get("EXACT_COLS", []) 
-                        if not cols:
-                            # Por si en tu config le llamás de otra forma, un plan B:
-                            cols = task.get("COLS", [])
+                        tab = _p_engine.tabulate_smart_grid(group_name=v_name, cols=cols_grid, boxes=cajas_solicitadas)
 
-                        # 👇 ESTO NOS VA A AVISAR SI ENTRÓ BIEN 👇
-                        print(f"✅ [RUTEO OK] Procesando Batería Numérica: {v_name}")
-                        print(f"   Columnas detectadas: {cols}")                            
-                        # Pasamos el nombre general (v_name) y la lista de columnas (cols)
-                        tab = _p_engine.tabulate_numeric_grid(v_name, cols)
-                        if tab is None:
-                            print(f"❌ [FALLO] La tabla {v_name} devolvió None (¿datos vacíos?)")
-                        else:
-                            print(f"🎉 [ÉXITO] Tabla {v_name} generada correctamente")
-                    # =========================================================  
+                    if tab:
+                        _p_resultados.append(tab)
+                except Exception as e:
+                    logging.error(f"Error procesando tarea {t_id} en base {_p_nombre}: {e}")
 
-                elif task["TYPE"] == "SCALE_PROFILE":
-                    try:
-                        res = process_data.process_scale(_p_df, _p_meta, task, _p_banner, _p_master_col)
-                    except AttributeError as e:
-                        if "split" in str(e):
-                            logging.debug(f"⚠️ Omitiendo textos IA para '{v_name}': Variable sin datos o inexistente.")
-                    except Exception:
-                        pass
+        # =====================================================================
+        # 🧼 PRE-PROCESAMIENTO DE AUDITORÍA CON FILTRO PROTECTOR INTEGRADO
+        # =====================================================================
+        anios_audit = [2022, 2023, 2024, 2025, 2026]
+        lista_dfs_auditoria = [] 
 
-                    if "EXACT_COLS" in task:
-                        cols_grid = task["EXACT_COLS"]
+        for res in excel_results_hist:
+            if not res or 'percentages' not in res: continue
+        
+            df_p = res['percentages'].copy()
+            v_name = res.get("variable", "N/D")
+
+            nuevas_categorias = []
+            contexto_padre = ""
+        
+            for idx in df_p.index:
+                nombre_fila = str(idx).strip()
+                es_tecnica = any(x in nombre_fila.lower() for x in ["base", "total", "n=", "---"])
+                fila_valores = df_p.loc[idx]
+                fila_vacia = fila_valores.isna().all()
+
+                if hasattr(fila_vacia, "any"): fila_vacia = fila_vacia.all()
+
+                if fila_vacia and not es_tecnica:
+                    contexto_padre = nombre_fila
+                    nuevas_categorias.append(nombre_fila)
+                else:
+                    if contexto_padre and contexto_padre != nombre_fila and not es_tecnica:
+                        nuevas_categorias.append(f"{contexto_padre} | {nombre_fila}")
                     else:
-                        prefix = task.get("ITEMS_PREFIX") or v_name
-                        cols_grid = [c for c in _p_df.columns if str(c).startswith(prefix)]
+                        nuevas_categorias.append(nombre_fila)
+        
+            df_p.index = nuevas_categorias
 
-                    cajas_solicitadas = task.get("BOXES", ["T2B", "B2B"])
-                    
-                    tab = _p_engine.tabulate_smart_grid(
-                        group_name=v_name, 
-                        cols=cols_grid, 
-                        boxes=cajas_solicitadas
-                    )
+            # 🛡️ ALINEACIÓN SOBERANA ANTI-DESFASE
+            indices_originales = list(df_p.index)
 
-                if tab:
-                    _p_resultados.append(tab)
+            for anio in anios_audit:
+                # Extrae directamente la columna YTD calculada de la tabulación nativa
+                valores_ytd = df_p.apply(
+                    lambda row: utils.calcular_ytd_homogeneo(
+                        row.to_dict(), 
+                        anio, 
+                        mes_corte_audit, 
+                        df_variable_completa=df_p
+                    ), axis=1
+                )
+                df_p[f"YTD {anio}"] = valores_ytd.values
 
-            except Exception as e:
-                logging.error(f"Error procesando tarea {t_id} en base {_p_nombre}: {e}")
+            # Reaseguramos el índice antes del reset
+            df_p.index = indices_originales
+            df_temp = df_p.reset_index().rename(columns={'index': 'Categoría'})
+            
+            df_temp.columns = [str(c).strip() for c in df_temp.columns]
+            df_temp['Variable'] = v_name
+
+            # 🧼 Limpieza en caliente del origen
+            if not df_temp.empty and 'Categoría' in df_temp.columns:
+                condicion_titulo_puro = (df_temp['Categoría'].str.contains('GRID_', na=False)) & (~df_temp['Categoría'].str.contains(r'\|', na=False))
+                cat_as_str = df_temp['Categoría'].astype(str).str.strip()
+                condicion_cierre_vacio = ((df_temp['Categoría'].isna()) | (cat_as_str == "") | (cat_as_str.str.lower() == "nan")) & (~cat_as_str.str.lower().str.contains("respond|sabe|contest", na=False))
+                df_temp = df_temp[~(condicion_titulo_puro | condicion_cierre_vacio)].copy()
+
+            lista_dfs_auditoria.append(df_temp)
+
+        df_auditoria_total = pd.concat(lista_dfs_auditoria, ignore_index=True) if lista_dfs_auditoria else pd.DataFrame()
+
+        # =====================================================================
+        # 🛡️ BLINDAJE CASE-INSENSITIVE PARA RECONCILIAR YTD (YPF / PROMOS)
+        # =====================================================================
+        if not df_auditoria_total.empty and 'Categoría' in df_auditoria_total.columns:
+            df_mayusculas = df_auditoria_total.copy()
+            df_mayusculas['Categoría'] = df_mayusculas['Categoría'].astype(str).str.upper()
+            
+            df_auditoria_total = pd.concat([df_auditoria_total, df_mayusculas], ignore_index=True)
+            logging.info("🛡️ [CASE BLINDAJE] Índices de auditoría duplicados en MAYÚSCULAS para asegurar el match YTD.")
+
+        datos_a_guardar = {
+            'prin': excel_results_prin, 'sec': excel_results_sec, 'hist': excel_results_hist,
+            'audit_total': df_auditoria_total, 'audit_lista': lista_dfs_auditoria, 'findings': all_findings
+        }
+        with open(CACHE_FILE, 'wb') as f:
+            pickle.dump(datos_a_guardar, f)
+        logging.info("💾 Datos sincronizados en memoria.")
+
+    if usar_cache:
+        logging.info("⚙️ Reconstruyendo contexto mínimo para PPT...")
+        df, df_hist, meta = utils.load_data_and_apply_base_filter(config.SAV_FILE)
 
     # =====================================================================
-    # 6. SECCIÓN ESPECIAL Y PPTX (CON PUENTE LEVADIZO)
+    # 6. SECCIÓN ESPECIAL PPTX (CON RELLENO DE ATRIBUTOS MÚLTIPLES HÍBRIDO)
     # =====================================================================
     solo_tablas = getattr(config, "ONLY_GENERATE_TABLES", False)
-    
     mochila_ia = {}
 
     if not solo_tablas:
         logging.info("Iniciando armado de PowerPoint...")
-        
         prs = utils.setup_presentation(config.TEMPLATE_PPX)
-        funnel_map = utils.get_funnel_variables_map(meta)
         create_slides.create_summary_slide_with_llm(prs, all_findings)
 
         try:
@@ -306,36 +435,63 @@ def run_brand_audit():
             for chart_config in mapa_graficos:
                 c_name = chart_config.get("chart_name")
 
+                if chart_config.get("chart_name") == "Chart_YTD_Index_YPF":
+                        logging.info(f"🔍 [Llamador YTD] Evaluando Chart_YTD_Index_YPF | Config Variable: '{chart_config.get('variable')}'")
+
+                # =====================================================================
+                # 📡 ESCÁNER GLOBAL DE GRÁFICOS (PARA VER SI ESTÁ LEYENDO P03)
+                # =====================================================================
+                v_config_actual = str(chart_config.get("variable", "")).upper().strip()
+                if "P03" in v_config_actual or chart_config.get("chart_name") == "Chart_Detalle_P03_1":
+                    print(f"\n📡 [ESCÁNER GLOBAL] Procesando en Config: '{c_name}' | Variable: '{v_config_actual}'")
+                # =====================================================================
+
                 if chart_config.get("is_header"):
                     exito = create_slides.update_header_table_in_presentation(prs, c_name, mes_nuevo)
-                    if exito:
-                        logging.info(f"ÉXITO: Encabezado '{c_name}' actualizado con {mes_nuevo}.")
-                    else:
-                        logging.warning(f"No se encontró el encabezado '{c_name}' en el PPT.")
                     continue
 
-
+                # 🛠️ A) CARRIL YTD HISTÓRICO ORIGINAL (Con duplicado tolerante por compatibilidad)
                 if chart_config.get("is_ytd_calculated"):
-                    ref_chart = chart_config.get("ref_chart_name")
-                    target_year = chart_config.get("target_year", "YTD 2026")
-                    year_suffix = chart_config.get("year_suffix", "26")
-                    es_porcentaje = chart_config.get("is_percentage", False)
-                    mapa_metricas = chart_config.get("metrics", {}) 
-                    remove_percentage_sign=chart_config.get("remove_percentage_sign", False),
-                    decimals=chart_config.get("decimals", 0)
-                    multiplier=chart_config.get("multiplier", 1.0)                    
-                    exito = create_slides.update_ytd_calculated_from_chart(
-                        prs, c_name, ref_chart, target_year, year_suffix, 
-                        metrics_map=mapa_metricas, is_percentage=es_porcentaje,
-                        remove_percentage_sign=remove_percentage_sign,decimals=decimals,
-                        multiplier=multiplier
-                    )
-                    if exito:
-                        logging.info(f"ÉXITO: YTD '{c_name}' recalculado desde '{ref_chart}'.")
-                    else:
-                        logging.warning(f"No se pudo calcular el YTD para '{c_name}'.")
-                    continue
+                    var_name = chart_config.get("variable")
+                    if not var_name:
+                        ref_name = chart_config.get("ref_chart_name", "")
+                        var_name = next((p for p in ref_name.split('_') if p.startswith('P')), None)
+                    
+                    chart_config["variable_deducida"] = var_name                        
+                    metrics = chart_config.get("metrics", {})
+                    first_metric = next(iter(metrics.values())) if metrics else None
+                    is_multivariable = isinstance(first_metric, dict) and "variable" in first_metric                    
+                    
+                    if not var_name and not is_multivariable: continue
 
+                    try:
+                        # Adaptamos en caliente las columnas sin machacar el YTD legítimo
+                        df_audit_adaptado = df_auditoria_total.copy() if not df_auditoria_total.empty else pd.DataFrame()
+                        if not df_audit_adaptado.empty:
+                            for col in list(df_audit_adaptado.columns):
+                                col_str = str(col)
+                                for anio in ["2022", "2023", "2024", "2025", "2026"]:
+                                    # 🛡️ REGLA PROTECTORA: Si la columna YA ES un YTD legítimo, NO la pisamos con una Wave
+                                    if f"YTD {anio}" == col_str:
+                                        continue
+                                        
+                                    if anio in col_str and ("Wave" in col_str or "YTD" in col_str):
+                                        suffix = anio[-2:]
+                                        df_audit_adaptado[anio] = df_audit_adaptado[col]
+                                        df_audit_adaptado[int(anio)] = df_audit_adaptado[col]
+                                        df_audit_adaptado[suffix] = df_audit_adaptado[col]
+                                        
+                                        # Solo asignamos a f"YTD {anio}" si esa columna no venía previamente calculada con datos reales
+                                        if f"YTD {anio}" not in df_auditoria_total.columns:
+                                            df_audit_adaptado[f"YTD {anio}"] = df_audit_adaptado[col]
+
+                        exito = create_slides.inyectar_ytd_desde_auditoria(prs, chart_config, df_audit_adaptado)
+                        if exito: logging.info(f"✅ ÉXITO: {c_name} actualizado desde YTD.")
+                    except Exception as e:
+                        logging.error(f"❌ Error en {c_name}: {e}")
+                    continue
+                        
+                # 🛠️ B) CARRIL COMÚN (Adaptado con Puente Multi-Llave Externo)
                 metrics_map = chart_config.get("metrics", {})
                 target_box = chart_config.get("target_box", "t2b").lower()
                 
@@ -345,11 +501,7 @@ def run_brand_audit():
                 elif "bottom" in target_box or "b2b" in target_box: box_keywords = ["bottom 2 box", "b2b"]
                 else: box_keywords = ["top 2 box", "t2b"]
 
-                if chart_config.get("origen") == "secundaria":
-                    lista_a_buscar = excel_results_sec
-                else:
-                    lista_a_buscar = excel_results_prin
-
+                lista_a_buscar = excel_results_sec if chart_config.get("origen") == "secundaria" else excel_results_prin
                 datos_a_inyectar = {}
                 valores_para_promedio = []
 
@@ -368,7 +520,6 @@ def run_brand_audit():
                             break
 
                     if df_var is not None:
-                        # 1. ÍNDICE ORIGINAL (Sin romper retrocompatibilidad)
                         nuevo_index = []
                         contexto_actual = ""
                         for idx in df_var.index:
@@ -380,11 +531,9 @@ def run_brand_audit():
                                 nuevo_index.append(idx_str)
                         df_var.index = nuevo_index
 
-                        fila_real = None
                         valor_crudo = 0.0 
                         encontrado = False
-                        
-                        # 👇 EL INTERRUPTOR: ¿Usamos el modo nuevo o el viejo?
+                        fila_real = None
                         es_multi_marca = any("|" in str(kw) for kw in keywords)
                         contexto_grid_actual = ""
                         
@@ -392,9 +541,6 @@ def run_brand_audit():
                             indice_str = str(indice).lower()
                             
                             if es_multi_marca:
-                                # =========================================================
-                                # 🚀 MODO NUEVO: Baterías Multi-Marca (Solo si usamos "|")
-                                # =========================================================
                                 if "grid_attr:" in indice_str:
                                     contexto_grid_actual = indice_str.replace("grid_attr:", "").strip()
                                     
@@ -402,224 +548,229 @@ def run_brand_audit():
                                     kw_lower = str(kw).lower().strip()
                                     if "|" in kw_lower:
                                         attr_buscado, metrica_buscada = [x.strip() for x in kw_lower.split("|")]
-                                        # Buscamos el atributo en el contexto, y la métrica en la fila actual
                                         if attr_buscado in contexto_grid_actual and metrica_buscada == indice_str:
                                             val_temp = df_var.iloc[pos]["TOTAL"]
                                             if pd.notna(val_temp):
                                                 valor_crudo += float(val_temp)
                                                 encontrado = True
                                                 break 
-                                if encontrado:
-                                    break
+                                if encontrado: break
                                     
                             else:
-                                # =========================================================
-                                # 🛡️ MODO TRADICIONAL (Literalmente tu código original)
-                                # =========================================================
                                 if any(str(kw).lower() in indice_str for kw in keywords):
                                     fila_real = indice
-                                    # 👇 CAMBIO SEGURO: Usamos iloc[pos] en vez de loc para evitar doble conteo
                                     val_temp = df_var.iloc[pos]["TOTAL"]
-                                    
                                     if pd.notna(val_temp):
-                                        print(f"  -> ¡Atrapé '{fila_real}' en {var_actual}! Sumando: {val_temp}")
                                         valor_crudo += float(val_temp)
                                         encontrado = True
-                                        # (Borramos el break acá de forma segura)
-                                        
                                 elif fila_real is not None and not encontrado and any(kw in indice_str for kw in box_keywords):
                                     val_temp = df_var.iloc[pos]["TOTAL"]
-                                    if pd.notna(val_temp):
+                                    if pd.notna(val_temp):                                    
                                         valor_crudo += float(val_temp)
                                         encontrado = True
-                                        break # Este break sí lo dejamos por seguridad de las escalas
+                                        break 
 
                         if encontrado:
                             try:
-                                valor_redondeado = int(round(valor_crudo))
+                                decimales = chart_config.get("decimals", 0)
+                                valor_redondeado = round(float(valor_crudo), decimales) if decimales > 0 else int(round(valor_crudo))
                                 valores_para_promedio.append(valor_redondeado)
+                                
+                                # 🎯 PARCHE MULTI-LLAVE EXTERNO: Inyecta variantes para que matchee con cualquier layout
                                 datos_a_inyectar[row_name] = valor_redondeado
-                            except Exception as e:
-                                logging.warning(f"Error al extraer dato de '{fila_real}': {e}")
-                        else:
-                            logging.warning(f"No se encontró fila para '{row_name}' en {var_actual}.")
-                    else:
-                        logging.warning(f"No se encontró la tabla {var_actual} para '{row_name}'.")
+                                datos_a_inyectar[str(row_name).lower()] = valor_redondeado
+                                if isinstance(keywords, list):
+                                    for kw in keywords:
+                                        kw_clean = str(kw).lower().strip()
+                                        if "|" in kw_clean:
+                                            datos_a_inyectar[kw_clean.split("|")[0].strip()] = valor_redondeado
+                                        datos_a_inyectar[kw_clean] = valor_redondeado
+                                else:
+                                    datos_a_inyectar[str(keywords).lower().strip()] = valor_redondeado
+                            except: pass
 
+# -------------------------------------------------------------
+                # 🔄 REPORCENTUALIZACIÓN CORRECTA (RE-BASE SOBRE GRUPO FILTRADO)
+                # -------------------------------------------------------------
                 if chart_config.get("reporcentualizar") and datos_a_inyectar:
-                    nueva_base = sum(datos_a_inyectar.values())
-                    if nueva_base > 0:
-                        for clave, valor in datos_a_inyectar.items():
-                            datos_a_inyectar[clave] = int(round((valor / nueva_base) * 100))
-                        logging.info(f"REPORCENTUALIZADO: Nueva base={nueva_base}")
+                    # 1. Filtramos solo las llaves principales definidas en 'metrics' para evitar duplicados
+                    llaves_unicas = list(metrics_map.keys())
+                    datos_unicos = {k: datos_a_inyectar[k] for k in llaves_unicas if k in datos_a_inyectar}
+                    
+                    if not datos_unicos:
+                        datos_unicos = datos_a_inyectar.copy()
+
+                    # 2. Normalizamos valores (si venían como 0.44 -> 44)
+                    datos_normalizados = {}
+                    for k, v in datos_unicos.items():
+                        val_num = float(v)
+                        datos_normalizados[k] = val_num * 100.0 if val_num <= 1.0 else val_num
+
+                    # 3. Suma real del subgrupo (ej: 44 + 6 + 2 + 10 = 62)
+                    suma_subgrupo = sum(datos_normalizados.values())
+
+                    if suma_subgrupo > 0:
+                        datos_recalc = {}
+                        decimales = chart_config.get("decimals", 0)
+
+                        for clave, valor in datos_normalizados.items():
+                            pct_100 = (valor / suma_subgrupo) * 100.0
+                            if decimales > 0:
+                                datos_recalc[clave] = round(pct_100, decimales)
+                            else:
+                                datos_recalc[clave] = int(round(pct_100))
+
+                        # 4. Asignamos los datos recalculados limpios
+                        datos_a_inyectar = datos_recalc
+                        
+                        # 5. Generamos alias técnicos en minúsculas POST-cálculo para que PowerPoint los encuentre
+                        datos_con_alias = datos_a_inyectar.copy()
+                        for k_orig, v_final in datos_a_inyectar.items():
+                            datos_con_alias[str(k_orig).lower()] = v_final
+                            if k_orig in metrics_map:
+                                kws = metrics_map[k_orig]
+                                if isinstance(kws, list):
+                                    for kw in kws:
+                                        datos_con_alias[str(kw).lower().strip()] = v_final
+                                elif isinstance(kws, dict):
+                                    for kw in kws.get("keywords", []):
+                                        datos_con_alias[str(kw).lower().strip()] = v_final
+
+                        datos_a_inyectar = datos_con_alias
+                        logging.info(f"📊 [REPORCENTUALIZADO OK YPF] Suma subgrupo: {suma_subgrupo} | {datos_unicos} -> {datos_recalc}")
+
+                #if chart_config.get("reporcentualizar") and datos_a_inyectar:
+                #    nueva_base = sum(datos_a_inyectar.values())
+                #    if nueva_base > 0:
+                #        for clave, valor in datos_a_inyectar.items():
+                #            datos_a_inyectar[clave] = int(round((valor / nueva_base) * 100))
 
                 if chart_config.get("calcular_promedio") and valores_para_promedio:
-                    promedio_final = int(round(sum(valores_para_promedio) / len(valores_para_promedio)))
-                    datos_a_inyectar["promedio"] = promedio_final
-                    logging.info(f"Promedio calculado para {c_name}: {promedio_final}")
+                    datos_a_inyectar["promedio"] = int(round(sum(valores_para_promedio) / len(valores_para_promedio)))
 
                 if datos_a_inyectar:
                     if chart_config.get("is_table"):
-                        if chart_config.get("is_static"):
-                            columna_destino = chart_config.get("target_col")
-                            # 👇 Lo hacemos dinámico. Si no le decís nada, busca en la primera columna (0) 👇
-                            col_etiqueta = chart_config.get("label_col", 0) 
-                            
-                            exito = create_slides.update_static_table_in_presentation(
-                                prs, c_name, columna_destino, datos_a_inyectar, label_col=col_etiqueta
-                            )
-                            tipo_obj = f"Tabla Estática (Col {columna_destino})"
-                        else:
-                            col_datos = chart_config.get("start_data_col", 1)
-                            col_etiqueta = chart_config.get("label_col", col_datos - 1)
-                            es_porcentaje_tabla = chart_config.get("is_percentage", False)
-                            tiene_encabezado = chart_config.get("has_header", True) 
-
-                            exito = create_slides.update_tracking_table_in_presentation(
-                                prs, c_name, mes_nuevo, datos_a_inyectar, 
-                                start_data_col=col_datos, label_col=col_etiqueta,
-                                is_percentage=es_porcentaje_tabla, has_header=tiene_encabezado
-                            )
-                            tipo_obj = "Tabla Tracking"
+                        col_datos = chart_config.get("start_data_col", 1)
+                        exito = create_slides.update_tracking_table_in_presentation(
+                            prs, c_name, mes_nuevo, datos_a_inyectar, 
+                            start_data_col=col_datos, label_col=chart_config.get("label_col", col_datos - 1),
+                            is_percentage=chart_config.get("is_percentage", False), has_header=chart_config.get("has_header", True)
+                        )
                     else:
                         es_porcentaje = chart_config.get("is_percentage", False)
-                        solo_agregar = chart_config.get("append_only", False)
-                        
                         if es_porcentaje:
-                            for clave in datos_a_inyectar:
+                            for clave in list(datos_a_inyectar.keys()):
                                 datos_a_inyectar[clave] = datos_a_inyectar[clave] / 100.0
 
-                        colores_lineas = chart_config.get("line_colors", {})
-                        sin_signo = chart_config.get("remove_percentage_sign", False)
-                        
-                        # 👇 1. LEEMOS EL DATO DESDE EL CONFIG (Si no existe, asume 0)
                         decimales = chart_config.get("decimals", 0)
-                        ola_impar=chart_config.get("ola_impar", False)
                         exito = create_slides.update_tracking_chart_in_presentation(
                             prs, c_name, mes_nuevo, datos_a_inyectar, 
-                            is_percentage=es_porcentaje, append_only=solo_agregar,
-                            line_colors=colores_lineas, remove_percentage_sign=sin_signo,
-                            decimals=decimales, ola_impar=ola_impar  # 👈 2. ENCHUFAMOS EL CABLE ACÁ
+                            is_percentage=es_porcentaje, append_only=chart_config.get("append_only", False),
+                            line_colors=chart_config.get("line_colors", {}), remove_percentage_sign=chart_config.get("remove_percentage_sign", False),
+                            decimals=decimales, ola_impar=chart_config.get("ola_impar", False)
                         )
-                        tipo_obj = "Gráfico Tracking"
-                    
-                    if exito:
-                        logging.info(f"ÉXITO: {tipo_obj} '{c_name}' actualizado -> Datos: {datos_a_inyectar}")
-                        if not chart_config.get("is_header"):
-                            # 👇 ACÁ VA EL INTERRUPTOR AHORA 👇
-                            if chart_config.get("skip_insight", False):
-                                logging.info(f"   ⏭️ Saltando guardado en Mochila IA para '{c_name}'.")                            
-                            else:
-                                if chart_config.get("is_table"):
-                                    datos_ia = create_slides.extract_table_data_for_ai(prs, c_name)
-                                    if datos_ia and chart_config.get("ai_table_headers"):
-                                        datos_ia["datos_tabla"][0] = chart_config.get("ai_table_headers")
-                                else:
-                                    datos_ia = create_slides.extract_chart_data_for_ai(prs, c_name, ultimos_n_meses=12)
-                            
-                            if datos_ia:
-                                mochila_ia[c_name] = datos_ia
-                    else:
-                        logging.warning(f"No se encontró el {tipo_obj} '{c_name}' en la plantilla.")
+                        
+                        if exito and not chart_config.get("skip_insight", False):
+                            datos_ia = create_slides.extract_chart_data_for_ai(prs, c_name, ultimos_n_meses=12)
+                            if datos_ia: mochila_ia[c_name] = datos_ia
 
         except Exception as e:
             logging.error(f"Error en la actualización masiva de gráficos: {e}")
 
         # ==============================================================
-        # 7. IA Y ETIQUETAS YTD GLOBALES
+        # 7. CONSOLIDACIÓN DE INFORMES E IA
         # ==============================================================
-# 🧹 FILTRO DE ADUANA 1: Redondea todo a 1 decimal 
         def limpiar_decimales_para_ia(obj):
-            if isinstance(obj, float) or "float" in str(type(obj)).lower():
-                return round(float(obj), 4)
-            elif isinstance(obj, dict):
-                return {k: limpiar_decimales_para_ia(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [limpiar_decimales_para_ia(i) for i in obj]
+            if isinstance(obj, float) or "float" in str(type(obj)).lower(): return round(float(obj), 4)
+            elif isinstance(obj, dict): return {k: limpiar_decimales_para_ia(v) for k, v in obj.items()}
+            elif isinstance(obj, list): return [limpiar_decimales_para_ia(i) for i in obj]
             return obj
 
-        # 🧹 FILTRO DE ADUANA 2: Expulsa los gráficos de detalle a la fuerza
         claves_a_borrar = [k for k in mochila_ia.keys() if "Chart_Detalle" in k]
-        for k in claves_a_borrar:
-            del mochila_ia[k]
-
-        # Aplicamos la limpieza matemática y SOBREESCRIBIMOS la mochila original
+        for k in claves_a_borrar: del mochila_ia[k]
         mochila_ia = limpiar_decimales_para_ia(mochila_ia)
-        
-        logging.info(f"🧹 Mochila IA purificada. Se eliminaron {len(claves_a_borrar)} gráficos de detalle.")
 
         usar_ia = getattr(config, "USE_AI_INSIGHTS", False) 
-        
         if mochila_ia and usar_ia:
-            print("\n" + "="*50)
-            print("🧠 CONECTANDO CON GEMINI PARA ANALIZAR DATOS...")
             MI_API_KEY = "MI_API_KEY" 
-            
-            print("\n📝 1. Redactando títulos e insights por diapositiva...")
             diccionario_titulos = generador_ia.redactar_titulos_con_gemini(MI_API_KEY, mochila_ia)
-            
             if diccionario_titulos:
-                print("✅ Títulos generados con éxito.")
-                print("💉 Inyectando textos en los gráficos del PowerPoint...")
                 create_slides.inject_ai_insights_into_presentation(prs, diccionario_titulos)
-            else:
-                print("⚠️ No se generaron títulos o hubo un error con la API.")
-
-            usar_summary = getattr(config, "USE_AI_SUMMARY", False)
-            if usar_summary:
-                print("\n📊 2. Redactando el Executive Summary Global...")
-                texto_summary = generador_ia.redactar_executive_summary(
-                    MI_API_KEY, mochila_ia, diccionario_titulos or None
-                )
-                
-                if texto_summary:
-                    print("✅ Executive Summary generado.")
-                    print("💉 Inyectando el Summary en el PowerPoint...")
-                    inyectado_ok = False
-                    for slide in prs.slides:
-                        for shape in slide.shapes:
-                            if shape.has_text_frame and shape.name == "Text_Executive_Summary":
-                                shape.text = texto_summary
-                                inyectado_ok = True
-                                print("   -> ¡Caja 'Text_Executive_Summary' actualizada con éxito!")
-                                break 
-                        if inyectado_ok: break 
-                    
-                    if not inyectado_ok:
-                        print("   ⚠️ No se encontró la caja 'Text_Executive_Summary' en el PPT.")
-                else:
-                    print("⚠️ No se pudo generar el Executive Summary.")
-            else:
-                print("\n📊 2. Módulo de Executive Summary DESACTIVADO (Saltando...)")
-            print("="*50 + "\n")
-        elif not usar_ia:
-            print("\n" + "="*50)
-            print("⏸️  MÓDULO DE IA DESACTIVADO EN CONFIG.PY")
-            print("="*50 + "\n")
 
         cant_ytd, texto_ytd = create_slides.update_global_ytd_labels(prs, mes_nuevo)
-        logging.info(f"🧹 LIMPIEZA: Se actualizaron {cant_ytd} etiquetas a '{texto_ytd}'")
-
         output_ppt = f"informe_{config.STUDY_ID}.pptx"
         prs.save(output_ppt)
         logging.info(f"➡️ PowerPoint: {output_ppt}")
-
     else:
-        print("\n" + "="*50)
-        logging.info("⏭️ MODO SOLO TABLAS ACTIVADO: Omitiendo PowerPoint e IA.")
-        print("="*50 + "\n")
+        logging.info("⏭️ MODO SOLO TABLAS ACTIVADO: Omitiendo PowerPoint.")
 
     # =========================================================
-    # 8. GUARDADO FINAL DE EXCEL
+    # 📝 EXPORTACIÓN DE EXCEL DE AUDITORÍA HISTÓRICA
+    # =========================================================
+    import xlsxwriter
+    output_path = f"Auditoria_Diseno_Identico_{config.STUDY_ID}.xlsx"
+    writer = pd.ExcelWriter(output_path, engine='xlsxwriter')
+    workbook = writer.book
+    ws = workbook.add_worksheet('Auditoria YTD')
+
+    fmt_head = workbook.add_format({'bold': True, 'bg_color': '#423F40', 'font_color': 'white', 'border': 1, 'align': 'center', 'valign': 'vcenter'})
+    fmt_idx = workbook.add_format({'bold': True, 'border': 1})
+    fmt_title = workbook.add_format({'bold': True, 'font_size': 11, 'font_color': '#00A5A3'})
+    fmt_num = workbook.add_format({'border': 1, 'num_format': '0"%"', 'align': 'center'})
+    fmt_decimal = workbook.add_format({'border': 1, 'num_format': '0.00', 'align': 'center'})
+    fmt_base = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'bg_color': '#F8F9F9', 'font_size': 9})
+    fmt_idx_base = workbook.add_format({'bold': True, 'border': 1, 'bg_color': '#F8F9F9', 'font_size': 9})
+    
+    start_row = 1
+    anios_cols = [f"YTD {a}" for a in [2022, 2023, 2024, 2025, 2026]]
+
+    for df_audit in lista_dfs_auditoria:
+        v_name = df_audit['Variable'].iloc[0]
+        ws.write(start_row, 0, f"Variable: {v_name}", fmt_title)
+        start_row += 2
+
+        all_cols = [c for c in df_audit.columns if c not in ['Variable']]
+        for c_idx, col in enumerate(all_cols):
+            ws.write(start_row, c_idx, str(col), fmt_head)
+        start_row += 1
+
+        for _, row in df_audit.iterrows():
+            cat_name = str(row['Categoría'])
+            fmt_row_idx = fmt_idx_base if ("base" in cat_name.lower()) else fmt_idx
+            ws.write(start_row, 0, cat_name, fmt_row_idx)
+
+            for c_idx, col_name in enumerate(all_cols[1:]): 
+                val = row[col_name]
+                es_tecnica = any(x in cat_name.lower() for x in ["base", "media", "promedio"])
+                es_ytd_col = col_name in anios_cols
+                
+                if es_tecnica and es_ytd_col:
+                    ws.write_blank(start_row, c_idx + 1, None, fmt_base if "base" in cat_name.lower() else fmt_decimal)
+                else:
+                    fmt = fmt_base if "base" in cat_name.lower() else (fmt_decimal if ("media" in cat_name.lower() or "promedio" in cat_name.lower()) else fmt_num)
+                    ws.write(start_row, c_idx + 1, val if pd.notna(val) else 0, fmt)
+            
+            start_row += 1
+        start_row += 2 
+
+    ws.set_column('A:A', 50) 
+    writer.close()
+    logging.info(f"📊 Auditoría Final generada usando datos pre-procesados.")
+
+    # =========================================================
+    # 8. EXPORTACIÓN DE EXCEL PRINCIPAL DESDE EL ENGINE
     # =========================================================
     output_xls_prin = f"Tablas_Principal_{config.STUDY_ID}.xlsx"
-    engine.export_to_excel(excel_results_prin, output_xls_prin)
-    logging.info(f"➡️ Excel Principal: {output_xls_prin}")
+    if not usar_cache:
+        engine.export_to_excel(excel_results_prin, output_xls_prin)
+        logging.info(f"➡️ Excel Principal: {output_xls_prin}")
 
-    if excel_results_sec and engine_sec is not None:
-        output_xls_sec = f"Tablas_Secundaria_{config.STUDY_ID}.xlsx"
-        engine_sec.export_to_excel(excel_results_sec, output_xls_sec)
-        logging.info(f"➡️ Excel Secundario: {output_xls_sec}")
+        if excel_results_sec and engine_sec is not None:
+            output_xls_sec = f"Tablas_Secundaria_{config.STUDY_ID}.xlsx"
+            engine_sec.export_to_excel(excel_results_sec, output_xls_sec)
+            logging.info(f"➡️ Excel Secundario: {output_xls_sec}")
+    else:
+        logging.info("⏭️ Export Excel omitido (modo cache).")
 
     logging.info("="*60)
     logging.info("🎉 PROCESO COMPLETADO EXITOSAMENTE")

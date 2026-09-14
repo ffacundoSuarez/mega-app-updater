@@ -25,12 +25,13 @@ Convenciones:
 Contrato con Rust (args):
   --sav-principal PATH           (obligatorio)
   --sav-secundario PATH          (opcional)
+  --template-pptx PATH           (obligatorio, plantilla = informe de la ola anterior)
   --wave-filter INT              (obligatorio, ej 48)
   --wave-name STR                (obligatorio, ej "Abr 26")
   --output-dir PATH              (obligatorio, carpeta donde guardar outputs)
-  --assets-dir PATH              (obligatorio, carpeta con template + cuestionario + csv)
+  --assets-dir PATH              (obligatorio, carpeta con cuestionario + csv + logos)
   --use-ai-insights              (flag, opcional)
-  --use-ai-summary               (flag, opcional)
+  --use-ai-summary               (flag, opcional — no-op en el motor actual)
 
 Env vars:
   GEMINI_API_KEY                 (opcional, requerido si se usa IA)
@@ -77,6 +78,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--sav-principal", required=True, type=Path)
     parser.add_argument("--sav-secundario", default=None, type=Path)
+    parser.add_argument("--template-pptx", required=True, type=Path)
     parser.add_argument("--wave-filter", required=True, type=int)
     parser.add_argument("--wave-name", required=True, type=str)
     parser.add_argument("--output-dir", required=True, type=Path)
@@ -103,6 +105,15 @@ def main() -> int:
         logging.warning("SAV secundario no existe, se ignora: %s", args.sav_secundario)
         args.sav_secundario = None
 
+    if not args.template_pptx.is_file():
+        print(
+            json.dumps(
+                {"ok": False, "error": f"No existe la plantilla .pptx: {args.template_pptx}"}
+            ),
+            flush=True,
+        )
+        return 2
+
     if not args.assets_dir.is_dir():
         print(
             json.dumps({"ok": False, "error": f"No existe la carpeta de assets: {args.assets_dir}"}),
@@ -110,12 +121,14 @@ def main() -> int:
         )
         return 2
 
-    # Paths de assets. Los nombres son fijos (hardcoded al estudio YPF, decisión
-    # Fase 3). Si alguno no está, el motor original también los busca; dejamos
-    # que falle el motor con su mensaje específico.
-    template_pptx = args.assets_dir / "INFORME COMPLETO YPF MONITOR.pptx"
+    # La plantilla la elige el usuario en cada corrida: en un tracking, el informe
+    # de una ola es la plantilla de la siguiente, así que no puede ser un asset
+    # fijo del instalador.
+    template_pptx = args.template_pptx
+    # El resto de los assets sí son estables entre olas.
     questionnaire_xlsx = args.assets_dir / "cuestionario.xlsx"
     manual_tasks_csv = args.assets_dir / "manual_tasks.csv"  # puede no existir; OK
+    logos_dir = args.assets_dir / "logos"  # opcional; sólo lo usa el bloque Top-N
 
     # Aseguramos output_dir.
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -148,9 +161,37 @@ def main() -> int:
     ba_config.TEMPLATE_PPX = str(template_pptx)
     ba_config.QUESTIONNAIRE_EXCEL = str(questionnaire_xlsx)
     ba_config.MANUAL_TASKS_CSV = str(manual_tasks_csv)
+    ba_config.LOGOS_DIR = str(logos_dir) if logos_dir.is_dir() else None
     ba_config.WAVE_FILTER = args.wave_filter
     ba_config.NEW_WAVE_NAME = args.wave_name
     ba_config.APPLY_WAVE_FILTER = True
+
+    # ---------------------------------------------------------------------
+    # Corte de ola: hay DOS filtros en el motor y sólo debe quedar uno activo.
+    #
+    #   1. utils.load_data_and_apply_base_filter lee APPLY_WAVE_FILTER/WAVE_FILTER
+    #      y corta la ola DESPUÉS de guardar df_historico. Es el que queremos:
+    #      preserva el evolutivo intacto.
+    #   2. main.py agrega FILTRAR_BASE + VARIABLE_FILTRO + VALOR_FILTRO, que en
+    #      el config de Chris viene fijo en Wave == 53 (su ola de agosto).
+    #
+    # Si dejamos los dos, se encadenan: pedir cualquier ola distinta de la que
+    # tenga hardcodeada el config deja la base principal vacía.
+    # ---------------------------------------------------------------------
+    ba_config.FILTRAR_BASE = False
+
+    # Modos de desarrollo de Chris que nunca deben viajar a producción:
+    # MODO_PRUEBA tabula sólo las variables de VARIABLES_DE_PRUEBA (default ["P03"])
+    # y ONLY_GENERATE_TABLES saltea el PowerPoint entero.
+    ba_config.MODO_PRUEBA = False
+    ba_config.ONLY_GENERATE_TABLES = False
+
+    # STUDY_ID define los nombres de los archivos de salida y, en main.py, el
+    # nombre del pickle de caché. Viene hardcodeado por ola en el config de Chris
+    # ("Ypf Agosto 2026- Prueba Automatizacion"), así que sin esto los outputs
+    # quedarían con el nombre de la ola equivocada. Hay que patchearlo ANTES de
+    # importar brand_audit.main, que lo lee a nivel módulo.
+    ba_config.STUDY_ID = f"YPF {args.wave_name}"
 
     # Base secundaria: si no se pasa, desactivamos el atributo para que main.py
     # lo trate como "no hay secundaria" (usa getattr con default None).
@@ -158,6 +199,9 @@ def main() -> int:
         ba_config.SAV_FILE_SECUNDARIO = str(args.sav_secundario)
     else:
         ba_config.SAV_FILE_SECUNDARIO = None  # el motor chequea esto con getattr
+    # Flag nueva de Chris. main.py todavía decide por SAV_FILE_SECUNDARIO, pero la
+    # alineamos para que ambas digan lo mismo si más adelante la empieza a leer.
+    ba_config.PROCESAR_BASE_SECUNDARIA = args.sav_secundario is not None
 
     # Toggles de IA. La key viene por env var (GEMINI_API_KEY), no la pasamos por
     # argv para evitar que quede en logs de procesos.
@@ -177,13 +221,50 @@ def main() -> int:
     try:
         from brand_audit import main as ba_main  # type: ignore
         from brand_audit import generador_ia as ba_ia  # type: ignore
+        from brand_audit import process_data as ba_process_data  # type: ignore
+
+        # -----------------------------------------------------------------
+        # Optimización: saltear cálculo muerto.
+        #
+        # El súper bucle de main.py hace, por cada tarea:
+        #     res = process_data.process_single(...)   # o process_scale(...)
+        #     ...
+        #     tab = engine.tabulate_xxx(...)
+        #     if tab: resultados.append(tab)
+        #
+        # `res` nunca se lee: lo único que se acumula es `tab`. Ambas funciones
+        # son puras (sólo leen sus argumentos y arman dataframes locales, sin
+        # tocar globals ni escribir archivos), así que su resultado se descarta
+        # entero.
+        #
+        # Medido sobre la base de agosto 2026 (52.929 casos × 1.892 variables):
+        # process_single 94 s + process_scale 119 s = 213 s de 725 s totales.
+        # Es el 29% del tiempo de corrida gastado en resultados que se tiran.
+        #
+        # Lo anulamos acá y no en main.py para no divergir del código de Chris:
+        # cada vez que nos pasa una versión nueva, el archivo se reemplaza tal
+        # cual y este parche sigue aplicando. Si algún día main.py empieza a usar
+        # `res`, hay que revisar esto (ver docs/BRAND_AUDIT_SYNC.md).
+        # -----------------------------------------------------------------
+        ba_process_data.process_single = lambda *a, **kw: None
+        ba_process_data.process_scale = lambda *a, **kw: None
 
         # Parche IA: main.py tiene hardcoded `MI_API_KEY = "MI_API_KEY"` como
         # variable local dentro de run_brand_audit(), y se la pasa a
         # generador_ia.redactar_*. No podemos pisar una variable local desde
         # afuera, así que en su lugar wrappeamos las funciones de generador_ia
         # para que ignoren la key recibida y usen la env var GEMINI_API_KEY.
-        if ba_config.USE_AI_INSIGHTS or ba_config.USE_AI_SUMMARY:
+        # Ojo: el motor de agosto 2026 ya NO llama a redactar_executive_summary
+        # (Chris sacó ese bloque de main.py, porque la plantilla nunca tuvo la caja
+        # "Text_Executive_Summary" donde se inyectaba). Así que USE_AI_SUMMARY es
+        # hoy un no-op y no puede ser motivo para exigir la API key.
+        if ba_config.USE_AI_SUMMARY and not ba_config.USE_AI_INSIGHTS:
+            emit_progress(
+                "warn",
+                "El Executive Summary no está disponible en esta versión del motor; se ignora.",
+            )
+
+        if ba_config.USE_AI_INSIGHTS:
             api_key = os.environ.get("GEMINI_API_KEY", "").strip()
             if not api_key:
                 print(
@@ -191,9 +272,9 @@ def main() -> int:
                         {
                             "ok": False,
                             "error": (
-                                "Los toggles de IA están activos pero no hay "
+                                "Los títulos con IA están activos pero no hay "
                                 "GEMINI_API_KEY configurada. Configurala en "
-                                "Ajustes o apagá los toggles."
+                                "Ajustes o apagá el toggle."
                             ),
                         }
                     ),
@@ -207,8 +288,8 @@ def main() -> int:
             def _titulos_con_env_key(_ignored_key, mochila):
                 return _real_titulos(api_key, mochila)
 
-            def _summary_con_env_key(_ignored_key, mochila):
-                return _real_summary(api_key, mochila)
+            def _summary_con_env_key(_ignored_key, mochila, titulos_generados=None):
+                return _real_summary(api_key, mochila, titulos_generados)
 
             ba_ia.redactar_titulos_con_gemini = _titulos_con_env_key
             ba_ia.redactar_executive_summary = _summary_con_env_key
@@ -254,6 +335,8 @@ def main() -> int:
     out_ppt = args.output_dir / f"informe_{study_id}.pptx"
     out_xlsx_prin = args.output_dir / f"Tablas_Principal_{study_id}.xlsx"
     out_xlsx_sec = args.output_dir / f"Tablas_Secundaria_{study_id}.xlsx"
+    # Cuarto output, nuevo en el motor de agosto 2026: el Excel de auditoría YTD.
+    out_xlsx_audit = args.output_dir / f"Auditoria_Diseno_Identico_{study_id}.xlsx"
     out_log = args.output_dir / "debug_ejecucion.log"
 
     result = {
@@ -262,6 +345,7 @@ def main() -> int:
         "ppt": str(out_ppt) if out_ppt.is_file() else None,
         "excel_principal": str(out_xlsx_prin) if out_xlsx_prin.is_file() else None,
         "excel_secundario": str(out_xlsx_sec) if out_xlsx_sec.is_file() else None,
+        "auditoria": str(out_xlsx_audit) if out_xlsx_audit.is_file() else None,
         "log": str(out_log) if out_log.is_file() else None,
         "study_id": study_id,
     }

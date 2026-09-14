@@ -210,9 +210,39 @@ def load_data_and_apply_base_filter(sav_file, is_secundaria=False):
         df = df[df["Base_orden"] == 1].copy()
         logging.info(f"Filtro Base_orden=1 aplicado. Base N={len(df)}.")
         
+#    # =========================================================
+#    # 🌊 FILTRO POR OLA DINÁMICO (Usa var_ola)
+#    # =========================================================
+#    if aplica_filtro_ola and var_ola in df.columns and ola_objetivo is not None:
+#        df = df[df[var_ola] == ola_objetivo].copy()
+#        logging.info(f"Filtro {var_ola}={ola_objetivo} aplicado. Base N={len(df)}.")
+#    elif aplica_filtro_ola and var_ola not in df.columns:
+#        logging.warning(f"⚠️ Se pidió filtrar por ola, pero la columna '{var_ola}' NO EXISTE en esta base.")
+#    else:
+#        logging.info(f"Procesando base COMPLETA (Sin filtro de ola). Base N={len(df)}.")
+#        
+#    # =========================================================
+#    # PONDERACIÓN DINÁMICA
+#    # =========================================================
+#    if var_peso in df.columns:
+#        df[var_peso] = df[var_peso].fillna(1.0)
+#    else:
+#        df[var_peso] = 1.0 
+#
+#    return df, meta
+
     # =========================================================
     # 🌊 FILTRO POR OLA DINÁMICO (Usa var_ola)
     # =========================================================
+    # 🚀 PUNTO 1: Limpieza de columnas (Lo agregás acá)
+    lista_basura = getattr(config, "BASURA_SPSS", [])
+    columnas_a_borrar = [c for c in lista_basura if c in df.columns]
+    if columnas_a_borrar:
+        df.drop(columns=columnas_a_borrar, inplace=True)
+        logging.info(f"🗑️ Limpieza inicial: Se eliminaron {len(columnas_a_borrar)} variables de BASURA_SPSS.")    
+    
+    df_historico = df.copy() # 🚀 SALVAMOS LA HISTORIA ANTES DEL CORTE
+
     if aplica_filtro_ola and var_ola in df.columns and ola_objetivo is not None:
         df = df[df[var_ola] == ola_objetivo].copy()
         logging.info(f"Filtro {var_ola}={ola_objetivo} aplicado. Base N={len(df)}.")
@@ -226,10 +256,13 @@ def load_data_and_apply_base_filter(sav_file, is_secundaria=False):
     # =========================================================
     if var_peso in df.columns:
         df[var_peso] = df[var_peso].fillna(1.0)
+        df_historico[var_peso] = df_historico[var_peso].fillna(1.0) # 🚀 Peso al histórico
     else:
         df[var_peso] = 1.0 
+        df_historico[var_peso] = 1.0 # 🚀 Peso al histórico
 
-    return df, meta
+    # 🚀 AHORA RETORNAMOS 3 COSAS (Actual, Histórico y Metadatos)
+    return df, df_historico, meta
 
 def prepare_banner_info(df, banner_vars, value_labels=None):
     """
@@ -289,12 +322,18 @@ def prepare_banner_info(df, banner_vars, value_labels=None):
         unique_vals = sorted(df[var].dropna().unique())
 
         # --- RED DE SEGURIDAD (Mantenida intacta) ---
-        if len(unique_vals) > 30:
+        #if len(unique_vals) > 30:
+        #    import logging
+        #    logging.warning(f"Omitiendo '{var}' del banner: tiene {len(unique_vals)} categorías (límite superado).")
+        #    continue
+        # -------------------------------    
+
+        # --- RED DE SEGURIDAD (Mantenida intacta) ---
+        if len(unique_vals) > 30 and var != config.WAVE_VAR:
             import logging
             logging.warning(f"Omitiendo '{var}' del banner: tiene {len(unique_vals)} categorías (límite superado).")
             continue
-        # -------------------------------    
-
+        # -------------------------------  
         # --- NUEVA LÓGICA: Reiniciamos el abecedario por cada variable ---
         letter_idx = 0 
         current_var_segments = []
@@ -786,7 +825,124 @@ def get_sig_letters(p1, p2, n1, n2, target_letter, confidence=0.95):
         # En caso de cualquier error matemático inesperado, devolvemos vacío
         # para no detener el flujo de tabulación masiva.
         return ""
+
+def aplicar_recode_ytd_spss(df, mes_corte_num, var_wave="Wave"):
+    """
+    Asigna la etiqueta YTD a cada participante según el número de Wave,
+    siguiendo la sintaxis exacta de SPSS.
+    """
+    if var_wave not in df.columns:
+        return df
+
+    df = df.copy()
+    df['YTD_GRUPO'] = None
+
+    # Reglas exactas de la sintaxis SPSS
+    # 2022 (Solo aplica si el mes de corte es >= 4)
+    if mes_corte_num >= 4:
+        max_wave_22 = mes_corte_num - 3
+        df.loc[df[var_wave].between(1, max_wave_22), 'YTD_GRUPO'] = 'YTD 2022'
+
+    # 2023, 2024, 2025, 2026
+    offsets = {2023: 9, 2024: 21, 2025: 33, 2026: 45}
+    for anio, offset in offsets.items():
+        w_inicio = offset + 1
+        w_fin = offset + mes_corte_num
+        df.loc[df[var_wave].between(w_inicio, w_fin), 'YTD_GRUPO'] = f'YTD {anio}'
+
+    return df
+
+def calcular_ytd_homogeneo(datos_historicos_fila, año_objetivo, mes_corte_num, df_variable_completa=None):
+    """
+    Lee directamente la celda correspondiente al YTD calculado desde la base de microdatos.
+    """
+    col_buscada = f"YTD {año_objetivo}"
     
+    for col, valor in datos_historicos_fila.items():
+        if col_buscada in str(col):
+            try:
+                if valor is None or str(valor).lower() in ['nan', 'nat', 'none', '']:
+                    return None
+                return float(str(valor).replace('%', '').replace(',', '.'))
+            except (ValueError, TypeError):
+                return None
+
+    return None
+    
+#def calcular_ytd_homogeneo(datos_historicos_fila, año_objetivo, mes_corte_num, df_variable_completa=None):
+#    """
+#    Escanea la fila histórica buscando columnas del año objetivo hasta el mes de corte.
+#    
+#    LÓGICA DE FILTRADO:
+#    1. Si el mes no existe o es NaN -> Ignora (maneja variables que empezaron tarde).
+#    2. Si el valor es 0:
+#       - Si toda la columna de la variable en ese mes suma 0 -> Ignora (Ola no medida).
+#       - Si la columna tiene otros datos > 0 -> Incluye (Es un dato 0% real).
+#    """
+#    meses_str = {
+#        'enero': 1, 'ene': 1, 'febrero': 2, 'feb': 2,
+#        'marzo': 3, 'mar': 3, 'abril': 4, 'abr': 4,
+#        'mayo': 5, 'may': 5, 'junio': 6, 'jun': 6,
+#        'julio': 7, 'jul': 7, 'agosto': 8, 'ago': 8,
+#        'septiembre': 9, 'sep': 9, 'setiembre': 9,
+#        'octubre': 10, 'oct': 10,
+#        'noviembre': 11, 'nov': 11,
+#        'diciembre': 12, 'dic': 12
+#    }
+#
+#    valores_validos = []
+#
+#    for col, valor in datos_historicos_fila.items():
+#        col_str = str(col).lower()
+#
+#        # 1. Filtro de Año
+#        if str(año_objetivo) not in col_str:
+#            continue
+#
+#        # 2. Traductor de Mes
+#        mes_encontrado = None
+#        for nombre_mes in sorted(meses_str.keys(), key=len, reverse=True):
+#            if nombre_mes in col_str:
+#                mes_encontrado = meses_str[nombre_mes]
+#                break
+#
+#        # 3. Validación de Datos y Olas
+#        if mes_encontrado and mes_encontrado <= mes_corte_num:
+#            try:
+#                # Si el valor es nulo o vacío, saltamos (Variables que empezaron después)
+#                if valor is None or str(valor).lower() in ['nan', 'nat', 'none', '']:
+#                    continue
+#                
+#                # Limpieza de formato (por si viene como "32%" o "32,5")
+#                val_num = float(str(valor).replace('%', '').replace(',', '.'))
+#
+#                # --- EL FILTRO DE LA OLA VACÍA ---
+#                if val_num == 0:
+#                    # Si tenemos el DF de la variable, chequeamos si la columna entera es cero
+#                    if df_variable_completa is not None and col in df_variable_completa.columns:
+#                        # Sumamos la columna ignorando errores y nulos
+#                        col_data = pd.to_numeric(
+#                            df_variable_completa[col].astype(str).str.replace('%', '').str.replace(',', '.'), 
+#                            errors='coerce'
+#                        ).fillna(0)
+#                        
+#                        if col_data.sum() == 0:
+#                            # Toda la columna es cero -> Ola no medida. Ignoramos este mes.
+#                            continue
+#                
+#                # Si llegamos aquí, es un dato válido (sea > 0 o un 0% real)
+#                valores_validos.append(val_num)
+#
+#            except (ValueError, TypeError):
+#                continue
+#
+#    # 4. Promedio Final (Divide solo por los meses con datos reales)
+#    if valores_validos:
+#        return sum(valores_validos) / len(valores_validos)
+#    
+#    return None
+
+
     
 def generate_text_with_llm(prompt):
   """Función para llamar a la API de Gemini."""
@@ -821,6 +977,100 @@ def generate_text_with_llm(prompt):
     return "TÍTULO GLOBAL: Fallo desconocido \nRESUMEN: La síntesis automática falló por un error inesperado."
 
 # utils.py (alrededor de la línea 407, después de generate_text_with_llm)
+
+def tabular_grid_con_nets_al_final(engine, meta, df_base, task_config):
+    """
+    Toma la tabulación limpia del motor nativo (que ya viene con etiquetas reales de SPSS),
+    separa los ítems normales de los NETos basándose en las columnas originales del DataFrame,
+    y reconstruye la tabla dejando las marcas ordenadas arriba y los NETos abajo.
+    """
+    import pandas as pd
+    
+    v_name = task_config.get("VARIABLE_NAME")
+    prefix = task_config.get("COLS_PREFIX", v_name + "_")
+    
+    # 1. Ejecutamos tu motor nativo (que ya resuelve etiquetas e indexa por la etiqueta real)
+    tab_nativo = engine.tabulate_mrq(v_name, prefix)
+    if tab_nativo is None or 'percentages' not in tab_nativo:
+        return None
+        
+    df_bruto = tab_nativo['percentages'].copy()
+    
+    # 2. Mapeo de validación: Necesitamos saber qué etiqueta corresponde a qué columna original
+    # para detectar de manera infalible cuáles eran variables de tipo NET.
+    var_labels_dict = getattr(meta, 'variable_labels', {})
+    
+    # Identificamos cuáles son las columnas del archivo físico que son NETs (ej: 'A5_net1')
+    columnas_net_reales = [c for c in df_base.columns if str(c).startswith(prefix) and "net" in str(c).lower()]
+    
+    # Obtenemos las etiquetas de SPSS que tienen esas columnas NET
+    etiquetas_de_nets = set()
+    for c in columnas_net_reales:
+        lbl = var_labels_dict.get(c)
+        if lbl:
+            etiquetas_de_nets.add(str(lbl).strip())
+    
+    filas_bases = []
+    filas_items = []
+    filas_nets = []
+
+# 3. 🧩 CLASIFICACIÓN DE FILAS CON REGEX ESTRICTO
+    for idx, row in df_bruto.iterrows():
+        nombre_fila = str(idx).strip()
+        nombre_lower = nombre_fila.lower()
+        
+        # Bloque A: Control de Bases (se quedan arriba de todo)
+        if "base" in nombre_lower:
+            filas_bases.append(row.to_frame().T)
+            continue
+            
+        # Bloque B: Identificación de NETs por palabra clave real
+        # \bnet\b busca la palabra "net" aislada. 
+        # ^net\d+ busca códigos técnicos que arranquen con net seguido de números (ej: net1, net2)
+        es_net_codigo = bool(re.search(r'\bnet\b|^net\d+|_net', nombre_lower))
+        es_net_meta = nombre_fila in etiquetas_de_nets
+        
+        es_net = es_net_codigo or es_net_meta
+        
+        nueva_fila = row.copy()
+        nueva_fila.name = nombre_fila
+        
+        if es_net:
+            # Aseguramos el prefijo "**NET**" visual para el diseño del reporte
+            if "NET" not in nombre_fila.upper():
+                nueva_fila.name = f"**NET** {nombre_fila.upper()}"
+            filas_nets.append(nueva_fila.to_frame().T)
+        else:
+            # Bloque C: Items normales (Netflix tiene su propia palabra, así que cae acá seguro)
+            filas_items.append(nueva_fila.to_frame().T)
+
+    # 4. 📊 RECONSTRUCCIÓN Y ORDENAMIENTO
+    df_bases_final = pd.concat(filas_bases) if filas_bases else pd.DataFrame()
+    df_items_ordenados = pd.DataFrame()
+    df_nets_finales = pd.DataFrame()
+    
+    # Las categorías descriptivas reales se ordenan de mayor a menor automáticamente
+    if filas_items:
+        df_items_ordenados = pd.concat(filas_items)
+        col_total = "TOTAL" if "TOTAL" in df_items_ordenados.columns else df_items_ordenados.columns[0]
+        df_items_ordenados = df_items_ordenados.sort_values(by=col_total, ascending=False)
+        
+    # Los NETs se consolidan abajo respetando su orden natural del SPSS
+    if filas_nets:
+        df_nets_finales = pd.concat(filas_nets)
+
+    # Consolidación final
+    df_consolidado = pd.concat([df_bases_final, df_items_ordenados, df_nets_finales])
+    df_consolidado.index.name = None
+    df_consolidado = df_consolidado[df_bruto.columns]
+        
+    return {
+        "variable": v_name,
+        "label": tab_nativo.get("label", v_name),
+        "percentages": df_consolidado,
+        "type": "SINGLE",
+        "bases": tab_nativo.get("bases", {})
+    }
 
 def create_llm_prompt(data_context, prompt_type):
     """
@@ -912,6 +1162,8 @@ def generate_default_tasks(df, meta, exclude_vars):
     Detecta automáticamente SRQ, MRQ y ESCALAS agrupando inteligentemente 
     para no mezclar preguntas filtro (ej: P16) con sus grillas (ej: P16_A1).
     Además detecta variables Numéricas Puras y Omiten Textos Abiertos.
+    🚀 NUEVO: Detecta NETs precalculados en la base y los agrupa en la misma batería
+    forzando que se ordenen los ítems arriba y los NETs queden fijos al final.
     """
     import pandas as pd # Nos aseguramos que pandas esté disponible para la validación
     
@@ -925,9 +1177,16 @@ def generate_default_tasks(df, meta, exclude_vars):
             
         if '_' in col:
             # Si tiene guion bajo, es parte de una batería. 
-            # Separamos el prefijo y le agregamos "_GRID" a la llave interna 
-            # para que NUNCA pise a la variable madre.
             prefix = col.rsplit('_', 1)[0]
+            
+            # 🧠 DETECTOR INTELIGENTE DE NETS NATIVOS:
+            # Si el prefijo termina o contiene "net" (ej: "A5_net"), se lo podamos 
+            # para que caiga en la misma bolsa de la batería madre (ej: "A5")
+            if "net" in prefix.lower():
+                # Limpiamos el "net" y los guiones bajos sobrantes (ej: "A5_net" -> "A5")
+                import re
+                prefix = re.sub(r'[_]?net[_]?', '', prefix, flags=re.IGNORECASE)
+                
             group_key = f"{prefix}_GRID" 
             original_prefix = prefix
         else:
@@ -945,7 +1204,12 @@ def generate_default_tasks(df, meta, exclude_vars):
         cols = data["cols"]
         
         if len(cols) > 1:
-            first_col = cols[0]
+            # Separamos las columnas normales de los NETs precalculados para el ordenamiento
+            cols_items = [c for c in cols if "net" not in str(c).lower()]
+            cols_nets = [c for c in cols if "net" in str(c).lower()]
+            
+            # Usamos la primera columna de ítems reales para evaluar las etiquetas
+            first_col = cols_items[0] if cols_items else cols[0]
             val_labels = get_label_dict(meta.variable_value_labels, first_col) if 'utils.' not in str(globals()) else get_label_dict(meta.variable_value_labels, first_col)
             
             # CASO A: Es una Batería de Escala (Grid)
@@ -961,7 +1225,11 @@ def generate_default_tasks(df, meta, exclude_vars):
                     "TASK_ID": f"{group_key}_AUTO_SCALE",
                     "TYPE": "SCALE_PROFILE",
                     "VARIABLE_NAME": f"{prefix} (BATERÍA ESCALA)", 
-                    "EXACT_COLS": cols,
+                    # 🚀 LLAVE MAESTRA AUTOMÁTICA: Avisa al main.py que tiene NETs integrados
+                    "VARIABLE_TYPE": "GRID_AUTO_WITH_EMBEDDED_NETS" if cols_nets else "NORMAL",
+                    "EXACT_COLS": cols, # Mantiene la lista completa por compatibilidad
+                    "COLS_ITEMS": cols_items,
+                    "COLS_NETS": cols_nets,
                     "T2B_CODES": t2b
                 }
             
@@ -971,7 +1239,7 @@ def generate_default_tasks(df, meta, exclude_vars):
                 auto_tasks[first_col] = {
                     "TASK_ID": f"{first_col}_AUTO_TOM",
                     "TYPE": "SINGLE",
-                    "VARIABLE_NAME": first_col, # La procesa como SRQ normal
+                    "VARIABLE_NAME": first_col, 
                     "VARIABLE_TYPE": "SRQ",
                     "CHART_TYPE": "BAR_HORIZONTAL",
                     "ENABLE_TOP_N": True
@@ -982,7 +1250,7 @@ def generate_default_tasks(df, meta, exclude_vars):
                     "TASK_ID": f"{group_key}_AUTO_SOM",
                     "TYPE": "SINGLE",
                     "VARIABLE_NAME": f"{prefix} (MENCIONES TOTALES / SOM)",
-                    "VARIABLE_TYPE": "MRQ_CATEGORICAL", # <--- NUEVO TIPO
+                    "VARIABLE_TYPE": "MRQ_CATEGORICAL", 
                     "EXACT_COLS": cols,
                     "CHART_TYPE": "BAR_HORIZONTAL",
                     "ENABLE_TOP_N": True 
@@ -993,10 +1261,11 @@ def generate_default_tasks(df, meta, exclude_vars):
                 auto_tasks[group_key] = {
                     "TASK_ID": f"{group_key}_AUTO_MRQ",
                     "TYPE": "SINGLE",
-                    # Le devolvemos su nombre clásico y limpio
                     "VARIABLE_NAME": f"{prefix}",
-                    "VARIABLE_TYPE": "MRQ",
+                    "VARIABLE_TYPE": "GRID_AUTO_WITH_EMBEDDED_NETS" if cols_nets else "MRQ",
                     "EXACT_COLS": cols,
+                    "COLS_ITEMS": cols_items,
+                    "COLS_NETS": cols_nets,
                     "COLS_PREFIX": f"{prefix}_",
                     "CHART_TYPE": "BAR_HORIZONTAL",
                     "ENABLE_TOP_N": True 
@@ -1018,12 +1287,10 @@ def generate_default_tasks(df, meta, exclude_vars):
                 }
                 
             # =========================================================
-            # 🚀 NUEVO: DETECCIÓN DE NUMÉRICAS Y TEXTOS ABIERTOS
+            # 🚀 DETECCIÓN DE NUMÉRICAS Y TEXTOS ABIERTOS
             # =========================================================
             else:
-                # 1. ¿Es una variable numérica pura sin etiquetas (Ej: Edad)?
                 if pd.api.types.is_numeric_dtype(df[col]):
-                    # Validamos que no esté llena de nulos
                     if df[col].notna().sum() > 0:
                         print(f"🤖 [AUTO-DETECT] '{col}' -> Variable Numérica. Ruteando a NUMERIC...")
                         auto_tasks[col] = {
@@ -1035,9 +1302,7 @@ def generate_default_tasks(df, meta, exclude_vars):
                     else:
                         print(f"⚠️ Omitiendo '{col}': Es numérica pero está completamente vacía.")
                         
-                # 2. ¿Es una variable de texto abierto (Ej: Por qué le gusta?)
                 elif pd.api.types.is_string_dtype(df[col]) or pd.api.types.is_object_dtype(df[col]):
                     print(f"⏭️ Omitiendo '{col}': Es texto abierto. (Requiere IA Cualitativa).")
-            # =========================================================
 
     return auto_tasks

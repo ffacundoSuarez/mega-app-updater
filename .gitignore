@@ -27,6 +27,10 @@ dist-ssr
 # No se commitea: ver PLAN.md sección 3.bis.
 incoming/
 
+# Bytecode del sidecar de Python. Se regenera solo en cada corrida.
+__pycache__/
+*.pyc
+
 # Claves de firma Ed25519 del updater. NUNCA deben entrar al repo.
 # La privada vive en %USERPROFILE%\.tauri\, la pública en tauri.conf.json.
 *.key

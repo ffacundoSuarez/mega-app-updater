@@ -44,7 +44,11 @@ import {
   type BrandAuditProgressPayload,
   type BrandAuditResult,
 } from "@/lib/tauri";
-import { getGeminiApiKey } from "@/lib/settings";
+import {
+  getBrandAuditTemplate,
+  getGeminiApiKey,
+  setBrandAuditTemplate,
+} from "@/lib/settings";
 import { endRunningJob, logActivity, startRunningJob } from "@/lib/activity";
 
 type RunStatus = "idle" | "running" | "success" | "error";
@@ -66,6 +70,9 @@ const DEFAULTS = {
 export function BrandAuditView() {
   const [savPrincipal, setSavPrincipal] = useState<string | null>(null);
   const [savSecundario, setSavSecundario] = useState<string | null>(null);
+  // Plantilla .pptx: el informe de la ola anterior. Se pre-carga con la última
+  // usada, porque el flujo normal es encadenar el output de un mes al siguiente.
+  const [templatePptx, setTemplatePptx] = useState<string | null>(null);
   const [waveFilter, setWaveFilter] = useState<string>(
     String(DEFAULTS.waveFilter),
   );
@@ -86,6 +93,9 @@ export function BrandAuditView() {
   // Chequear si hay una API key guardada (para avisar si el usuario prende IA sin key).
   useEffect(() => {
     getGeminiApiKey().then((k) => setHasStoredKey(!!k));
+    getBrandAuditTemplate().then((p) => {
+      if (p) setTemplatePptx(p);
+    });
   }, []);
 
   // Listener de eventos de progreso. Se registra cuando arrancamos el run y se
@@ -131,8 +141,19 @@ export function BrandAuditView() {
     [],
   );
 
+  const pickTemplate = useCallback(async () => {
+    const selected = await open({
+      title: "Seleccioná el informe de la ola anterior (.pptx)",
+      multiple: false,
+      directory: false,
+      filters: [{ name: "PowerPoint", extensions: ["pptx"] }],
+    });
+    if (typeof selected === "string") setTemplatePptx(selected);
+  }, []);
+
   const canRun =
     !!savPrincipal &&
+    !!templatePptx &&
     !!waveName.trim() &&
     Number.isFinite(Number(waveFilter)) &&
     status !== "running";
@@ -151,7 +172,7 @@ export function BrandAuditView() {
   }, []);
 
   const handleRun = useCallback(async () => {
-    if (!canRun || !savPrincipal) return;
+    if (!canRun || !savPrincipal || !templatePptx) return;
 
     setStatus("running");
     setProgress([]);
@@ -169,12 +190,12 @@ export function BrandAuditView() {
 
       // Si el usuario prendió IA, leemos la key del store.
       let geminiApiKey: string | null = null;
-      if (useAiInsights || useAiSummary) {
+      if (useAiInsights) {
         geminiApiKey = await getGeminiApiKey();
         if (!geminiApiKey) {
           throw new Error(
-            "La IA está activada pero no hay API key de Gemini configurada. " +
-              "Configurala en Ajustes o apagá los toggles.",
+            "Los títulos con IA están activados pero no hay API key de Gemini " +
+              "configurada. Configurala en Ajustes o apagá el toggle.",
           );
         }
       }
@@ -182,6 +203,7 @@ export function BrandAuditView() {
       const res = await runBrandAudit({
         savPrincipal,
         savSecundario: savSecundario ?? undefined,
+        templatePptx,
         waveFilter: waveFilterNum,
         waveName: waveName.trim(),
         useAiInsights,
@@ -190,6 +212,8 @@ export function BrandAuditView() {
       });
       setResult(res);
       setStatus("success");
+      // Recordamos la plantilla recién cuando la corrida salió bien.
+      void setBrandAuditTemplate(templatePptx);
       void logActivity({
         type: "brand_audit_done",
         title: "Brand Audit completado",
@@ -216,6 +240,7 @@ export function BrandAuditView() {
     canRun,
     savPrincipal,
     savSecundario,
+    templatePptx,
     waveFilter,
     waveName,
     useAiInsights,
@@ -249,6 +274,17 @@ export function BrandAuditView() {
             path={savPrincipal}
             onPick={() => pickSav(setSavPrincipal)}
             onClear={() => setSavPrincipal(null)}
+          />
+
+          {/* Plantilla .pptx (obligatoria). No viene con la app: en un tracking
+              el informe de una ola es la plantilla de la siguiente. */}
+          <FilePickerRow
+            label="Informe de la ola anterior (.pptx)"
+            required
+            path={templatePptx}
+            onPick={pickTemplate}
+            onClear={() => setTemplatePptx(null)}
+            hint="El motor le agrega la columna de la ola nueva a este archivo. El original no se modifica."
           />
 
           {/* SAV secundario (opcional, colapsable) */}
@@ -418,6 +454,8 @@ interface FilePickerRowProps {
   onPick: () => void;
   onClear: () => void;
   required?: boolean;
+  /** Texto auxiliar debajo del selector. */
+  hint?: string;
 }
 
 function FilePickerRow({
@@ -426,6 +464,7 @@ function FilePickerRow({
   onPick,
   onClear,
   required,
+  hint,
 }: FilePickerRowProps) {
   return (
     <div className="flex flex-col gap-2">
@@ -465,6 +504,7 @@ function FilePickerRow({
           </Button>
         )}
       </div>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -599,6 +639,17 @@ function ResultCard({ result }: ResultCardProps) {
           >
             <FileSpreadsheet className="size-4" />
             Excel Secundaria
+          </Button>
+        )}
+        {result.auditoria && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => openFile(result.auditoria)}
+            className="gap-2"
+          >
+            <FileSpreadsheet className="size-4" />
+            Auditoría YTD
           </Button>
         )}
         <Button

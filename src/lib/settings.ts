@@ -30,6 +30,10 @@ const KEY_CUESTIONARIO_MODEL = "cuestionario.model";
 // Estructurado como `{ [projectId]: string[] }` para no perder lo escrito al
 // volver al proyecto sin apretar "Guardar cambios".
 const KEY_LIMPIADOR_RULE_DRAFTS = "limpiador.rule_drafts";
+// Última plantilla .pptx usada en Brand Audit. No es un secreto: es una comodidad,
+// porque la plantilla de cada ola suele ser el informe que generó la ola anterior,
+// y así el picker aparece pre-cargado.
+const KEY_BRAND_AUDIT_TEMPLATE = "brand_audit.last_template";
 
 let storePromise: Promise<Store> | null = null;
 
@@ -76,6 +80,18 @@ export async function setGeminiApiKey(key: string | null): Promise<void> {
 export async function hasGeminiApiKey(): Promise<boolean> {
   const key = await getGeminiApiKey();
   return !!key;
+}
+
+// --- Brand Audit ---
+
+/** Última plantilla .pptx elegida, para pre-cargar el picker. */
+export async function getBrandAuditTemplate(): Promise<string | null> {
+  return getTrimmed(KEY_BRAND_AUDIT_TEMPLATE);
+}
+
+/** Recuerda la plantilla usada en la última corrida exitosa. */
+export async function setBrandAuditTemplate(path: string | null): Promise<void> {
+  await setOrDelete(KEY_BRAND_AUDIT_TEMPLATE, path);
 }
 
 // --- Limpiador / integraciones corporativas ---

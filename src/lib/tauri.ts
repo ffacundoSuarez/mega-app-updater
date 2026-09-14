@@ -52,6 +52,9 @@ export const BRAND_AUDIT_PROGRESS_EVENT = "brand-audit-progress";
 export interface BrandAuditParams {
   savPrincipal: string;
   savSecundario?: string | null;
+  /** Plantilla .pptx: es el informe de la ola anterior, al que el motor le
+   *  agrega la columna de la ola nueva. Cambia todos los meses. */
+  templatePptx: string;
   waveFilter: number;
   waveName: string;
   useAiInsights?: boolean;
@@ -66,6 +69,8 @@ export interface BrandAuditResult {
   ppt: string | null;
   excelPrincipal: string | null;
   excelSecundario: string | null;
+  /** Excel de auditoría YTD (nuevo en el motor de agosto 2026). */
+  auditoria: string | null;
   log: string | null;
   studyId: string | null;
   stdout: string;

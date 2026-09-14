@@ -4,18 +4,49 @@ import os
 from pptx.enum.chart import XL_CHART_TYPE
 
 # --- CONFIGURACIÓN GLOBAL DEL ESTUDIO (MIGRADO DEL JSON) ---
-STUDY_ID = "Ypf Abril 2026- Prueba Automatizacion" 
+STUDY_ID = "Ypf Agosto 2026- Prueba Automatizacion" 
+#STUDY_ID = "672 Promotracking"
+
 #BANNER_VARIABLES = [],
 BANNER_VARIABLES = ["Genero", "Edad", "NSE", "Region", "Auto", "Vinculo", "Region2"]
-WAVE_VAR = "Wave"
+#esto es para PromoTracking
+#BANNER_VARIABLES = ["Total", "PROMO_cod"]
+
+#BANNER_VARIABLES = ["Wave"]
+
+# ==========================================
+# 🛑 MODO DESARROLLO / PRUEBA ULTRA RÁPIDA
+# ==========================================
+MODO_PRUEBA = False 
+VARIABLES_DE_PRUEBA = ["P03"] # Poné acá las 3 o 4 variables que quieras mirar en tu Excel
+#VARIABLES_DE_PRUEBA = ["A5","A6","A7","A4","A2","A9","A8"] # Poné acá las 3 o 4 variables que quieras mirar en tu Excel
+RECALCULAR_TABLAS = False
+
+WAVE_VAR = "Wave"            # Ya NO necesitás mentirle poniendo "F3" acá 🎉
 WEIGHT_VAR = "ponderacion"
+FILTRAR_BASE = True          # True para recortar por país
+VARIABLE_FILTRO = "Wave"       # Tu columna de control de mercado
+VALOR_FILTRO = 53             # 4 = Brasil, o el ID que toque
+LABEL_FILTRO = "Ola 53"
+
+#WAVE_VAR = "Wave"
+#WAVE_VAR = "F3"
+
 # --- FILTROS DE BASE ---
-APPLY_WAVE_FILTER = True  # Ponelo en True cuando quieras filtrar una ola específica
-WAVE_FILTER = 48           # ¿Qué ola querés filtrar si el interruptor está prendido?
+#APPLY_WAVE_FILTER = False  # Ponelo en True cuando quieras filtrar una ola específica
+#WAVE_FILTER = 50           # ¿Qué ola querés filtrar si el interruptor está prendido?
+
+# ==============================================================
+# 🎛️ CONFIGURACIÓN DE SEGMENTACIÓN (FILTRO GLOBAL POST-CAMPO)
+# ==============================================================
+#FILTRAR_BASE = True          # Cambialo a False para procesar el TOTAL de la base
+#VARIABLE_FILTRO = "F3"      # Nombre exacto de la columna en el SPSS/SAV
+#VALOR_FILTRO = 4             # El código numérico asignado (ej: 1 = Jóvenes, 2 = Adultos)
+#LABEL_FILTRO = "Brasil"      # Texto descriptivo exclusivo para los logs de consola
 
 # --- MÓDULOS ACTIVOS ---
 ONLY_GENERATE_TABLES = False   # <--- NUEVO: Si es True, ignora el PPTX y la IA.
-USE_AI_INSIGHTS = False      # Prende la IA para los títulos de cada slide
+USE_AI_INSIGHTS = True      # Prende la IA para los títulos de cada slide
 USE_AI_SUMMARY = False      # Prende/Apaga la creación del Mega Resumen Ejecutivo
 
 SRQ_DEFAULT_CHART = "BAR_HORIZONTAL"
@@ -23,10 +54,25 @@ MRQ_DEFAULT_CHART = "BAR_HORIZONTAL"
 RUN_LLM = False # Asegúrate de que esta variable exista o esté definida.
 
 # --- ARCHIVOS Y RUTAS ---
-SAV_FILE = "YPF ABRIL.sav"
-TEMPLATE_PPX = 'INFORME COMPLETO YPF MONITOR.pptx'
+SAV_FILE = "681-YPF Monitor Institucional_unificada_Agosto - Con abiertas.sav"
+
+#SAV_FILE = "672_MEGA Research - Promotracking Compilado_Total.sav"
+
+#SAV_FILE = "672_Promo.sav"
+TEMPLATE_PPX = 'informe_Ypf Julio 2026- Version Automatizacion.pptx'
+
+#TEMPLATE_PPX = 'Posibles automatizaciones - argperu.pptx'
+
+#TEMPLATE_PPX = 'Posibles automatizaciones V2.pptx'
+
 MANIFEST_FILE = 'study_manifest.json' 
 MANUAL_TASKS_CSV = "manual_tasks.csv"
+
+
+# ==============================================================
+# 🔌 SWITCHES DE BASES DE DATOS
+# ==============================================================
+PROCESAR_BASE_SECUNDARIA = False  # 🟢 True = Procesa Conductores | 🔴 False = Ignora por completo
 
 # =========================================================
 # 🚀 BASE SECUNDARIA (MVP AUTOMATIZACIÓN DUAL)
@@ -100,14 +146,238 @@ CHART_TYPES = {
   'BAR_STACKED_100': XL_CHART_TYPE.BAR_STACKED_100
 }
 
+# =========================================================================
+# 🌍 CONFIGURACIÓN GLOBAL DE MERCADOS (BRAND AUDIT 2026)
+# =========================================================================
+
+# 🇧🇷/🇲🇽 Variable de control para la corrida actual (el analista la cambia aquí)
+PAIS_ACTUAL = "ARG"  # Opciones: "BR", "MX", "AR", "COL", "GUATEMALA", "PERU"
+
+
+# =========================================================================
+# 🔀 ORDEN VISUAL DE PROMOCIONES POR PAÍS
+# =========================================================================
+# El analista edita estas listas para cambiar la prioridad de las columnas en el PPT.
+# El motor del backend hace un match inteligente (flexible) usando estos strings.
+ORDEN_PROMOS_MERCADOS = {
+    "BR": [
+        "Hellmanns NBA",
+        "Snickers Free Fire 2026",
+        "Clear Dourado 2026",
+        "Grand Break na Formula 1",
+        "Budweiser Budtour",
+        "Coca-Cola Um Grito de Gol 2026",
+        "Tem Lays tem Jogo",
+        "Rexona Eterno Convocado 2026",
+        "Cartão que dá Jogo",
+        "No promo"
+    ],
+    "MX": [
+        "Coca - Cola te acerca",
+        "El poder de one",
+        "La promo de la afición mas intensa",
+        "Primer Tiempo",
+        "El Tres Ganador",
+        "#DestapaPringoools",
+        "Kia Drive Tour",
+        "Gana boletos comprando un McTrío",
+        "Con la verde de bodega aurrera",
+        "Experiencia Deportiva con Spin Premia"
+    ],
+    "AR": [
+        "Fan del partido",
+        "Hospitality 2026",
+        "Mundial de premios",
+        "Viaje al mundial FIFA 2026",
+        "Vamos con Supervielle!",
+        "Una promo para creer",
+        "Argentina Llena de Energía",
+        "MostaClub",
+        "La Lucchettineta",
+        "Estamos Listos"
+    ],
+    "CH": [
+        "Tira y Gana",
+        "Destapa la pasión del mundial 2026",
+        "Tus Tarjetas Visa Scotiabank te llevan a la Copa",
+        "Banco de Chile Vive el Mundial",
+        "Final copa mundial de la fifa 2026",
+        "Xbox - Acepta el desafío Fanta",
+        "Marsoprole - Concurso 50 mochilas con $1.000.000",
+        "Corridas Milo 2026 - Gana implementación deportiva para tu colegio",
+        "Concurso Avant Premiere El Diablo se Viste a la Moda 2 - Entradas dobles",
+        "Gana un Viaje al BGS en Brasil con Shelao"
+    ],
+    "GTM": [
+        "Los 11 titulares",
+        "Un antojo para todo heroe",
+        "Block",
+        "La promo que faltaba de Señorial",
+        "Mete gol y gana con Diana",
+        "Destapala con emoción",
+        "Tira y Gana",
+        "Experiencia de la Copa Mundial de la FIFA 2026",
+        "MAX te lleva al país campeón - Sorteo viaje al Mundial"
+    ],
+    "COL": [
+        "Coca - Cola te acerca 2026",
+        "La Promo más fácil del mundo, con Nestlé siempre ganas",
+        "m&m's ¡Te lleva!",
+        "Vuélate en el jet de Jet",
+        "Papitas pal' pollo",
+        "Tira y Gana",
+        "Fichaje Nacional",
+        "Ara te lleva a la cancha",
+        "Gana Como Los Grandes",
+        "Quién pidió premios?"
+    ]
+}
+
+# =========================================================================
+# 🌎 MAPEOS GLOBALES DE COMPETENCIA (Definidos una sola vez arriba)
+# =========================================================================
+MAPEO_GRUPOS_MEXICO = {
+# 🎯 Usamos solo una palabra clave única de la columna en lugar de la frase gigante:
+    "primer tiempo": "PEP", 
+    "sabritas": "PEP",       # Pongo ambas por seguridad si tu base varía
+    
+    "cola": "COMPETENCIA_DIRECTA",
+    "afición mas intensa": "COMPETENCIA_DIRECTA",
+    "tres ganador": "COMPETENCIA_DIRECTA",
+    "#destapapringoools": "COMPETENCIA_DIRECTA",
+    "mctrío": "COMPETENCIA_DIRECTA",
+    "mctrio": "COMPETENCIA_DIRECTA",
+    
+    "poder de one": "COMPETENCIA_OTROS",
+    "kia drive tour": "COMPETENCIA_OTROS",
+    "bodega aurrera": "COMPETENCIA_OTROS",
+    "spin premia": "COMPETENCIA_OTROS"
+}
+
+MAPEO_GRUPOS_PERU = {
+    "tapas verdes": "PEP",
+    "viaje con sabor": "PEP",
+    "golea": "PEP",
+    "álbum": "COMPETENCIA_DIRECTA",
+    "album": "COMPETENCIA_DIRECTA",
+    "yape": "COMPETENCIA_DIRECTA",
+    "inca": "COMPETENCIA_DIRECTA",
+    "field": "COMPETENCIA_DIRECTA",
+    "cómodo": "COMPETENCIA_OTROS",
+    "comodo": "COMPETENCIA_OTROS",
+    "trident": "COMPETENCIA_OTROS",
+    "concierto": "COMPETENCIA_OTROS",
+    "atún": "COMPETENCIA_OTROS",
+    "atun": "COMPETENCIA_OTROS",
+    "primor": "COMPETENCIA_OTROS"
+}
+
+MAPEO_GRUPOS_CHILE = {
+    "tira y gana": "PEP",
+    "pasión del mundial": "COMPETENCIA_DIRECTA",
+    "pasion del mundial": "COMPETENCIA_DIRECTA",
+    "fanta": "COMPETENCIA_DIRECTA",
+    "xbox": "COMPETENCIA_DIRECTA",
+    "milo": "COMPETENCIA_DIRECTA",
+    "colegio": "COMPETENCIA_DIRECTA",    
+    "shelao": "COMPETENCIA_DIRECTA",
+    "scotiabank": "COMPETENCIA_OTROS",
+    "visa": "COMPETENCIA_OTROS",
+    "banco de chile": "COMPETENCIA_OTROS",
+    "fifa 2026": "COMPETENCIA_OTROS",
+    "soprole": "COMPETENCIA_OTROS",
+    "diablo se viste": "COMPETENCIA_OTROS"
+}
+
+MAPEO_GRUPOS_COLOMBIA = {
+    "tira y gana": "PEP",
+    "coca - cola": "COMPETENCIA_DIRECTA",
+    "nestlé": "COMPETENCIA_DIRECTA",
+    "nestle": "COMPETENCIA_DIRECTA",
+    "m&m": "COMPETENCIA_DIRECTA",
+    "papitas": "COMPETENCIA_DIRECTA",
+    "grandes": "COMPETENCIA_DIRECTA",
+    "premios?": "COMPETENCIA_DIRECTA",
+    "jet": "COMPETENCIA_OTROS",
+    "fichaje": "COMPETENCIA_OTROS",
+    "ara te lleva": "COMPETENCIA_OTROS"
+}
+
+MAPEO_GRUPOS_GUATEMALA = {
+    "tira y gana": "PEP",
+    "titulares": "COMPETENCIA_DIRECTA",
+    "heroe": "COMPETENCIA_DIRECTA",
+    "block": "COMPETENCIA_DIRECTA",
+    "señorial": "COMPETENCIA_DIRECTA",
+    "senorial": "COMPETENCIA_DIRECTA",
+    "diana": "COMPETENCIA_DIRECTA",
+    "destapala": "COMPETENCIA_DIRECTA",
+    "experiencia de la copa": "COMPETENCIA_OTROS",
+    "max te lleva": "COMPETENCIA_OTROS"
+}
+
+MAPEO_GRUPOS_BRASIL = {
+    "lays": "PEP",
+    "grito de gol": "COMPETENCIA_DIRECTA",
+    "coca-cola": "COMPETENCIA_DIRECTA",
+    "hellmann": "COMPETENCIA_OTROS",
+    "snickers": "COMPETENCIA_OTROS",
+    "clear": "COMPETENCIA_OTROS",
+    "grand break": "COMPETENCIA_OTROS",
+    "formula 1": "COMPETENCIA_OTROS",
+    "budwiser": "COMPETENCIA_OTROS",
+    "rexona": "COMPETENCIA_OTROS",
+    "cartão": "COMPETENCIA_OTROS",
+    "cartao": "COMPETENCIA_OTROS"
+}
+
+MAPEO_GRUPOS_ARGENTINA = {
+    "fan del partido": "PEP",
+    "hospitality": "COMPETENCIA_DIRECTA",
+    "mundial de premios": "COMPETENCIA_DIRECTA",
+    "viaje al mundial": "COMPETENCIA_OTROS",
+    "supervielle": "COMPETENCIA_OTROS",
+    "creer": "COMPETENCIA_OTROS",
+    "energía": "COMPETENCIA_OTROS",
+    "energia": "COMPETENCIA_OTROS",
+    "mostaclub": "COMPETENCIA_OTROS",
+    "lucchettineta": "COMPETENCIA_OTROS",
+    "listos": "COMPETENCIA_OTROS"
+}
+
+# =========================================================================
+# 🧠 PUENTE DE MEMORIA COMPARTIDA (ANALYTICS EN CALIENTE)
+# =========================================================================
+# Estos objetos se inicializan vacíos. Cuando el script pase por la pestaña 
+# de la pregunta A2 en el main.py, se llenarán con los datos reales de la ola.
+MAPA_PARTICIPACION_A2 = {}       # Mapeo de { Columna: %_Participacion }
+PROMOS_PEPSICO_DETECTADAS = []   # Lista de columnas que pertenecen a PepsiCo
+PROMO_LIDER_COMPETENCIA = None    # Nombre de la columna de la competencia con mayor %
+COMPETENCIA_ORDENADA_GLOBAL = [] # El resto de las marcas ordenadas de mayor a menor peso
+
+
 # =========================================================
 # 🧹 LIMPIEZA DE BASES (VARIABLES A ELIMINAR)
 # =========================================================
 # Pegá acá tu lista gigante original:
 BASURA_SPSS = [
+        "A6A16D_Cod","A5A17D_Cod","A8_1_prom","A8_2_prom","A8_3_prom","A8_4_prom","A8_5_prom","A8_6_prom","A8_7_prom","A8_8_prom","A8_9_prom","A8_10_prom","P03_E_16T2B","P03_E_17T2B","P03_E_20T2B","P03_E_22T2B","P03_E_24T2B","P4C_7_cod3","Q","P4C_1","P4C_2","P4C_3","P4C_4","P4C_5","P4C_6","P4C_7","P4C_8","P4C_9","filter_$","P126C_97_TEXT_Cod2","P11_1T4B","P11_2T4B","P11_3T4B","P11_4T4B","P11_5T4B","P11_7T4B","P11_9T4B","P11_12T4B",
+        "P12_1T3B","P12_2T3B","P12_3T3B","P12_4T3B","P12_5T3B","P12_7T3B","P12_9T3B","P12_13T3B","P02_A1T3B","pond_vinculo","Q6_First_Click","Q6_Last_Click","Q6_Click_Count","resDisposition","SCORE_ARG","SCORE_ARG_4",
+        "O_P39COD3","P08A","BS1_1T3B","BS1_2T3B","BS1_3T3B","BS1_4T3B","BS1_5T3B","BS1_6T3B","BS1_7T3B","BS1_8T3B",
+        "BS1_9T3B","BS1_1T4B","BS1_2T4B","BS1_3T4B","BS1_4T4B","BS1_5T4B","BS1_6T4B","BS1_7T4B","BS1_8T4B","BS1_9T4B","BS1_1T5B","BS1_2T5B",
+        "BS1_3T5B","BS1_4T5B","BS1_5T5B","BS1_6T5B","BS1_7T5B","BS1_8T5B","BS1_9T5B",
+        "BP1_1T3B","BP1_2T3B","BP1_3T3B","BP1_4T3B","BP1_5T3B","BP1_6T3B","BP1_7T3B","BP1_8T3B","BP1_9T3B",
+        "BP1_1T4B","BP1_2T4B","BP1_3T4B","BP1_4T4B","BP1_5T4B","BP1_6T4B","BP1_7T4B","BP1_8T4B","BP1_9T4B",
+        "BP1_1T5B","BP1_2T5B","BP1_3T5B","BP1_4T5B","BP1_5T5B","BP1_6T5B","BP1_7T5B","BP1_8T5B","BP1_9T5B",
+        "BP2_1T3B","BP2_2T3B","BP2_3T3B","BP2_4T3B","BP2_5T3B","BP2_6T3B","BP2_7T3B","BP2_8T3B","BP2_9T3B",
+        "BP2_1T4B","BP2_2T4B","BP2_3T4B","BP2_4T4B","BP2_5T4B","BP2_6T4B","BP2_7T4B","BP2_8T4B","BP2_9T4B",
+        "BP2_1T5B","BP2_2T5B","BP2_3T5B","BP2_4T5B","BP2_5T5B","BP2_6T5B","BP2_7T5B","BP2_8T5B","BP2_9T5B"
+        "P15_1T3B","P15_2T3B","P15_3T3B","P15_4T3B","P15_1T5B","P15_2T5B","P15_3T5B","P15_4T5B","P15_1T4B",
+        "P15_2T4B","P15_3T4B","P15_4T4B","@NSE","P09__","P09___Effort_Numeric","P09___Sentiment","P126B_5_TEXT__","P126B_5_TEXT___Effort_Numeric",
+        "P126B_5_TEXT___Sentiment","P127_5_TEXT__","P127_5_TEXT___Effort_Numeric","P127_5_TEXT___Sentiment""P02_A1T3B","P02_A2T3B","P02_A3T3B","P02_A4T3B","P02_A5T3B","P02_A6T3B","P02_A7T3B","P02_A8T3B","P02_A9T3B",
         "P18_1T2B","Progress","Duration__in_seconds_","Finished",
         "Q6_Page_Submit","Q79_First_Click","Q79_Last_Click","Q79_Page_Submit",
-        "Q79_Click_Count","SC0","Wave","Total","P107T2B","P108T2B",
+        "Q79_Click_Count","SC0","Total","P107T2B","P108T2B",
         "Q215_First_Click","Q215_Last_Click","Q215_Page_Submit","Q215_Click_Count",
         "P149_T2B","P150_T2B","Q","GG4_T2B","GG5_T2B","GG8_T2B","GG9_T2B",            
         "P161_1_T2B","P161_2_T2B","P161_3_T2B","P161_4_T2B","P161_5_T2B","P161_6_T2B","P161_7_T2B",   
@@ -116,7 +386,7 @@ BASURA_SPSS = [
         "BS1_1","BS1_2","BS1_3","BS1_4","BS1_5","BS1_6","BS1_7","BS1_8","BS1_9",
         "BP1_1","BP1_2","BP1_3","BP1_4","BP1_5","BP1_6","BP1_7","BP1_8","BP1_9",
         "BP2_1","BP2_2","BP2_3","BP2_4","BP2_5","BP2_6","BP2_7","BP2_8","BP2_9",
-        "P05","P06","P06_97_TEXT","P07",
+        "P05","P06_97_TEXT",
         "P13","P14","P14_1","P14_2",
         "P15_1","P15_2","P15_3","P15_4",
         "G01","G02","G04","G05",
@@ -171,8 +441,7 @@ BASURA_SPSS = [
         "P201_Cod1","P201_Cod2","P201_Cod3",
         "P210_Cod1","P210_Cod2",
         "P205_1_97_TEXT_Cod1",
-        "P02_1_Cod2","P02_1_Cod3","P02_1_Cod4","P02_1_Cod5","P02_1_Cod6","P02_1_Cod7","P02_1_Cod8","P02_1_Cod9","P02_1_Cod10","P02_1_Cod11","P02_1_Cod12","P02_1_Cod13","P02_1_Cod14","P02_1_Cod15","P02_1_Cod16",
-        "P06_COD1","P09_Cod1","P09_Cod2","P09_Cod3","P09_Cod4","P105_97_TEXT_Cod1","P105_97_TEXT_Cod2","P105_97_TEXT_Cod3",
+        "P06_COD1","P105_97_TEXT_Cod1","P105_97_TEXT_Cod2","P105_97_TEXT_Cod3","P105_97_TEXT"
         "P110_97_TEXT_Cod1","P110_97_TEXT_Cod2",
         "P121_98_TEXT_Cod1","P121_98_TEXT_Cod2","P121_98_TEXT_Cod3","P121_98_TEXT_Cod4","P121_98_TEXT_Cod5",
         "P122_97_TEXT_Cod1","P122_97_TEXT_Cod2","P122_97_TEXT_Cod3",
@@ -204,7 +473,7 @@ BASURA_SPSS = [
         "P12_1T2B","P12_2T2B","P12_3T2B","P12_4T2B","P12_5T2B","P12_6T2B","P12_7T2B","P12_8T2B",
         "P03_16T2B",
         "T06_Cod1","T06_Cod2","T06_Cod3","T06_Cod4","T06_Cod5","T06_Cod6",
-        "P09_Cod5","P09_Cod6","P09_Cod7","G12_Cod4","G12_Cod5",
+        "G12_Cod4","G12_Cod5",
         "P132","P134","P136",
         "P03_16_Auxiliar","P03_17_Auxiliar","P03_18_Auxiliar","P03_19_Auxiliar","P03_20_Auxiliar","P03_21_Auxiliar","P03_22_Auxiliar","P03_23_Auxiliar","P03_24_Auxiliar","P03_25_Auxiliar","P03_26_Auxiliar","P03_27_Auxiliar",
         "P03_01_Auxiliar","P03_02_Auxiliar","P03_03_Auxiliar","P03_04_Auxiliar","P03_05_Auxiliar","P03_06_Auxiliar","P03_07_Auxiliar","P03_08_Auxiliar","P03_09_Auxiliar","P03_10_Auxiliar","P03_11_Auxiliar","P03_12_Auxiliar","P03_13_Auxiliar","P03_14_Auxiliar","P03_15_Auxiliar",
@@ -219,7 +488,7 @@ BASURA_SPSS = [
         "P4C_9_Cod_1","P4C_9_Cod_2","P4C_9_Cod_3",
         "Index_YPF",
         "P133_Cod_1","P133_Cod_2",
-        "P135_Cod_1","P135_Cod_2","P02_1_Cod17","P02_1_Cod18","P02_1_Cod19","P02_1_Cod20","P02_1_Cod21","P02_1_Cod22","P137",
+        "P135_Cod_1","P135_Cod_2","P137",
         "Edad2","G12_Cod6",
         "T06_Cod7","T06_Cod8","T06_Cod9","T06_Cod10","T06_Cod11","T06_Cod12","T06_Cod13",
         "P138","P139","P140",
@@ -294,6 +563,11 @@ BASURA_SPSS_SECUNDARIO = ["StartDate","ResponseId","P10_97_TEXT","P13","P14","P1
 ]
 
 
+# =========================================================================
+# 🔀 ORDEN GLOBAL DE PROMOCIONES POR PAÍS (PPT VISUAL)
+# =========================================================================
+# El analista edita las listas para cambiar la prioridad de las columnas.
+# El script hará un match flexible (case-insensitive) con estas palabras clave.
 
 
 TAREAS_MANUALES_EXTRA = {
@@ -343,33 +617,99 @@ TAREAS_MANUALES_EXTRA = {
         "VARIABLE_TYPE": "NUMERIC_GRID", # 👈 La instrucción real para nuestra función        
         "VARIABLE_NAME": "P119B",
         "EXACT_COLS": ["P119B_1", "P119B_2", "P119B_3", "P119B_4", "P119B_5"]
-    }                              
+    },
+    "P02_1": {
+        "TASK_ID": "P02_1",
+        "TYPE": "SINGLE",               # 👈 Pase VIP para entrar al bucle principal
+        "VARIABLE_TYPE": "MRQ_CATEGORICAL", # 👈 Le avisa al guardia que es una batería
+        "VARIABLE_NAME": "P02_1",
+        # Podés poner solo la primera, ¡nuestro Auto-Expansor buscará las otras 15 automáticamente!
+        "EXACT_COLS": ["P02_1_Cod1"] 
+    },
+    "P105": {
+        "TASK_ID": "P105",
+        "TYPE": "SINGLE",               # 👈 Pase VIP para entrar al bucle principal
+        "VARIABLE_TYPE": "MRQ_CATEGORICAL", # 👈 Le avisa al guardia que es una batería
+        "VARIABLE_NAME": "P105",
+        # Podés poner solo la primera, ¡nuestro Auto-Expansor buscará las otras 15 automáticamente!
+        "EXACT_COLS": ["P105_"] 
+    },
+    "P09": {
+        "TASK_ID": "P09",
+        "TYPE": "SINGLE",               # 👈 Pase VIP para entrar al bucle principal
+        "VARIABLE_TYPE": "MRQ_CATEGORICAL", # 👈 Le avisa al guardia que es una batería
+        "VARIABLE_NAME": "P09",
+        # Podés poner solo la primera, ¡nuestro Auto-Expansor buscará las otras 15 automáticamente!
+        "EXACT_COLS": ["P09_Cod1"]
+    },
+    "P113c": {
+        "TASK_ID": "P113c",
+        "TYPE": "SINGLE",               # 👈 Pase VIP para entrar al bucle principal
+        "VARIABLE_TYPE": "MRQ_CATEGORICAL", # 👈 Le avisa al guardia que es una batería
+        "VARIABLE_NAME": "P113c",
+        # Podés poner solo la primera, ¡nuestro Auto-Expansor buscará las otras 15 automáticamente!
+        "EXACT_COLS": ["P113c_Cod1"]
+    },
+    "P113d": {
+        "TASK_ID": "P113d",
+        "TYPE": "SINGLE",               # 👈 Pase VIP para entrar al bucle principal
+        "VARIABLE_TYPE": "MRQ_CATEGORICAL", # 👈 Le avisa al guardia que es una batería
+        "VARIABLE_NAME": "P113d",
+        # Podés poner solo la primera, ¡nuestro Auto-Expansor buscará las otras 15 automáticamente!
+        "EXACT_COLS": ["P113d_Cod1"]
+    },
+    "A8": {
+        "TASK_ID": "A8",
+        "TYPE": "SCALE_PROFILE",     
+        "VARIABLE_NAME": "A8",
+        "EXACT_COLS": ["A8_1", "A8_2", "A8_3", "A8_4", "A8_5"],
+        "BOXES": ["T2B","B2B","T3B","Media (Promedio)"] # <--- ACÁ ESTÁ LA MAGIA
+    }     
 }
 # =========================================================
 # --- PANEL DE CONTROL: ACTUALIZACIÓN DE GRÁFICOS PPTX ---
 # =========================================================
 
 # El nombre del nuevo mes/ola (con "\n" para que quede en dos renglones en la tabla)
-NEW_WAVE_NAME = "Abr 26" 
+NEW_WAVE_NAME = "Ago 26" 
+
+ATRIBUTOS_COMUNES2 = {
+    # Usamos una palabra única, sin acentos ni barras, seguida del | t2b
+    "Es una empresa con productos y servicios de calidad": ["servicios | t2b"],
+    "Es una empresa manejada por profesionales": ["profesionales | t2b"],
+    "Es una empresa líder en innovación y desarrollo tecnológico": ["innovaci | t2b"], # Cortado para evitar acento en 'ón'
+    "Tiene prácticas de negocios éticas y transparentes": ["transparentes | t2b"], # Evitamos 'éticas' por el acento
+    "Es una compañía en la que me gustaría trabajar": ["trabajar | t2b"],
+    "Es una empresa cercana, que está presente en mi vida cotidiana": ["cotidiana | t2b"],
+    "Es una marca confiable / responsable": ["confiable | t2b"], # Evitamos la barra
+    "Es una empresa que me genera orgullo": ["orgullo | t2b"],
+    "Contribuye a la generación de empleo": ["empleo | t2b"],
+    "Es una empresa fundamental para la economía del país": ["fundamental | t2b"],
+    "Tiene historia y trayectoria arraigada al país": ["trayectoria | t2b"],
+    "Es una empresa muy comprometida con el desarrollo del país": ["desarrollo | t2b"],
+    "Tiene presencia/cobertura en todo el país": ["cobertura | t2b"],
+    "Es una empresa responsable/comprometida con el medioambiente": ["medio | t2b"], # Evitamos la duda de si está junto o separado
+    "Participa activamente y es responsable en las comunidades en las que opera": ["comunidades | t2b"]
+}
 
 # --- DICCIONARIO MAESTRO DE ATRIBUTOS ---
 # Lo definimos acá arriba para usarlo en las dos tablas sin tener que copiar y pegar todo
 ATRIBUTOS_COMUNES = {
-    "Es una empresa con productos y servicios de calidad": ["productos y servicios de calidad"],
-    "Es una empresa manejada por profesionales": ["manejada por profesionales"],
-    "Es una empresa líder en innovación y desarrollo tecnológico": ["innovación y desarrollo tecnológico"],
-    "Tiene prácticas de negocios éticas y transparentes": ["negocios éticas y transparentes"],
-    "Es una compañía en la que me gustaría trabajar": ["compañía en la que me gustaría trabajar"],
-    "Es una empresa cercana, que está presente en mi vida cotidiana": ["cercana", "cotidiana"],
-    "Es una marca confiable / responsable": ["confiable / responsable"],
-    "Es una empresa que me genera orgullo": ["orgullo"],
-    "Contribuye a la generación de empleo": ["empleo"],
-    "Es una empresa fundamental para la economía del país": ["empresa fundamental para la economía del país"],
-    "Tiene historia y trayectoria arraigada al país": ["historia", "trayectoria"],
-    "Es una empresa muy comprometida con el desarrollo del país": ["desarrollo del país"],
-    "Tiene presencia/cobertura en todo el país": ["cobertura en todo el país"],
-    "Es una empresa responsable/comprometida con el medioambiente": ["comprometida con el medioambiente"],
-    "Participa activamente y es responsable en las comunidades en las que opera": ["comunidades en las que opera"]
+    "Es una empresa con productos y servicios de calidad": ["productos y servicios de calidad | t2b"],
+    "Es una empresa manejada por profesionales": ["manejada por profesionales | t2b"],
+    "Es una empresa líder en innovación y desarrollo tecnológico": ["innovación y desarrollo tecnológico | t2b"],
+    "Tiene prácticas de negocios éticas y transparentes": ["negocios éticas y transparentes | t2b"],
+    "Es una compañía en la que me gustaría trabajar": ["compañía en la que me gustaría trabajar | t2b"],
+    "Es una empresa cercana, que está presente en mi vida cotidiana": ["cercana", "cotidiana | t2b"],
+    "Es una marca confiable / responsable": ["confiable / responsable | t2b"],
+    "Es una empresa que me genera orgullo": ["orgullo | t2b"],
+    "Contribuye a la generación de empleo": ["empleo | t2b"],
+    "Es una empresa fundamental para la economía del país": ["empresa fundamental para la economía del país | t2b"],
+    "Tiene historia y trayectoria arraigada al país": ["historia", "trayectoria | t2b"],
+    "Es una empresa muy comprometida con el desarrollo del país": ["desarrollo del país | t2b"],
+    "Tiene presencia/cobertura en todo el país": ["cobertura en todo el país | t2b"],
+    "Es una empresa responsable/comprometida con el medioambiente": ["comprometida con el medioambiente | t2b"],
+    "Participa activamente y es responsable en las comunidades en las que opera": ["comunidades en las que opera | t2b"]
 }
 
 ATRIBUTOS_COMUNES_CONDUCTORES = {
@@ -423,12 +763,13 @@ TRACKING_CHARTS = [
     {
         "chart_name": "Chart_P107", 
         "variable": "P107", 
-        "metrics": {"Muy buena + algo buena": ["t2b"], "Algo mala + muy mala": ["b2b"], "Ni buena ni mala": ["ni buena ni mala"]}
+        #"metrics": {"Muy buena + algo buena": ["t2b"], "Algo mala + muy mala": ["b2b"], "Ni buena ni mala": ["ni buena ni mala"]}
+        "metrics": {"Muy buena + algo buena": ["b2b"], "Algo mala + muy mala": ["t2b"], "Ni buena ni mala": ["ni buena ni mala"]}
     },    
     {
         "chart_name": "Chart_P108", 
         "variable": "P108", 
-        "metrics": {"Muy buena + algo buena": ["t2b"], "Algo mala + muy mala": ["b2b"]}
+        "metrics": {"Muy buena + algo buena": ["b2b"], "Algo mala + muy mala": ["t2b"]}
     },
     {
         "chart_name": "Chart_P105",
@@ -464,6 +805,20 @@ TRACKING_CHARTS = [
             "Coca Cola": ["coca cola"]
         }
     },
+    {
+        "chart_name": "Chart_P09",
+        "variable": "P09",
+        "metrics": {
+            "Publicidad/Publicidad en TV": ["publicidad"],
+            "Aumento": ["aumento"],
+            "Promociones": ["promociones"],
+            "Vaca muerta/Gasoducto/Gas no convencional": ["gas no convencional"],
+            "Inversión": ["inversión"],
+            "Privatizacion": ["privatizacion"],
+            "Jucio/Deuda por expropiación": ["deuda millonaria"],
+            "Buena empresa": ["buena empresa"]
+        }
+    },    
     {
         "chart_name": "Chart_Lineas_P02_T3B",
         "variable": "P02",
@@ -508,14 +863,15 @@ TRACKING_CHARTS = [
     {
         "chart_name": "Chart_Barras_Lealtad", 
         "variable": "Vinculo",              
-        "reporcentualizar": True,             
+        "reporcentualizar": True,
+        "multiplier":100,             
         "is_percentage": True,          
         "metrics": {
-            "Leal YPF": ["leal"],
-            "Nuevo": ["nuevo"],
+            "Leal YPF": ["actual leal"],            
             "Abandonador": ["abandonador"],
+            "Nuevo": ["nuevo"],
             "Competencia": ["competencia"]
-        }
+        }   
     },
     # --- TABLAS EVOLUTIVAS ---
     {
@@ -544,7 +900,7 @@ TRACKING_CHARTS = [
         "label_col": 0,               
         "has_header": False,          
         "calcular_promedio": False,
-        "metrics": ATRIBUTOS_COMUNES    
+        "metrics": ATRIBUTOS_COMUNES2    
     },
     {
         "chart_name": "Header_Meses_ValordeMarca",  
@@ -560,7 +916,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,                              
         "target_box": "T2B",
-        "metrics": {"TIENE PRODUCTOS Y SERVICIOS DE CALIDAD": ["calid"]}
+        #"metrics": {"ES UNA EMPRESA es una empresa con productos y servicios de calidad.": ["calidad."]}
+        "metrics": {
+            "YPF": ["productos y servicios de calidad | t2b"]
+        }        
     },
     {
         "chart_name": "Chart_Detalle_P03_2",
@@ -570,7 +929,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,           
         "target_box": "T2B",
-        "metrics": {"CONTRIBUYE A LA GENERACIÓN DE EMPLEO": ["CONTRIBUYE A LA GENERACIÓN DE EMPLEO"]} 
+        #"metrics": {"CONTRIBUYE A LA GENERACIÓN DE EMPLEO": ["CONTRIBUYE A LA GENERACIÓN DE EMPLEO"]} 
+        "metrics": {
+            "YPF": ["empleo | t2b"]
+        }
     },
     {
         "chart_name": "Chart_Detalle_P03_3",
@@ -580,7 +942,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,        
         "target_box": "T2B",
-        "metrics": {"ES UNA EMPRESA RESPONSABLE CON EL MEDIO AMBIENTE": ["medioambiente"]} 
+        #"metrics": {"ES UNA EMPRESA RESPONSABLE CON EL MEDIO AMBIENTE": ["medioambiente"]}
+        "metrics": {
+            "YPF": ["comprometida con el medioambiente | t2b"]
+        }
     },
     {
         "chart_name": "Chart_Detalle_P03_4",
@@ -590,7 +955,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,        
         "target_box": "T2B",
-        "metrics": {"ES UNA EMPRESA EN LA QUE ME GUSTARÍA TRABAJAR": ["trabajar"]} 
+        #"metrics": {"ES UNA EMPRESA EN LA QUE ME GUSTARÍA TRABAJAR": ["trabajar"]} 
+        "metrics": {
+            "YPF": ["compañía en la que me gustaría trabajar | t2b"]
+        }    
     },       
     {
         "chart_name": "Chart_Detalle_P03_5",
@@ -600,7 +968,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,        
         "target_box": "T2B",
-        "metrics": {"ES UNA EMPRESA FUNDAMENTAL PARA LA ECONOMÍA DEL PAÍS": ["ES UNA EMPRESA FUNDAMENTAL PARA LA ECONOMÍA DEL PAÍS"]} 
+        #"metrics": {"ES UNA EMPRESA FUNDAMENTAL PARA LA ECONOMÍA DEL PAÍS": ["ES UNA EMPRESA FUNDAMENTAL PARA LA ECONOMÍA DEL PAÍS"]} 
+        "metrics": {
+            "YPF": ["empresa fundamental para la economía del país | t2b"]
+        }    
     },
     {
         "chart_name": "Chart_Detalle_P03_6",
@@ -610,7 +981,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,        
         "target_box": "T2B",
-        "metrics": {"MUY COMPROMETIDA CON EL DESARROLLO DEL PAÍS": ["MUY COMPROMETIDA CON EL DESARROLLO DEL PAÍS"]} 
+        #"metrics": {"MUY COMPROMETIDA CON EL DESARROLLO DEL PAÍS": ["MUY COMPROMETIDA CON EL DESARROLLO DEL PAÍS"]} 
+        "metrics": {
+            "YPF": ["desarrollo del país | t2b"]
+        }   
     },           
     {
         "chart_name": "Chart_Detalle_P03_7",
@@ -620,7 +994,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,        
         "target_box": "T2B",
-        "metrics": {"ES UNA EMPRESA CERCANA, QUE ESTÁ PRESENTE EN MI VIDA COTIDIANA": ["ES UNA EMPRESA CERCANA, QUE ESTÁ PRESENTE EN MI VIDA COTIDIANA"]} 
+        #"metrics": {"ES UNA EMPRESA CERCANA, QUE ESTÁ PRESENTE EN MI VIDA COTIDIANA": ["ES UNA EMPRESA CERCANA, QUE ESTÁ PRESENTE EN MI VIDA COTIDIANA"]} 
+        "metrics": {
+            "YPF": ["cotidiana | t2b"]
+        }  
     },       
     {
         "chart_name": "Chart_Detalle_P03_8",
@@ -630,7 +1007,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,        
         "target_box": "T2B",
-        "metrics": {"TIENE HISTORIA Y TRAYECTORIA": ["TIENE HISTORIA Y TRAYECTORIA ARRAIGADA AL PAÍS"]} 
+        #"metrics": {"TIENE HISTORIA Y TRAYECTORIA": ["TIENE HISTORIA Y TRAYECTORIA ARRAIGADA AL PAÍS"]} 
+        "metrics": {
+            "YPF": ["historia y trayectoria arraigada al país | t2b"]
+        }
     },       
     {
         "chart_name": "Chart_Detalle_P03_9",
@@ -640,7 +1020,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,        
         "target_box": "T2B",
-        "metrics": {"ES UNA MARCA CONFIABLE / RESPONSABLE": ["ES UNA MARCA CONFIABLE / RESPONSABLE"]} 
+        #"metrics": {"ES UNA MARCA CONFIABLE / RESPONSABLE": ["ES UNA MARCA CONFIABLE / RESPONSABLE"]} 
+        "metrics": {
+            "YPF": ["confiable / responsable | t2b"]
+        }    
     },       
     {
         "chart_name": "Chart_Detalle_P03_10",
@@ -650,7 +1033,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,        
         "target_box": "T2B",
-        "metrics": {"ES UNA EMPRESA MANEJADA POR PROFESIONALES": ["manejada por profesionales"]} 
+        #"metrics": {"ES UNA EMPRESA MANEJADA POR PROFESIONALES": ["manejada por profesionales"]} 
+        "metrics": {
+            "YPF": ["manejada por profesionales | t2b"]
+        }    
     },       
     {
         "chart_name": "Chart_Detalle_P03_11",
@@ -660,7 +1046,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,        
         "target_box": "T2B",
-        "metrics": {"TIENE PRÁCTICAS DE NEGOCIOS ÉTICAS Y TRANSPARENTES": ["TIENE PRÁCTICAS DE NEGOCIOS ÉTICAS Y TRANSPARENTES"]} 
+        #"metrics": {"TIENE PRÁCTICAS DE NEGOCIOS ÉTICAS Y TRANSPARENTES": ["TIENE PRÁCTICAS DE NEGOCIOS ÉTICAS Y TRANSPARENTES"]} 
+            "metrics": {
+            "YPF": ["negocios éticas y transparentes | t2b"]
+        }
     },       
     {
         "chart_name": "Chart_Detalle_P03_12",
@@ -670,7 +1059,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,        
         "target_box": "T2B",
-        "metrics": {"PARTICIPA ACTIVAMENTE Y ES RESPONSABLE EN LAS COMUNIDADES EN LAS QUE OPERA": ["PARTICIPA ACTIVAMENTE Y ES RESPONSABLE EN LAS COMUNIDADES EN LAS QUE OPERA"]} 
+        #"metrics": {"PARTICIPA ACTIVAMENTE Y ES RESPONSABLE EN LAS COMUNIDADES EN LAS QUE OPERA": ["PARTICIPA ACTIVAMENTE Y ES RESPONSABLE EN LAS COMUNIDADES EN LAS QUE OPERA"]} 
+        "metrics": {
+            "YPF": ["comunidades en las que opera | t2b"]
+        }    
     },       
     {
         "chart_name": "Chart_Detalle_P03_13",
@@ -680,7 +1072,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,        
         "target_box": "T2B",
-        "metrics": {"ES UNA EMPRESA LÍDER EN INNOVACIÓN Y DESARROLLO TECNOLÓGICO": ["innovaci"]} 
+        #"metrics": {"ES UNA EMPRESA LÍDER EN INNOVACIÓN Y DESARROLLO TECNOLÓGICO": ["innovaci"]} 
+        "metrics": {
+            "YPF": ["innovación y desarrollo tecnológico | t2b"]
+        }    
     },
     {
         "chart_name": "Chart_Detalle_P03_14",
@@ -690,7 +1085,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,        
         "target_box": "T2B",
-        "metrics": {"ES UNA EMPRESA QUE ME GENERA ORGULLO": ["me genera orgullo"]} 
+        #"metrics": {"ES UNA EMPRESA QUE ME GENERA ORGULLO": ["me genera orgullo"]} 
+        "metrics": {
+            "YPF": ["orgullo | t2b"]
+        }    
     },       
     {
         "chart_name": "Chart_Detalle_P03_15",
@@ -700,7 +1098,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,        
         "target_box": "T2B",
-        "metrics": {"TIENE PRESENCIA EN TODO EL PAÍS": ["cobertura","presencia"]} 
+        #"metrics": {"TIENE PRESENCIA EN TODO EL PAÍS": ["cobertura","presencia"]} 
+        "metrics": {
+            "YPF": ["cobertura en todo el país | t2b"]
+        }    
     },
     {
         "chart_name": "Chart_Detalle_P03E_1",
@@ -711,7 +1112,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,                              
         "target_box": "T2B",
-        "metrics": {"SE VIENE MODERNIZANDO Y RENOVANDO EN LOS ÚLTIMOS AÑOS": ["modernizando"]}
+        #"metrics": {"SE VIENE MODERNIZANDO Y RENOVANDO EN LOS ÚLTIMOS AÑOS": ["modernizando"]}
+        "metrics": {
+            "YPF": ["modernizando y renovando en los últimos años | t2b"]
+        }    
     },
     {
         "chart_name": "Chart_Detalle_P03E_2",
@@ -722,7 +1126,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,                              
         "target_box": "T2B",
-        "metrics": {"TIENE UN ROL ESTRATÉGICO EN EL DESARROLLO ENERGÉTICO DE ARGENTINA": ["rol estrat"]}
+        #"metrics": {"TIENE UN ROL ESTRATÉGICO EN EL DESARROLLO ENERGÉTICO DE ARGENTINA": ["rol estrat"]}
+        "metrics": {
+            "YPF": ["tiene un rol estratégico en el desarrollo energético de argentina | t2b"]
+        }    
     },
     {
         "chart_name": "Chart_Detalle_P03_29",
@@ -733,7 +1140,10 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "skip_insight": True,                              
         "target_box": "T2B",
-        "metrics": {"ES UNA EMPRESA CON PRODUCTOS DE CALIDAD INTERNACIONAL": ["internacional"]}
+        #"metrics": {"ES UNA EMPRESA CON PRODUCTOS DE CALIDAD INTERNACIONAL": ["internacional"]}
+        "metrics": {
+            "YPF": ["es una empresa con productos de calidad internacional | t2b"]
+        }    
     },
     {
         "chart_name": "Chart_Detalle_P03E_3",
@@ -795,6 +1205,31 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": True,
         "metrics": {"Si": ["si","Sí"], "No + Ns/Nc": ["no", "recuerdo"]}
     },
+    {
+        "chart_name": "Chart_P06", 
+        "variable": "P06",        
+        "is_table": False,
+        "is_percentage": True,
+        "remove_percentage_sign": True,
+        "metrics": {"Empresa nacional": ["empresa nacional"],
+                     "Presencia en todo el pais": ["presencia en todo el país"],
+                     "Calidad": ["calidad"],
+                     "Trayectoria": ["trayectoria"],                     
+                     "Genera empleo": ["genera empleo"],                       
+                     "Estatal": ["estatal"]                       
+                     }
+    },
+    {
+        "chart_name": "Chart_P07", 
+        "variable": "P07",        
+        "is_table": False,
+        "is_percentage": True,
+        "remove_percentage_sign": True,
+        "metrics": {"YPF es una empresa vinculada al desarrollo de energía en su conjunto (combustibles, gas, energía eléctrica, eólica, etc)": ["vinculada al desarrollo de energía"],
+                     "YPF es una empresa dedicada principalmente al desarrollo de combustibles (industria petrolera)": ["desarrollo de combustibles"],
+                     "No sabe": ["no sabe"]                       
+                     }
+    },          
     {
         "chart_name": "Chart_P10", 
         "variable": "P10",        
@@ -1007,8 +1442,14 @@ TRACKING_CHARTS = [
         "remove_percentage_sign": False,       # Si no lleva %, esto no hace falta
         "metrics": {
             # "Nombre de la línea" : ["palabra que aparece en el Excel"]
-            "Índice YPF": ["promedio", "mean", "media"] 
+            #"Índice YPF": ["promedio", "mean", "media", "Media (Promedio)"] 
+            # 👈 Agregamos "índice ypf", "índice", "index" para que matchee con el nombre de la serie en PowerPoint
+            "Índice YPF": [
+                "índice ypf", "indice ypf", "índice", "indice", "index",
+                "promedio", "mean", "media", "Media (Promedio)"
+            ]        
         }
+
     },
     {
         "chart_name": "Chart_Index_YPF_Conductores",       # El nombre exacto de tu gráfico en el Panel de Selección de PPT
@@ -1200,13 +1641,15 @@ TRACKING_CHARTS = [
         "variable": "P142",
         "ola_impar": True,
         "metrics": {
-            "Muy de acuerdo + Algo de acuerdo": ["b2b"],
-            "Algo en desacuerdo + Muy en desacuerdo": ["t2b"]        
+            #"Muy de acuerdo + Algo de acuerdo": ["b2b"],
+            #"Algo en desacuerdo + Muy en desacuerdo": ["t2b"]        
+            "Muy de acuerdo + Algo de acuerdo": ["t2b"],
+            "Algo en desacuerdo + Muy en desacuerdo": ["b2b"]                    
             }
     },
     {
         "chart_name": "Chart_P113c", 
-        "variable": "P113c (MENCIONES TOTALES / SOM)",
+        "variable": "P113c",
         "ola_impar": True,
         "metrics": {
             "YPF": ["ypf"],
@@ -1218,7 +1661,7 @@ TRACKING_CHARTS = [
     },
     {
         "chart_name": "Chart_P113d", 
-        "variable": "P113d (MENCIONES TOTALES / SOM)",
+        "variable": "P113d",
         "ola_impar": True,
         "metrics": {
             "YPF": ["ypf"],
@@ -1248,8 +1691,10 @@ TRACKING_CHARTS = [
         "ola_impar": True,
         "metrics": {
             "No sabe o no contesta": ["no sabe"],
-            "Mala + Muy Mala": ["b2b"],
-            "Buena + Muy Buena": ["t2b"]                    
+            #"Mala + Muy Mala": ["b2b"],
+            #"Buena + Muy Buena": ["t2b"]                    
+            "Mala + Muy Mala": ["t2b"],
+            "Buena + Muy Buena": ["b2b"]                    
             }
     },
     {
@@ -1262,6 +1707,23 @@ TRACKING_CHARTS = [
             "El desarrollo de la industria petrolera debe ser una prioridad para el desarrollo del país a pesar de los efectos negativos en el medioambiente": ["desarrollo de la industria"]                  
             }
     },
+    {
+        "chart_name": "Chart_P161", 
+        "variable": "P161",
+        "ola_impar": False,
+        "is_percentage": True,
+        "append_only": False,
+        "metrics": {
+            "Lionel Messi": ["messi | t2b"],
+            "Rodrigo De Paul": ["paul | t2b"],
+            "Franco Colapinto": ["colapinto | t2b"],
+            "Facundo Arana": ["arana | t2b"],
+            "Adolfo Cambiasso": ["cambiasso | t2b"],
+            "Sofi Martinez": ["martinez | t2b"],
+            "Agustín Poli": ["poli | t2b"]
+
+            }
+    },    
     {
         "chart_name": "Chart_IM1", # 👈 Nombre del gráfico de líneas en PPT
         "is_percentage": True,
@@ -1533,6 +1995,24 @@ TRACKING_CHARTS = [
         }
     },
     {
+        "chart_name": "Chart_IM16", # 👈 Nombre del gráfico de líneas en PPT
+        "is_percentage": True,
+        "append_only": False,        
+        "remove_percentage_sign": True,        
+        "metrics": {
+            # "Línea PPT" : {"variable": "Tabla Excel", "keywords": ["Fragmento del atributo | métrica"]}
+            "YPF": {"variable": "P03", "keywords": ["internacional | t2b"]},
+            "Shell": {"variable": "P04_2", "keywords": ["internacional | t2b"]},
+            "Axion": {"variable": "P04_1", "keywords": ["internacional | t2b"]},
+            "Puma Energy": {"variable": "P04_3", "keywords": ["internacional | t2b"]},
+            "Mercado Libre": {"variable": "P04B_5", "keywords": ["internacional | t2b"]},
+            "Quilmes": {"variable": "P04B_8", "keywords": ["internacional | t2b"]},
+            "Aerolíneas Argentinas": {"variable": "P04B_6", "keywords": ["internacional | t2b"]},
+            "Coca Cola": {"variable": "P04B_7", "keywords": ["internacional | t2b"]},
+            "McDonald’s": {"variable": "P04B_4", "keywords": ["internacional | t2b"]}
+        }
+    },    
+    {
         "chart_name": "Chart_IM17", # 👈 Nombre del gráfico de líneas en PPT
         "is_percentage": True,
         "append_only": False,        
@@ -1596,45 +2076,77 @@ TRACKING_CHARTS = [
             "Axion": {"variable": "P4_E_1", "keywords": ["los combustibles | t2b"]},
             "Puma Energy": {"variable": "P4_E_3", "keywords": ["los combustibles | t2b"]}
         }
-    },                                                                                                                                                                                                                                
+    },
+    {
+        "chart_name": "Chart_P2_1",
+        "variable": "P02_1",
+        "metrics": {
+            "YPF": ["YPF"], "Mercado Libre": ["mercado libre"], "Coca Cola": ["coca cola"],
+            "Aerolineas Argentinas": ["aerolineas argentinas"], "Arcor": ["arcor"], "Shell": ["shell"],
+            "Adidas": ["adidas"], "Quilmes": ["quilmes"], "La Serenisima": ["serenisima"]
+        }
+    },
+    {
+    "chart_name": "Chart_P162",
+    "variable": "P162",
+    "metrics": {
+        "Si": {
+            0: {"target_box": "Sí", "keywords": ["CAFÉ CABRALES"]},
+            1: {"target_box": "Sí", "keywords": ["GUAPALETAS"]}
+        },
+        "NO": {
+            0: {"target_box": "No", "keywords": ["CAFÉ CABRALES"]},
+            1: {"target_box": "No", "keywords": ["GUAPALETAS"]}
+        }
+    }
+    },                                                                                                                                                                                                                                    
     # =========================================================
     # --- GRÁFICOS YTD (Promedios calculados leyendo el PPT) ---
     # ¡Van al final para asegurarse de que el PPT ya esté actualizado!
     # =========================================================        
     {
         "chart_name": "Chart_YTD_P107",
-        "is_ytd_calculated": True,         
+        "is_ytd_calculated": True,
+        "variable": "P107",         
         "ref_chart_name": "Chart_P107",    
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
-        "metrics": {"T2B": ["muy buena"], "ni buena ni mala": ["ni"], "B2B": ["muy mala"]}
+        #"metrics": {"T2B": ["algo buena","muy buena"], "ni buena ni mala": ["ni"], "B2B": ["muy mala","algo mala"]}
+        "metrics": {"T2B": ["muy mala","algo mala"], "ni buena ni mala": ["ni"], "B2B": ["algo buena","muy buena"]}
     },
     {
         "chart_name": "Chart_YTD_P108",
-        "is_ytd_calculated": True,         
+        "is_ytd_calculated": True,
+        "variable": "P108",                   
         "ref_chart_name": "Chart_P108",    
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
-        "metrics": {"T2B": ["buena"], "B2B": ["mala"]}
+        "metrics": {"T2B": ["b2b"], "B2B": ["t2b"]}
     },
     {
         "chart_name": "Chart_YTD_P105",
-        "is_ytd_calculated": True,         
+        "is_ytd_calculated": True,
+        "variable": "P105",                   
         "ref_chart_name": "Chart_P105",    
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
-        "metrics": {
-            "Inflación": ["Inflación"], "La Inseguridad": ["inseguridad"], "Desempleo": ["desempleo"],
-            "La pobreza": ["La pobreza"], "La grieta política/ social": ["grieta política/ social"],
-            "La educación": ["educación"], "El endeudamiento externo": ["endeudamiento"], "La salud / el covid19": ["salud"]
+        "metrics": {"Inflación": ["inflación"],
+                    "La Inseguridad": ["inseguridad"],
+                    "Desempleo": ["desempleo"],
+                    "La pobreza": ["pobreza"],
+                    "La grieta política/ social": ["grieta política"],
+                    "La educación": ["educación"],
+                    "El endeudamiento externo": ["endeudamiento"],
+                    "La salud / el covid19": ["salud"]
         }
     },
     {
         "chart_name": "Chart_YTD_P106",
-        "is_ytd_calculated": True,         
+        "is_ytd_calculated": True,
+        "variable": "P106",                   
         "ref_chart_name": "Chart_P106",    
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
@@ -1643,274 +2155,701 @@ TRACKING_CHARTS = [
     },
     {
         "chart_name": "Chart_YTD_Barras_Lealtad",  
-        "is_ytd_calculated": True,         
-        "ref_chart_name": "Chart_Barras_Lealtad",  
+        "is_ytd_calculated": True,
+        "variable": "Vinculo",                  
+        "ref_chart_name": "Chart_Barras_Lealtad",
+        "reporcentualizar": True,        
+        "recalculate_proportions": True, # <--- Nueva bandera para el script          
         "target_year": "YTD 2026",                 
         "year_suffix": "26",               
         "is_percentage": True,                     
         "metrics": {
-            "Leal YPF": ["leal"], "Abandonador": ["abandonador"],
+            "Leal YPF": ["actual leal"], "Abandonador": ["abandonador"],
             "Nuevo": ["nuevo"], "Competencia": ["competencia"]
         }
     },
     {
         "chart_name": "Chart_YTD_P01",
+        "variable": "P01",            
         "is_ytd_calculated": True,         
         "ref_chart_name": "Chart_Lineas_P01",    
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
         "metrics": {
-            "YPF": ["YPF"], "Shell": ["Shell"], "Axion": ["Axion"],
-            "Puma": ["Puma"], "Aerolíneas Argentinas": ["aerolíneas Argentinas"],
-            "McDonald’s": ["McDonald’s"], "Quilmes": ["quilmes"], "Coca Cola": ["coca cola"]
+            "YPF": ["ypf | T4B"], "Shell": ["shell | T4B"], "Axion": ["axion | T4B"],
+            "Puma": ["puma energy | T4B"],
+            "Mercado Libre": ["mercado libre | T4B"], "Aerolíneas Argentinas": ["aerolíneas argentinas | T4B"],
+            "McDonald’s": ["McDonald’s | T4B"], "Quilmes": ["quilmes | T4B"], "Coca Cola": ["coca cola | T4B"]
         }
     },
     {
         "chart_name": "Chart_YTD_P02_T2B",
+        "variable": "P02",            
         "is_ytd_calculated": True,         
         "ref_chart_name": "Chart_Lineas_P02_T2B",    
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
         "metrics": {
-            "YPF": ["YPF"], "Shell": ["Shell"], "Axion": ["Axion"],
-            "Puma": ["Puma"], "Aerolíneas Argentinas": ["aerolíneas Argentinas"],
-            "McDonald’s": ["McDonald’s"], "Quilmes": ["quilmes"], "Coca Cola": ["coca cola"]
+            # 🚀 Todas llevan el " | T2B" porque así las "aplanamos" en el DataFrame
+            "YPF": ["ypf | T2B"], 
+            "Shell": ["shell | T2B"], 
+            "Axion": ["axion | T2B"],
+            "Puma": ["puma Energy | T2B"], 
+            "Aerolíneas Argentinas": ["aerolíneas Argentinas | T2B"],
+            "Mercado Libre": ["mercado Libre | T2B"],            
+            "McDonald’s": ["mcdonald’s | T2B"], 
+            "Quilmes": ["quilmes | T2B"], 
+            "Coca Cola": ["coca cola | T2B"]
         }
-    },       
+    },    
     {
         "chart_name": "Chart_YTD_P02_T3B",
+        "variable": "P02",           
         "is_ytd_calculated": True,         
         "ref_chart_name": "Chart_Lineas_P02_T3B",    
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
         "metrics": {
-            "YPF": ["YPF"], "Shell": ["Shell"], "Axion": ["Axion"],
-            "Puma": ["Puma"], "Aerolíneas Argentinas": ["aerolíneas Argentinas"],
-            "McDonald’s": ["McDonald’s"], "Quilmes": ["quilmes"], "Coca Cola": ["coca cola"]
+            "YPF": ["YPF | T3B"], 
+            "Shell": ["Shell | T3B"], 
+            "Axion": ["Axion | T3B"],
+            "Puma": ["Puma Energy | T3B"], 
+            "Aerolíneas Argentinas": ["Aerolíneas Argentinas | T3B"],
+            "Mercado Libre": ["Mercado Libre | T3B"],            
+            "McDonald’s": ["McDonald’s | T3B"], 
+            "Quilmes": ["Quilmes | T3B"], 
+            "Coca Cola": ["Coca Cola | T3B"]
+        }
+    }, 
+    {
+        "chart_name": "Chart_YTD_Detalle_P03_1",
+        "variable": "P03",
+        "ref_chart_name": "Chart_Detalle_P03_1", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["productos y servicios de calidad | t2b"]
+        }
+    },    
+    {
+        "chart_name": "Chart_YTD_Detalle_P03_2",
+        "variable": "P03",
+        "ref_chart_name": "Chart_Detalle_P03_2", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["empleo | t2b"]
+        }
+    },    
+    {
+        "chart_name": "Chart_YTD_Detalle_P03_3",
+        "variable": "P03",
+        "ref_chart_name": "Chart_Detalle_P03_3", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["comprometida con el medioambiente | t2b"]
         }
     },
     {
-        "chart_name": "Chart_YTD_Detalle_P03_1", "ref_chart_name": "Chart_Detalle_P03_1", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"TIENE PRODUCTOS Y SERVICIOS DE CALIDAD": ["calid"]}
+        "chart_name": "Chart_YTD_Detalle_P03_4",
+        "variable": "P03",
+        "ref_chart_name": "Chart_Detalle_P03_4", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["compañía en la que me gustaría trabajar | t2b"]
+        }
     },
     {
-        "chart_name": "Chart_YTD_Detalle_P03_2", "ref_chart_name": "Chart_Detalle_P03_2", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"CONTRIBUYE A LA GENERACIÓN DE EMPLEO": ["CONTRIBUYE A LA GENERACIÓN DE EMPLEO"]} 
+        "chart_name": "Chart_YTD_Detalle_P03_5",
+        "variable": "P03",
+        "ref_chart_name": "Chart_Detalle_P03_5", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["empresa fundamental para la economía del país | t2b"]
+        }
+    },                     
+    {
+        "chart_name": "Chart_YTD_Detalle_P03_6",
+        "variable": "P03",
+        "ref_chart_name": "Chart_Detalle_P03_6", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["desarrollo del país | t2b"]
+        }
+    },  
+    {
+        "chart_name": "Chart_YTD_Detalle_P03_7",
+        "variable": "P03",
+        "ref_chart_name": "Chart_Detalle_P03_7", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["cotidiana | t2b"]
+        }
+    },         
+    {
+        "chart_name": "Chart_YTD_Detalle_P03_8",
+        "variable": "P03",
+        "ref_chart_name": "Chart_Detalle_P03_8", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["historia y trayectoria arraigada al país | t2b"]
+        }
     },
     {
-        "chart_name": "Chart_YTD_Detalle_P03_3", "ref_chart_name": "Chart_Detalle_P03_3", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"ES UNA EMPRESA RESPONSABLE CON EL MEDIO AMBIENTE": ["medioambiente"]} 
+        "chart_name": "Chart_YTD_Detalle_P03_9",
+        "variable": "P03",
+        "ref_chart_name": "Chart_Detalle_P03_9", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["confiable / responsable | t2b"]
+        }
     },
     {
-        "chart_name": "Chart_YTD_Detalle_P03_4", "ref_chart_name": "Chart_Detalle_P03_4", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"ES UNA EMPRESA EN LA QUE ME GUSTARÍA TRABAJAR": ["trabajar"]} 
+        "chart_name": "Chart_YTD_Detalle_P03_10",
+        "variable": "P03",
+        "ref_chart_name": "Chart_Detalle_P03_10", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["manejada por profesionales | t2b"]
+        }
+    },
+    {
+        "chart_name": "Chart_YTD_Detalle_P03_11",
+        "variable": "P03",
+        "ref_chart_name": "Chart_Detalle_P03_11", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["negocios éticas y transparentes | t2b"]
+        }
+    },
+    {
+        "chart_name": "Chart_YTD_Detalle_P03_12",
+        "variable": "P03",
+        "ref_chart_name": "Chart_Detalle_P03_12", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["comunidades en las que opera | t2b"]
+        }
+    },
+    {
+        "chart_name": "Chart_YTD_Detalle_P03_13",
+        "variable": "P03",
+        "ref_chart_name": "Chart_Detalle_P03_13", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["innovación y desarrollo tecnológico | t2b"]
+        }
+    },
+    {
+        "chart_name": "Chart_YTD_Detalle_P03_14",
+        "variable": "P03",
+        "ref_chart_name": "Chart_Detalle_P03_14", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["orgullo | t2b"]
+        }
+    },
+    {
+        "chart_name": "Chart_YTD_Detalle_P03_15",
+        "variable": "P03",
+        "ref_chart_name": "Chart_Detalle_P03_15", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["cobertura en todo el país | t2b"]
+        }
+    },
+    {
+        "chart_name": "Chart_YTD_Detalle_P03E_1",
+        "variable": "P03_E",
+        "ref_chart_name": "Chart_Detalle_P03E_1", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["modernizando y renovando en los últimos años | t2b"]
+        }
+    },
+    {
+        "chart_name": "Chart_YTD_Detalle_P03E_2",
+        "variable": "P03_E",
+        "ref_chart_name": "Chart_Detalle_P03E_2", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["tiene un rol estratégico en el desarrollo energético de argentina | t2b"]
+        }
+    },
+    {
+        "chart_name": "Chart_YTD_Detalle_P03_29",
+        "variable": "P03",
+        "ref_chart_name": "Chart_Detalle_P03_29", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["es una empresa con productos de calidad internacional | t2b"]
+        }
+    },
+    {
+        "chart_name": "Chart_YTD_Detalle_P03E_3",
+        "variable": "P03_E",
+        "ref_chart_name": "Chart_Detalle_P03E_3", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["los combustibles ypf tienen los precios más accesibles | t2b"]
+        }
+    },
+    {
+        "chart_name": "Chart_YTD_Detalle_P03E_4",
+        "variable": "P03_E",
+        "ref_chart_name": "Chart_Detalle_P03E_4", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["la app de ypf muestra que están a la vanguardia en tecnología | t2b"]
+        }
+    },
+    {
+        "chart_name": "Chart_YTD_Detalle_P03E_5",
+        "variable": "P03_E",
+        "ref_chart_name": "Chart_Detalle_P03E_5", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26",
+        "skip_insight": True, 
+        "metrics": {
+            "YPF": ["los playeros de ypf tienen muy buena atención | t2b"]
+        }
+    },
+    {
+        "chart_name": "Chart_YTD_P143_1",
+        "is_ytd_calculated": True,
+        "variable": "P143",         
+        "ref_chart_name": "Chart_P143_1",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": False,
+        "metrics": {"Mejor": ["1 AÑO | Mejor"], "Igual": ["1 AÑO | Igual"], "Peor": ["1 AÑO | Peor"]}
+    },
+    {
+        "chart_name": "Chart_YTD_P143_2",
+        "is_ytd_calculated": True,
+        "variable": "P143",         
+        "ref_chart_name": "Chart_P143_2",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": False,
+        "metrics": {"Mejor": ["5 AÑOS | Mejor"], "Igual": ["5 AÑOS | Igual"], "Peor": ["5 AÑOS | Peor"]}
+    },
+    {
+        "chart_name": "Chart_YTD_P06",
+        "is_ytd_calculated": True,
+        "variable": "P06",         
+        "ref_chart_name": "Chart_P06",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": True,
+        "multiplier":1,
+        "metrics": {"Empresa nacional": ["empresa nacional"],
+                     "Presencia en todo el pais": ["presencia en todo el país"],
+                     "Calidad": ["calidad"],
+                     "Trayectoria": ["trayectoria"],                     
+                     "Genera empleo": ["genera empleo"],                       
+                     "Estatal": ["estatal"]                       
+                     }
     },      
     {
-        "chart_name": "Chart_YTD_Detalle_P03_5", "ref_chart_name": "Chart_Detalle_P03_5", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"ES UNA EMPRESA FUNDAMENTAL PARA LA ECONOMÍA DEL PAÍS": ["ES UNA EMPRESA FUNDAMENTAL PARA LA ECONOMÍA DEL PAÍS"]} 
-    },
-    {
-        "chart_name": "Chart_YTD_Detalle_P03_6", "ref_chart_name": "Chart_Detalle_P03_6", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"MUY COMPROMETIDA CON EL DESARROLLO DEL PAÍS": ["MUY COMPROMETIDA CON EL DESARROLLO DEL PAÍS"]} 
-    },          
-    {
-        "chart_name": "Chart_YTD_Detalle_P03_7", "ref_chart_name": "Chart_Detalle_P03_7", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"ES UNA EMPRESA CERCANA, QUE ESTÁ PRESENTE EN MI VIDA COTIDIANA": ["ES UNA EMPRESA CERCANA, QUE ESTÁ PRESENTE EN MI VIDA COTIDIANA"]} 
-    },      
-    {
-        "chart_name": "Chart_YTD_Detalle_P03_8", "ref_chart_name": "Chart_Detalle_P03_8", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"TIENE HISTORIA Y TRAYECTORIA": ["TIENE HISTORIA Y TRAYECTORIA ARRAIGADA AL PAÍS"]} 
-    },      
-    {
-        "chart_name": "Chart_YTD_Detalle_P03_9", "ref_chart_name": "Chart_Detalle_P03_9", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"ES UNA MARCA CONFIABLE / RESPONSABLE": ["ES UNA MARCA CONFIABLE / RESPONSABLE"]} 
-    },      
-    {
-        "chart_name": "Chart_YTD_Detalle_P03_10", "ref_chart_name": "Chart_Detalle_P03_10", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"ES UNA EMPRESA MANEJADA POR PROFESIONALES": ["manejada por profesionales"]} 
-    },      
-    {
-        "chart_name": "Chart_YTD_Detalle_P03_11", "ref_chart_name": "Chart_Detalle_P03_11", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"TIENE PRÁCTICAS DE NEGOCIOS ÉTICAS Y TRANSPARENTES": ["TIENE PRÁCTICAS DE NEGOCIOS ÉTICAS Y TRANSPARENTES"]} 
-    },      
-    {
-        "chart_name": "Chart_YTD_Detalle_P03_12", "ref_chart_name": "Chart_Detalle_P03_12", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"PARTICIPA ACTIVAMENTE Y ES RESPONSABLE EN LAS COMUNIDADES EN LAS QUE OPERA": ["PARTICIPA ACTIVAMENTE Y ES RESPONSABLE EN LAS COMUNIDADES EN LAS QUE OPERA"]} 
-    },      
-    {
-        "chart_name": "Chart_YTD_Detalle_P03_13", "ref_chart_name": "Chart_Detalle_P03_13", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"ES UNA EMPRESA LÍDER EN INNOVACIÓN Y DESARROLLO TECNOLÓGICO": ["innovaci"]} 
-    },
-    {
-        "chart_name": "Chart_YTD_Detalle_P03_14", "ref_chart_name": "Chart_Detalle_P03_14", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"ES UNA EMPRESA QUE ME GENERA ORGULLO": ["me genera orgullo"]} 
-    },      
-    {
-        "chart_name": "Chart_YTD_Detalle_P03_15", "ref_chart_name": "Chart_Detalle_P03_15", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"TIENE PRESENCIA EN TODO EL PAÍS": ["cobertura","presencia"]} 
-    },
-    {
-        "chart_name": "Chart_YTD_Detalle_P03E_1", "ref_chart_name": "Chart_Detalle_P03E_1", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"SE VIENE MODERNIZANDO Y RENOVANDO EN LOS ÚLTIMOS AÑOS": ["modernizando"]} 
-    },
-    {
-        "chart_name": "Chart_YTD_Detalle_P03E_2", "ref_chart_name": "Chart_Detalle_P03E_2", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"TIENE UN ROL ESTRATÉGICO EN EL DESARROLLO ENERGÉTICO DE ARGENTINA": ["rol estrat"]}
-    },
-    {
-        "chart_name": "Chart_YTD_Detalle_P03_29", "ref_chart_name": "Chart_Detalle_P03_29", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"ES UNA EMPRESA CON PRODUCTOS DE CALIDAD INTERNACIONAL": ["internacional"]}
-    },
-    {
-        "chart_name": "Chart_YTD_Detalle_P03E_3", "ref_chart_name": "Chart_Detalle_P03E_3", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"LOS COMBUSTIBLES YPF TIENEN LOS PRECIOS MÁS ACCESIBLES": ["combustibles"]} 
-    },
-    {
-        "chart_name": "Chart_YTD_Detalle_P03E_4", "ref_chart_name": "Chart_Detalle_P03E_4", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"LA APP DE YPF MUESTRA QUE ESTÁN A LA VANGUARDIA EN TECNOLOGÍA": ["app"]}
-    },
-    {
-        "chart_name": "Chart_YTD_Detalle_P03E_5", "ref_chart_name": "Chart_Detalle_P03E_5", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "skip_insight": True, "year_suffix": "26",
-        "metrics": {"LOS PLAYEROS DE YPF TIENEN MUY BUENA ATENCIÓN": ["playeros"]}
-    },
-    {
-        "chart_name": "Chart_YTD_P143_1", "ref_chart_name": "Chart_P143_1", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"Mejor": ["mejor"], "Igual": ["igual"], "Peor":  ["peor"]}
-    },
-    {
-        "chart_name": "Chart_YTD_P143_2", "ref_chart_name": "Chart_P143_2", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"Mejor": ["mejor"], "Igual": ["igual"], "Peor":  ["peor"]}
-    },
+        "chart_name": "Chart_YTD_P07",
+        "is_ytd_calculated": True,
+        "variable": "P07",         
+        "ref_chart_name": "Chart_P07",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": False,
+        "metrics": {"YPF es una empresa vinculada al desarrollo de energía en su conjunto (combustibles, gas, energía eléctrica, eólica, etc)": ["vinculada al desarrollo de energía"],
+                     "YPF es una empresa dedicada principalmente al desarrollo de combustibles (industria petrolera)": ["desarrollo de combustibles"],
+                     "No sabe": ["no sabe"]}
+    },             
     {
         "chart_name": "Chart_YTD_P08", "ref_chart_name": "Chart_P08", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"Sí": ["si","Sí"], "No + Ns/Nc": ["no", "no sé", "no recuerdo", "ns/nc"]}
+        "metrics": {
+            "Sí": ["Sí"], 
+            "No + Ns/Nc": ["No", "recuerdo"]}
     },
     {
-        "chart_name": "Chart_YTD_P10", "ref_chart_name": "Chart_P10", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"La mejora": ["mejora"], "La empeora": ["empeora"], "La mantiene igual": ["igual"], "No sabe/No contesta": ["no responder"]}
-    },    
-    {
-        "chart_name": "Chart_YTD_P16", "ref_chart_name": "Chart_P16", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"Sí": ["si","Sí"], "No": ["no"]}
+        "chart_name": "Chart_YTD_P10",
+        "is_ytd_calculated": True,
+        "variable": "P10",         
+        "ref_chart_name": "Chart_P10",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": False,
+        "metrics": {"La mejora": ["mejora"],
+                    "La empeora": ["empeora"],
+                    "La mantiene igual": ["igual"],
+                    "No sabe/No contesta": ["no responder"]}
     },
     {
-        "chart_name": "Chart_YTD_P18_1", "ref_chart_name": "Chart_P18_1", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
+        "chart_name": "Chart_YTD_P16",
+        "is_ytd_calculated": True,
+        "variable": "P16",         
+        "ref_chart_name": "Chart_P16",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": False,
+        "metrics": {"Sí": ["Sí"], "No + Ns/Nc": ["No"]}
+    },
+    {
+        "chart_name": "Chart_YTD_P18_1",
+        "is_ytd_calculated": True,
+        "variable": "P18_1",         
+        "ref_chart_name": "Chart_P18_1",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": False,
         "metrics": {"Definitivamente + Probablemente si": ["definitivamente","probablemente"], "Estoy en duda": ["duda"], "No tiene la capacidad": ["no"]}
     },
     {
-        "chart_name": "Chart_YTD_P17", "ref_chart_name": "Chart_P17", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 2026", "year_suffix": "26",
+        "chart_name": "Chart_YTD_P17",
+        "is_ytd_calculated": True,
+        "variable": "P17",         
+        "ref_chart_name": "Chart_P17",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": False,
+        "metrics": {"Es muy importante para nuestro país desarrollar Vaca Muerta": ['importante para nuestro país desarrollar vaca muerta" | t2b'],
+            "Nuestro país tiene la capacidad y el conocimiento de desarrollar Vaca Muerta": ['conocimiento de desarrollar vaca muerta" | t2b'],
+            "Para poder desarrollar Vaca Muerta será necesario atraer inversiones extranjeras": ['inversiones extranjeras" | t2b'],
+            "Desarrollar Vaca Muerta genera un impacto muy negativo en el medioambiente": ['medioambiente" | t2b'],
+            "Desarrollar Vaca Muerta genera un impacto positivo a nivel de desarrollo social": ['desarrollo social" | t2b'],
+            "El desarrollo de Vaca Muerta justifica el aumento de los combustibles": ['combustibles" | t2b']}
+    },
+    {
+        "chart_name": "Chart_YTD_P18",
+        "is_ytd_calculated": True,
+        "variable": "P18",         
+        "ref_chart_name": "Chart_P18",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": False,
+        "metrics": {"YPF": ["ypf"],
+                    "Chevron": ["chevron"],
+                    "No + Ns/Nc": ["no lo"]}
+    },
+    {
+        "chart_name": "Chart_YTD_P11",
+        "is_ytd_calculated": True,
+        "variable": "P11",         
+        "ref_chart_name": "Chart_P11",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": False,
+        "metrics": {"YPF Gas": ["ypf gas | t4b"],
+                    "YPF Agro": ["ypf agro | t4b"],
+                    "Fundación YPF": ["fundación ypf | t4b"],
+                    "YPF Luz": ["ypf luz | t4b"],
+                    "Y-TEC": ["y-tec | t4b"],
+                    "YPF Química": ["ypf quimica | t4b"],
+                    "Argentina LNG": ["argentina lng | t4b"],
+                    "YPF Minería": ["ypf minería | t4b"]}
+    },
+    {
+        "chart_name": "Chart_YTD_P12",
+        "is_ytd_calculated": True,
+        "variable": "P12",         
+        "ref_chart_name": "Chart_P12",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": False,
+        "metrics": {"YPF Gas": ["ypf gas | t2b"],
+                    "YPF Agro": ["ypf agro | t2b"],
+                    "Fundación YPF": ["fundación ypf | t2b"],
+                    "YPF Luz": ["ypf luz | t2b"],
+                    "Y-TEC": ["y-tec | t2b"],
+                    "YPF Química": ["ypf quimica | t2b"],
+                    "Argentina LNG": ["argentina lng | t2b"],
+                    "YPF Minería": ["ypf minería | t2b"]}
+    },  
+    {
+        "chart_name": "Chart_YTD_P126",
+        "variable": "P126",
+        "ref_chart_name": "Chart_P126", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26", 
         "metrics": {
-            "Es muy importante para nuestro país desarrollar Vaca Muerta": ["importante"],
-            "Nuestro país tiene la capacidad y el conocimiento de desarrollar Vaca Muerta": ["capacidad"],
-            "Para poder desarrollar Vaca Muerta será necesario atraer inversiones extranjeras": ["inversiones"],
-            "Desarrollar Vaca Muerta genera un impacto muy negativo en el medioambiente": ["negativo"],
-            "Desarrollar Vaca Muerta genera un impacto positivo a nivel de desarrollo social": ["positivo"],
-            "El desarrollo de Vaca Muerta justifica el aumento de los combustibles": ["aumento"]
+            "YPF": ["ypf"], 
+            "Shell": ["shell"], 
+            "Axion": ["axion"],      # <--- Más simple, más seguro
+            "Puma": ["puma"],        # <--- Más simple
+            "Otras": ["cuál"],       # <--- Evitamos los signos de interrogación
+            "No sé/ prefiero no responder": ["no responder"] # <--- Keyword clave
         }
     },
     {
-        "chart_name": "Chart_YTD_P18", "ref_chart_name": "Chart_P18", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"YPF": ["ypf"], "Chevron": ["chevron"], "No + Ns/Nc": ["no lo"]}
-    },
-    {
-        "chart_name": "Chart_YTD_P11", "ref_chart_name": "Chart_P11", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"YPF Gas": ["gas"], "YPF Agro": ["agro"], "Fundación YPF": ["fundac"],
-            "YPF Luz": ["luz"], "Y-TEC": ["tec"], "YPF Química": ["mica"],
-            "Argentina LNG": ["lng"], "YPF Minería": ["mine"]}
-    },
-    {
-        "chart_name": "Chart_YTD_P12", "ref_chart_name": "Chart_P12", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"YPF Gas": ["gas"], "YPF Agro": ["agro"], "Fundación YPF": ["fundac"],
-            "YPF Luz": ["luz"], "Y-TEC": ["tec"], "YPF Química": ["mica"],
-            "Argentina LNG": ["lng"], "YPF Minería": ["mine"]}
-    },    
-    {
-        "chart_name": "Chart_YTD_P126", "ref_chart_name": "Chart_P126", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"YPF": ["ypf"], "Shell": ["shell"], "Axion": ["axion"], "Puma": ["puma"], "Otras": ["otra"], "No sé/ prefiero no responder": ["prefiero"]}
-    },
-    {
-        "chart_name": "Chart_YTD_P126b", "ref_chart_name": "Chart_P126b", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"YPF": ["ypf"], "Shell": ["shell"], "Axion": ["axion"], "Puma": ["puma"]}   
-    },
-    {
-        "chart_name": "Chart_YTD_P126c", "ref_chart_name": "Chart_P126c", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
+        "chart_name": "Chart_YTD_P126b",
+        "variable": "P126B",
+        "ref_chart_name": "Chart_P126b", 
+        "is_ytd_calculated": True, 
+        "is_percentage": False, 
+        "target_year": "YTD 2026",  # <--- Ajustado a 4 dígitos como el Excel
+        "year_suffix": "26", 
         "metrics": {
-            "La actual me queda más cerca": ["cerca"], "La anterior aumentó mas los precios": ["precios"],
-            "La actual tiene mejores combustibles": ["combustibles"], "La actual parece mas confiable": ["confiable"],
-            "La actual tiene un programa que me permite sumar puntos para canjear premios y beneficios": ["beneficios"],
-            "La actual tiene más y/o mejores servicios adicionales": ["servicios"], "La actual tienen mejor atención": ["atenc"],
-            "Otros": ["otro"] 
+            "YPF": ["ypf"], 
+            "Shell": ["shell"], 
+            "Axion": ["axion"],      # <--- Más simple, más seguro
+            "Puma": ["puma"],        # <--- Más simple
+            "Otras": ["cuál"],       # <--- Evitamos los signos de interrogación
+            "No sé/ prefiero no responder": ["no responder"] # <--- Keyword clave
         }
     },
     {
-        "chart_name": "Chart_YTD_P127", "ref_chart_name": "Chart_P127", "is_ytd_calculated": True,"is_percentage": False,"decimals": 0, "target_year": "YTD 26", "year_suffix": "26",
+        "chart_name": "Chart_YTD_P126c",
+        "variable": "P126C",
+        "ref_chart_name": "Chart_P126c",
+        "is_ytd_calculated": True,
+        "is_percentage": False,
+        "target_year": "YTD 26",
+        "year_suffix": "26",
+        "metrics": {
+            "La actual me queda más cerca": ["cerca"],
+            "La anterior aumentó mas los precios": ["precios"],
+            "La actual tiene mejores combustibles": ["combustibles"],
+            "La actual parece mas confiable": ["confiable"],
+            "La actual tiene un programa que me permite sumar puntos para canjear premios y beneficios": ["premios"],
+            "La actual tiene más y/o mejores servicios adicionales": ["servicios"],
+            "La actual tienen mejor atención": ["atenc"],            
+            "Otros": ["otra"] 
+        }
+    },
+{
+        "chart_name": "Chart_YTD_P127",
+        "variable": "P127",        
+        "ref_chart_name": "Chart_P127",
+        "is_ytd_calculated": True,
+        "is_percentage": False, # <--- Dejalo en False para que multiplique por 100
+        "multiplier": 1,         # <--- FUERZA A QUE NO MULTIPLIQUE POR 100        
+        "decimals": 0,           # <--- Al poner 0, el 0.8807 se convierte en 88
+        "target_year": "YTD 2026",
         "metrics": {
             "YPF": ["ypf"],
             "Shell": ["shell"],
             "Axion": ["axion"],
-            "Puma": ["puma"],
-            "Otras": ["otra"],
-            "No sé/ prefiero no responder": ["no responder"]
+            "Puma": ["puma energy"],
+            "Otras": ["cuál"],
+            "Ns/Nc": ["no responder"]
         }
-    },         
-    {
-        "chart_name": "Chart_YTD_GG9", "ref_chart_name": "Chart_GG9", "is_ytd_calculated": True, "is_percentage": False,
-        "remove_percentage_sign": True,"multiplier": 100.0, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"T2B": ["Algo + muy de acuerdo"], "B2B": ["Algo + muy en desacuerdo"], "No sabe/No contesta": ["Ni de acuerdo ni en desacuerdo"]}
     },
     {
-        "chart_name": "Chart_YTD_GG3", "ref_chart_name": "Chart_GG3", "is_ytd_calculated": True, "is_percentage": True, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"T2B": ["si"]}
+        "chart_name": "Chart_YTD_GG9",
+        "is_ytd_calculated": True,
+        "variable": "GG9",         
+        "ref_chart_name": "Chart_GG9",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",
+        "is_percentage": False,
+        "metrics": {"T2B": ["algo de acuerdo","muy de acuerdo"],
+                    "B2B": ["muy en desacuerdo","algo en desacuerdo"],
+                    "No sabe/No contesta": ["ni de acuerdo ni en desacuerdo"]}
     },
     {
-        "chart_name": "Chart_YTD_GG4", "ref_chart_name": "Chart_GG4", "is_ytd_calculated": True, "is_percentage": True, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"T2B": ["T2B"]}
+        "chart_name": "Chart_YTD_GG3",
+        "is_ytd_calculated": True,
+        "variable": "GG3",         
+        "ref_chart_name": "Chart_GG3",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": True,
+        "multiplier": 0.01,  # <--- LA CLAVE: Convierte el 37 del Excel en 0.37
+        "decimals": 2,       # <--- IMPORTANTE: Para no perder precisión al convertir
+        "metrics": {"T2B": ["sí"]}
     },
     {
-        "chart_name": "Chart_YTD_GG5", "ref_chart_name": "Chart_GG5", "is_ytd_calculated": True, "is_percentage": True, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"T2B": ["T2B"]}
+        "chart_name": "Chart_YTD_GG4",
+        "is_ytd_calculated": True,
+        "variable": "GG4",         
+        "ref_chart_name": "Chart_GG4",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": True,
+        "multiplier": 0.01,  # <--- LA CLAVE: Convierte el 37 del Excel en 0.37
+        "decimals": 2,       # <--- IMPORTANTE: Para no perder precisión al convertir
+        "metrics": {"T2B": ["t2b"]}
     },
     {
-        "chart_name": "Chart_YTD_GG2", "ref_chart_name": "Chart_GG2", "is_ytd_calculated": True, "is_percentage": True, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"YPF": ["ypf"], "Empresas internacionales": ["internacionales"], "Empresas nacionales": ["nacion"], "Estado": ["estado"], "No sé": ["no"]}
-    },    
-    {
-        "chart_name": "Chart_YTD_GG8", "ref_chart_name": "Chart_GG8", "is_ytd_calculated": True, "is_percentage": True, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"Algo": ["Algo"], "Poco + Ninguna": ["Poco + Ninguna"], "Bastante + Mucha": ["Bastante + Mucha"]}  
+        "chart_name": "Chart_YTD_GG5",
+        "is_ytd_calculated": True,
+        "variable": "GG5",         
+        "ref_chart_name": "Chart_GG5",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": True,
+        "multiplier": 0.01,  # <--- LA CLAVE: Convierte el 37 del Excel en 0.37
+        "decimals": 2,       # <--- IMPORTANTE: Para no perder precisión al convertir
+        "metrics": {"T2B": ["b2b"]}
     },
     {
-        "chart_name": "Chart_YTD_P148", "ref_chart_name": "Chart_P148", "is_ytd_calculated": True, "is_percentage": True, "multiplier": 0.01, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"T2B": ["Sí"]}  
-    },            
-    {
-        "chart_name": "Chart_YTD_P149", "ref_chart_name": "Chart_P149", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"B2B": ["B2B"], "Ni relevante ni irrelevante": ["ni"], "T2B": ["T2B"]}  
+        "chart_name": "Chart_YTD_GG2",
+        "is_ytd_calculated": True,
+        "variable": "GG2",         
+        "ref_chart_name": "Chart_GG2",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": True,
+        "multiplier": 0.01,  # <--- LA CLAVE: Convierte el 37 del Excel en 0.37
+        "decimals": 2,       # <--- IMPORTANTE: Para no perder precisión al convertir
+        "metrics": {"YPF": ["ypf"],
+                    "Empresas internacionales": ["empresas internacionales"],
+                    "Empresas nacionales": ["empresas nacionales"],
+                    "Estado": ["estado"],
+                    "No sé": ["no"]}
     },
     {
-        "chart_name": "Chart_YTD_P150", "ref_chart_name": "Chart_P150", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"B2B": ["B2B"], "Ni relevante ni irrelevante": ["Ni relevante ni irrelevante"], "T2B": ["T2B"]}  
-    },  
+        "chart_name": "Chart_YTD_GG8",
+        "is_ytd_calculated": True,
+        "variable": "GG8",         
+        "ref_chart_name": "Chart_GG8",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": True,
+        "multiplier": 0.01,  # <--- LA CLAVE: Convierte el 37 del Excel en 0.37
+        "decimals": 2,       # <--- IMPORTANTE: Para no perder precisión al convertir
+        "metrics": {"Algo": ["algo"],
+                    "Poco + Ninguna": ["poco","ninguna"],
+                    "Bastante + Mucha": ["bastante","mucha"]}
+    },
     {
-        "chart_name": "Chart_YTD_P20B_1", "ref_chart_name": "Chart_P20B_1", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {
-            # "Nombre de la barra en el YTD (PPT)" : ["Nombre exacto de la línea en el gráfico tracking"]
-            "T2B": ["Algo + muy de acuerdo"],
-            "B2B": ["Algo + muy en desacuerdo"],
-            "Ni de acuerdo ni en desacuerdo": ["Ni de acuerdo ni en desacuerdo"]                       
-        }
-    },              
+        "chart_name": "Chart_YTD_P148",
+        "is_ytd_calculated": True,
+        "variable": "P148",         
+        "ref_chart_name": "Chart_P148",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": True,
+        "multiplier": 0.01,  # <--- LA CLAVE: Convierte el 37 del Excel en 0.37
+        "decimals": 2,       # <--- IMPORTANTE: Para no perder precisión al convertir
+        "metrics": {"T2B": ["Sí"]}
+    },
+    {
+        "chart_name": "Chart_YTD_P149",
+        "is_ytd_calculated": True,
+        "variable": "P149",         
+        "ref_chart_name": "Chart_P149",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": False,
+        "metrics": {"B2B": ["b2b"], "Ni relevante ni irrelevante": ["ni"], "T2B": ["t2b"]}
+    },
+    {
+        "chart_name": "Chart_YTD_P150",
+        "is_ytd_calculated": True,
+        "variable": "P150",         
+        "ref_chart_name": "Chart_P150",    
+        "target_year": "YTD 2026",         
+        "year_suffix": "26",               
+        "is_percentage": False,
+        "metrics": {"B2B": ["b2b"], "Ni relevante ni irrelevante": ["ni de acuerdo ni en desacuerdo"], "T2B": ["t2b"]}
+    },     
+    #{
+    #    "chart_name": "Chart_YTD_P20B_1", "ref_chart_name": "Chart_P20B_1", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
+    #    "metrics": {
+    #        # "Nombre de la barra en el YTD (PPT)" : ["Nombre exacto de la línea en el gráfico tracking"]
+    #        "T2B": ["Algo + muy de acuerdo"],
+    #        "B2B": ["Algo + muy en desacuerdo"],
+    #        "Ni de acuerdo ni en desacuerdo": ["Ni de acuerdo ni en desacuerdo"]                       
+    #    }
+    #},              
     {
         "chart_name": "Chart_YTD_Index_YPF",
         "is_ytd_calculated": True,         
+        "variable": "Index_YPF_ajustado",           # 👈 Forzamos el nombre de la variable explicito
+        "variable_deducida": "Index_YPF_ajustado", # 👈 Respaldo para el llamador YTD
         "ref_chart_name": "Chart_Index_YPF", # Lee el gráfico que declaramos arriba
         "target_year": "YTD 26",         
         "year_suffix": "26",               
         "is_percentage": False,
+        "decimals": 1,  # 👈 ¡Esto le indica al inyector que aplique formato 0.0!        
         "metrics": {
-            "Índice YPF": ["Índice YPF"] # Busca la línea que se llama así en el gráfico principal
+            #"Índice YPF": ["Índice YPF"] # Busca la línea que se llama así en el gráfico principal
+# 👈 Keywords estrictas de la fila de auditoría para que no traiga las Bases
+            "INDICE VDM": ["media (promedio)", "media", "promedio", "mean"]     
         }
     },
     {
@@ -1925,64 +2864,68 @@ TRACKING_CHARTS = [
         }
     },
     {
-        "chart_name": "Chart_YTD_P149", "ref_chart_name": "Chart_P149", "is_ytd_calculated": True, "is_percentage": False, "target_year": "YTD 26", "year_suffix": "26",
-        "metrics": {"B2B": ["B2B"], "Ni relevante ni irrelevante": ["ni"], "T2B": ["T2B"]}  
-    },    
-    {
         "chart_name": "Chart_YTD_P113",
+        "is_ytd_calculated": True,
+        "variable": "P113",         
         "ref_chart_name": "Chart_P113",    
-        "is_ytd_calculated": True,         
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
-        "metrics": {"Es más caro": ["caro"], "Tiene el mismo precio": ["mismo"], "Es más barato": ["barato"], "No sabe/No contesta": ["ns/nc"]}
+        "metrics": {"Es más caro": ["caro"],
+                    "Tiene el mismo precio": ["mismo"],
+                    "Es más barato": ["barato"],
+                    "No sabe/No contesta": ["no sabe"]}
     },
     {
         "chart_name": "Chart_YTD_P118",
+        "is_ytd_calculated": True,
+        "variable": "P118",         
         "ref_chart_name": "Chart_P118",    
-        "is_ytd_calculated": True,         
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
-        "metrics": {"Subiendo más que la inflación": ["más que"], "Subiendo a la par de la inflación": ["a la par"], "Subiendo menos que la inflación": ["menos que"], "No sabe/No contesta": ["ns/nc"]}
+        "metrics": {"Subiendo más que la inflación": ["más que"],
+                    "Subiendo a la par de la inflación": ["a la par"],
+                    "Subiendo menos que la inflación": ["menos que"]}
     },
     {
         "chart_name": "Chart_YTD_P113b",
+        "is_ytd_calculated": True,
+        "variable": "P113b",         
         "ref_chart_name": "Chart_P113b",    
-        "is_ytd_calculated": True,         
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
         "metrics": {"El estado/gobierno": ["estado"],
-            "Inflacion": ["inflaci"],
-            "Suba del dólar/devaluacion": ["suba del"],
-            "Las empresas": ["empresas"],
-            "El presidente/Milei": ["milei"],
-            "Otros": ["otros"],
-            "Impuestos": ["impuestos"],
-            "No se": ["no se"]
-        }
+                "Inflacion": ["inflaci"],
+                "Suba del dólar/devaluacion": ["suba del"],
+                "Las empresas": ["empresas"],
+                "El presidente/Milei": ["milei"],
+                "Otros": ["otros"],
+                "Impuestos": ["impuestos"],
+                "No se": ["no se"]}
     },
     {
         "chart_name": "Chart_YTD_P124",
+        "is_ytd_calculated": True,
+        "variable": "P40",         
         "ref_chart_name": "Chart_P124",    
-        "is_ytd_calculated": True,         
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
-        "metrics": {"es negativo ya que impacta en el precio de otros productos y genera más inflación": ["precio de otros"],
-            "en ningún caso puede justificarse, la gente no puede pagar más": ["la gente no puede"],
-            "hace que utilice menos el auto": ["utilice menos"],
-            "hara que busque una marca más económico": ["busque una marca"],
-            "es necesario para realizar inversiones y no importar combustibles en el futuro": ["realizar inversiones"],
-            "es inevitable ya que los precios se encuentran atrasados": ["precios se encuentran atrasados"],
-            "hará que le coloque GNC al auto": ["le coloque gnc"]
-        }
+        "metrics": {"es negativo ya que impacta en el precio de otros productos y genera más inflación": ['genera más inflación” | t2b'],
+            "en ningún caso puede justificarse, la gente no puede pagar más": ['la gente no puede pagar más” | t2b'],
+            "hace que utilice menos el auto": ['utilice menos el auto” | t2b'],
+            "hara que busque una marca más económico": ['busque una marca o tipo de combustible más económico” | t2b'],
+            "es necesario para realizar inversiones y no importar combustibles en el futuro": ['no importar combustibles en el futuro” | t2b'],
+            "es inevitable ya que los precios se encuentran atrasados": ['precios se encuentran atrasados” | t2b'],
+            "hará que le coloque GNC al auto": ['equipo gnc al auto” | t2b']}
     },
     {
         "chart_name": "Chart_YTD_P114",
+        "is_ytd_calculated": True,
+        "variable": "P114",         
         "ref_chart_name": "Chart_P114",    
-        "is_ytd_calculated": True,         
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
@@ -1995,9 +2938,8 @@ TRACKING_CHARTS = [
             "Gulf": ["gulf"],
             "Voy": ["voy"],
             "Otras": ["otras"],
-            "Ns/Nc": ["ns/nc"]
-        }
-    },
+            "Ns/Nc": ["ns/nc"]}
+    },    
     {
         "chart_name": "Chart_YTD_P115",
         "ref_chart_name": "Chart_P115",    
@@ -2128,22 +3070,31 @@ TRACKING_CHARTS = [
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
-        "metrics": {"T2B": ["muy de acuerdo"],
-            "B2B": ["muy en desacuerdo"]
+        "metrics": {"T2B": ["t2B"],
+            "B2B": ["b2B"]
+        #"metrics": {"T2B": ["muy de acuerdo"],
+        #    "B2B": ["muy en desacuerdo"]
         }
     },
     {
         "chart_name": "Chart_YTD_P146",
-        "is_ytd_calculated": True,         
+        "is_ytd_calculated": True,
+        "variable": "P146",         
         "ref_chart_name": "Chart_P146",    
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
-        "metrics": {"T2B": ["buena"], "B2B": ["mala"], "No sabe/No contesta": ["no sabe"]}
+        #"metrics": {"T2B": ["t2b"],
+        #            "B2B": ["b2b"],
+        #            "No sabe/No contesta": ["no sabe"]}
+        "metrics": {"T2B": ["b2b"],
+                    "B2B": ["t2b"],
+                    "No sabe/No contesta": ["no sabe"]}        
     },
     {
         "chart_name": "Chart_YTD_P147",
-        "is_ytd_calculated": True,         
+        "is_ytd_calculated": True,
+        "variable": "P147",         
         "ref_chart_name": "Chart_P147",    
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
@@ -2153,341 +3104,1041 @@ TRACKING_CHARTS = [
             "El desarrollo de la industria petrolera debe ser una prioridad para el desarrollo del país a pesar de los efectos negativos en el medioambiente": ["desarrollo de la industria"]}
     },
     {
-        "chart_name": "Chart_YTD_IM1",
-        "ref_chart_name": "Chart_IM1",    
+        "chart_name": "Chart_YTD_P2_1",
+        "variable": "P02_1",        
+        "ref_chart_name": "Chart_P2_1",    
         "is_ytd_calculated": True,         
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
         "metrics": {"YPF": ["ypf"],
+            "Mercado Libre": ["mercado libre"],
+            "Coca Cola": ["coca cola"],
+            "Aerolineas Argentinas": ["aerolineas argentinas"],
+            "Arcor": ["arcor"],
             "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"],
-            "Mercado Libre": ["mercado"],
-            "Aerolíneas Argentinas": ["argentinas"],
-            "McDonald’s": ["mcdo"],
+            "Adidas": ["adidas"],
             "Quilmes": ["quilmes"],
-            "Coca Cola": ["coca"]
+            "La Serenisima": ["la serenisima"]
         }
     },
     {
-        "chart_name": "Chart_YTD_IM2",
-        "ref_chart_name": "Chart_IM2",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"],
-            "Mercado Libre": ["mercado"],
-            "Aerolíneas Argentinas": ["argentinas"],
-            "McDonald’s": ["mcdo"],
-            "Quilmes": ["quilmes"],
-            "Coca Cola": ["coca"]
+        "chart_name": "Chart_YTD_IM1", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03", 
+                "keywords": ["calidad | t2b"]
+            },
+            "Shell": {
+                "variable": "P04_2", 
+                "keywords": ["calidad | t2b"]
+            },
+            "Axion": {
+                "variable": "P04_1", 
+                "keywords": ["calidad | t2b"]
+            },
+            "Puma": {
+                "variable": "P04_3", 
+                "keywords": ["calidad | t2b"]
+            },
+            "Mercado Libre": {
+                "variable": "P04B_5", 
+                "keywords": ["calidad | t2b"]
+            },
+            "Quilmes": {
+                "variable": "P04B_8", 
+                "keywords": ["calidad | t2b"]
+            },
+            "Aerolíneas Argentinas": {
+                "variable": "P04B_6", 
+                "keywords": ["calidad | t2b"]
+            },
+            "Coca Cola": {
+                "variable": "P04B_7", 
+                "keywords": ["calidad | t2b"]
+            },
+            "McDonald’s": {
+                "variable": "P04B_4", 
+                "keywords": ["calidad | t2b"]
+            }
         }
     },
     {
-        "chart_name": "Chart_YTD_IM3",
-        "ref_chart_name": "Chart_IM3",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"],
-            "Mercado Libre": ["mercado"],
-            "Aerolíneas Argentinas": ["argentinas"],
-            "McDonald’s": ["mcdo"],
-            "Quilmes": ["quilmes"],
-            "Coca Cola": ["coca"]
+        "chart_name": "Chart_YTD_IM2", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03", 
+                "keywords": ["trabajar | t2b"]
+            },
+            "Shell": {
+                "variable": "P04_2", 
+                "keywords": ["trabajar | t2b"]
+            },
+            "Axion": {
+                "variable": "P04_1", 
+                "keywords": ["trabajar | t2b"]
+            },
+            "Puma": {
+                "variable": "P04_3", 
+                "keywords": ["trabajar | t2b"]
+            },
+            "Mercado Libre": {
+                "variable": "P04B_5", 
+                "keywords": ["trabajar | t2b"]
+            },
+            "Quilmes": {
+                "variable": "P04B_8", 
+                "keywords": ["trabajar | t2b"]
+            },
+            "Aerolíneas Argentinas": {
+                "variable": "P04B_6", 
+                "keywords": ["trabajar | t2b"]
+            },
+            "Coca Cola": {
+                "variable": "P04B_7", 
+                "keywords": ["trabajar | t2b"]
+            },
+            "McDonald’s": {
+                "variable": "P04B_4", 
+                "keywords": ["trabajar | t2b"]
+            }
         }
     },
     {
-        "chart_name": "Chart_YTD_IM4",
-        "ref_chart_name": "Chart_IM4",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"],
-            "Mercado Libre": ["mercado"],
-            "Aerolíneas Argentinas": ["argentinas"],
-            "McDonald’s": ["mcdo"],
-            "Quilmes": ["quilmes"],
-            "Coca Cola": ["coca"]
+        "chart_name": "Chart_YTD_IM3", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03", 
+                "keywords": ["cotidiana | t2b"]
+            },
+            "Shell": {
+                "variable": "P04_2", 
+                "keywords": ["cotidiana | t2b"]
+            },
+            "Axion": {
+                "variable": "P04_1", 
+                "keywords": ["cotidiana | t2b"]
+            },
+            "Puma": {
+                "variable": "P04_3", 
+                "keywords": ["cotidiana | t2b"]
+            },
+            "Mercado Libre": {
+                "variable": "P04B_5", 
+                "keywords": ["cotidiana | t2b"]
+            },
+            "Quilmes": {
+                "variable": "P04B_8", 
+                "keywords": ["cotidiana | t2b"]
+            },
+            "Aerolíneas Argentinas": {
+                "variable": "P04B_6", 
+                "keywords": ["cotidiana | t2b"]
+            },
+            "Coca Cola": {
+                "variable": "P04B_7", 
+                "keywords": ["cotidiana | t2b"]
+            },
+            "McDonald’s": {
+                "variable": "P04B_4", 
+                "keywords": ["cotidiana | t2b"]
+            }
         }
     },
     {
-        "chart_name": "Chart_YTD_IM5",
-        "ref_chart_name": "Chart_IM5",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"],
-            "Mercado Libre": ["mercado"],
-            "Aerolíneas Argentinas": ["argentinas"],
-            "McDonald’s": ["mcdo"],
-            "Quilmes": ["quilmes"],
-            "Coca Cola": ["coca"]
+        "chart_name": "Chart_YTD_IM4", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03", 
+                "keywords": ["empleo | t2b"]
+            },
+            "Shell": {
+                "variable": "P04_2", 
+                "keywords": ["empleo | t2b"]
+            },
+            "Axion": {
+                "variable": "P04_1", 
+                "keywords": ["empleo | t2b"]
+            },
+            "Puma": {
+                "variable": "P04_3", 
+                "keywords": ["empleo | t2b"]
+            },
+            "Mercado Libre": {
+                "variable": "P04B_5", 
+                "keywords": ["empleo | t2b"]
+            },
+            "Quilmes": {
+                "variable": "P04B_8", 
+                "keywords": ["empleo | t2b"]
+            },
+            "Aerolíneas Argentinas": {
+                "variable": "P04B_6", 
+                "keywords": ["empleo | t2b"]
+            },
+            "Coca Cola": {
+                "variable": "P04B_7", 
+                "keywords": ["empleo | t2b"]
+            },
+            "McDonald’s": {
+                "variable": "P04B_4", 
+                "keywords": ["empleo | t2b"]
+            }
         }
     },
     {
-        "chart_name": "Chart_YTD_IM6",
-        "ref_chart_name": "Chart_IM6",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"],
-            "Mercado Libre": ["mercado"],
-            "Aerolíneas Argentinas": ["argentinas"],
-            "McDonald’s": ["mcdo"],
-            "Quilmes": ["quilmes"],
-            "Coca Cola": ["coca"]
+        "chart_name": "Chart_YTD_IM5", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03", 
+                "keywords": ["economía del país | t2b"]
+            },
+            "Shell": {
+                "variable": "P04_2", 
+                "keywords": ["economía del país | t2b"]
+            },
+            "Axion": {
+                "variable": "P04_1", 
+                "keywords": ["economía del país | t2b"]
+            },
+            "Puma": {
+                "variable": "P04_3", 
+                "keywords": ["economía del país | t2b"]
+            },
+            "Mercado Libre": {
+                "variable": "P04B_5", 
+                "keywords": ["economía del país | t2b"]
+            },
+            "Quilmes": {
+                "variable": "P04B_8", 
+                "keywords": ["economía del país | t2b"]
+            },
+            "Aerolíneas Argentinas": {
+                "variable": "P04B_6", 
+                "keywords": ["economía del país | t2b"]
+            },
+            "Coca Cola": {
+                "variable": "P04B_7", 
+                "keywords": ["economía del país | t2b"]
+            },
+            "McDonald’s": {
+                "variable": "P04B_4", 
+                "keywords": ["economía del país | t2b"]
+            }
         }
     },
     {
-        "chart_name": "Chart_YTD_IM7",
-        "ref_chart_name": "Chart_IM7",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"],
-            "Mercado Libre": ["mercado"],
-            "Aerolíneas Argentinas": ["argentinas"],
-            "McDonald’s": ["mcdo"],
-            "Quilmes": ["quilmes"],
-            "Coca Cola": ["coca"]
+        "chart_name": "Chart_YTD_IM6", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03", 
+                "keywords": ["TIENE HISTORIA Y TRAYECTORIA ARRAIGADA AL PAÍS | t2b"]
+            },
+            "Shell": {
+                "variable": "P04_2", 
+                "keywords": ["TIENE HISTORIA Y TRAYECTORIA ARRAIGADA AL PAÍS | t2b"]
+            },
+            "Axion": {
+                "variable": "P04_1", 
+                "keywords": ["TIENE HISTORIA Y TRAYECTORIA ARRAIGADA AL PAÍS | t2b"]
+            },
+            "Puma": {
+                "variable": "P04_3", 
+                "keywords": ["TIENE HISTORIA Y TRAYECTORIA ARRAIGADA AL PAÍS | t2b"]
+            },
+            "Mercado Libre": {
+                "variable": "P04B_5", 
+                "keywords": ["TIENE HISTORIA Y TRAYECTORIA ARRAIGADA AL PAÍS | t2b"]
+            },
+            "Quilmes": {
+                "variable": "P04B_8", 
+                "keywords": ["TIENE HISTORIA Y TRAYECTORIA ARRAIGADA AL PAÍS | t2b"]
+            },
+            "Aerolíneas Argentinas": {
+                "variable": "P04B_6", 
+                "keywords": ["TIENE HISTORIA Y TRAYECTORIA ARRAIGADA AL PAÍS | t2b"]
+            },
+            "Coca Cola": {
+                "variable": "P04B_7", 
+                "keywords": ["TIENE HISTORIA Y TRAYECTORIA ARRAIGADA AL PAÍS | t2b"]
+            },
+            "McDonald’s": {
+                "variable": "P04B_4", 
+                "keywords": ["TIENE HISTORIA Y TRAYECTORIA ARRAIGADA AL PAÍS | t2b"]
+            }
         }
     },
     {
-        "chart_name": "Chart_YTD_IM8",
-        "ref_chart_name": "Chart_IM8",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"],
-            "Mercado Libre": ["mercado"],
-            "Aerolíneas Argentinas": ["argentinas"],
-            "McDonald’s": ["mcdo"],
-            "Quilmes": ["quilmes"],
-            "Coca Cola": ["coca"]
+        "chart_name": "Chart_YTD_IM7", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03", 
+                "keywords": ["CON EL MEDIOAMBIENTE | t2b"]
+            },
+            "Shell": {
+                "variable": "P04_2", 
+                "keywords": ["CON EL MEDIOAMBIENTE | t2b"]
+            },
+            "Axion": {
+                "variable": "P04_1", 
+                "keywords": ["CON EL MEDIOAMBIENTE | t2b"]
+            },
+            "Puma": {
+                "variable": "P04_3", 
+                "keywords": ["CON EL MEDIOAMBIENTE | t2b"]
+            },
+            "Mercado Libre": {
+                "variable": "P04B_5", 
+                "keywords": ["CON EL MEDIOAMBIENTE | t2b"]
+            },
+            "Quilmes": {
+                "variable": "P04B_8", 
+                "keywords": ["CON EL MEDIOAMBIENTE | t2b"]
+            },
+            "Aerolíneas Argentinas": {
+                "variable": "P04B_6", 
+                "keywords": ["CON EL MEDIOAMBIENTE | t2b"]
+            },
+            "Coca Cola": {
+                "variable": "P04B_7", 
+                "keywords": ["CON EL MEDIOAMBIENTE | t2b"]
+            },
+            "McDonald’s": {
+                "variable": "P04B_4", 
+                "keywords": ["CON EL MEDIOAMBIENTE | t2b"]
+            }
         }
     },
     {
-        "chart_name": "Chart_YTD_IM9",
-        "ref_chart_name": "Chart_IM9",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"],
-            "Mercado Libre": ["mercado"],
-            "Aerolíneas Argentinas": ["argentinas"],
-            "McDonald’s": ["mcdo"],
-            "Quilmes": ["quilmes"],
-            "Coca Cola": ["coca"]
+        "chart_name": "Chart_YTD_IM8", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03", 
+                "keywords": ["DESARROLLO DEL PAÍS | t2b"]
+            },
+            "Shell": {
+                "variable": "P04_2", 
+                "keywords": ["DESARROLLO DEL PAÍS | t2b"]
+            },
+            "Axion": {
+                "variable": "P04_1", 
+                "keywords": ["DESARROLLO DEL PAÍS | t2b"]
+            },
+            "Puma": {
+                "variable": "P04_3", 
+                "keywords": ["DESARROLLO DEL PAÍS | t2b"]
+            },
+            "Mercado Libre": {
+                "variable": "P04B_5", 
+                "keywords": ["DESARROLLO DEL PAÍS | t2b"]
+            },
+            "Quilmes": {
+                "variable": "P04B_8", 
+                "keywords": ["DESARROLLO DEL PAÍS | t2b"]
+            },
+            "Aerolíneas Argentinas": {
+                "variable": "P04B_6", 
+                "keywords": ["DESARROLLO DEL PAÍS | t2b"]
+            },
+            "Coca Cola": {
+                "variable": "P04B_7", 
+                "keywords": ["DESARROLLO DEL PAÍS | t2b"]
+            },
+            "McDonald’s": {
+                "variable": "P04B_4", 
+                "keywords": ["DESARROLLO DEL PAÍS | t2b"]
+            }
         }
     },
     {
-        "chart_name": "Chart_YTD_IM10",
-        "ref_chart_name": "Chart_IM10",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"],
-            "Mercado Libre": ["mercado"],
-            "Aerolíneas Argentinas": ["argentinas"],
-            "McDonald’s": ["mcdo"],
-            "Quilmes": ["quilmes"],
-            "Coca Cola": ["coca"]
+        "chart_name": "Chart_YTD_IM9", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03", 
+                "keywords": ["COBERTURA EN TODO EL PAÍS | t2b"]
+            },
+            "Shell": {
+                "variable": "P04_2", 
+                "keywords": ["COBERTURA EN TODO EL PAÍS | t2b"]
+            },
+            "Axion": {
+                "variable": "P04_1", 
+                "keywords": ["COBERTURA EN TODO EL PAÍS | t2b"]
+            },
+            "Puma": {
+                "variable": "P04_3", 
+                "keywords": ["COBERTURA EN TODO EL PAÍS | t2b"]
+            },
+            "Mercado Libre": {
+                "variable": "P04B_5", 
+                "keywords": ["COBERTURA EN TODO EL PAÍS | t2b"]
+            },
+            "Quilmes": {
+                "variable": "P04B_8", 
+                "keywords": ["COBERTURA EN TODO EL PAÍS | t2b"]
+            },
+            "Aerolíneas Argentinas": {
+                "variable": "P04B_6", 
+                "keywords": ["COBERTURA EN TODO EL PAÍS | t2b"]
+            },
+            "Coca Cola": {
+                "variable": "P04B_7", 
+                "keywords": ["COBERTURA EN TODO EL PAÍS | t2b"]
+            },
+            "McDonald’s": {
+                "variable": "P04B_4", 
+                "keywords": ["COBERTURA EN TODO EL PAÍS | t2b"]
+            }
         }
     },
     {
-        "chart_name": "Chart_YTD_IM11",
-        "ref_chart_name": "Chart_IM11",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"],
-            "Mercado Libre": ["mercado"],
-            "Aerolíneas Argentinas": ["argentinas"],
-            "McDonald’s": ["mcdo"],
-            "Quilmes": ["quilmes"],
-            "Coca Cola": ["coca"]
+        "chart_name": "Chart_YTD_IM10", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03", 
+                "keywords": ["profesionales | t2b"]
+            },
+            "Shell": {
+                "variable": "P04_2", 
+                "keywords": ["profesionales | t2b"]
+            },
+            "Axion": {
+                "variable": "P04_1", 
+                "keywords": ["profesionales | t2b"]
+            },
+            "Puma": {
+                "variable": "P04_3", 
+                "keywords": ["profesionales | t2b"]
+            },
+            "Mercado Libre": {
+                "variable": "P04B_5", 
+                "keywords": ["profesionales | t2b"]
+            },
+            "Quilmes": {
+                "variable": "P04B_8", 
+                "keywords": ["profesionales | t2b"]
+            },
+            "Aerolíneas Argentinas": {
+                "variable": "P04B_6", 
+                "keywords": ["profesionales | t2b"]
+            },
+            "Coca Cola": {
+                "variable": "P04B_7", 
+                "keywords": ["profesionales | t2b"]
+            },
+            "McDonald’s": {
+                "variable": "P04B_4", 
+                "keywords": ["profesionales | t2b"]
+            }
         }
     },
     {
-        "chart_name": "Chart_YTD_IM12",
-        "ref_chart_name": "Chart_IM12",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"],
-            "Mercado Libre": ["mercado"],
-            "Aerolíneas Argentinas": ["argentinas"],
-            "McDonald’s": ["mcdo"],
-            "Quilmes": ["quilmes"],
-            "Coca Cola": ["coca"]
+        "chart_name": "Chart_YTD_IM11", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03", 
+                "keywords": ["DESARROLLO TECNOLÓGICO | t2b"]
+            },
+            "Shell": {
+                "variable": "P04_2", 
+                "keywords": ["DESARROLLO TECNOLÓGICO | t2b"]
+            },
+            "Axion": {
+                "variable": "P04_1", 
+                "keywords": ["DESARROLLO TECNOLÓGICO | t2b"]
+            },
+            "Puma": {
+                "variable": "P04_3", 
+                "keywords": ["DESARROLLO TECNOLÓGICO | t2b"]
+            },
+            "Mercado Libre": {
+                "variable": "P04B_5", 
+                "keywords": ["DESARROLLO TECNOLÓGICO | t2b"]
+            },
+            "Quilmes": {
+                "variable": "P04B_8", 
+                "keywords": ["DESARROLLO TECNOLÓGICO | t2b"]
+            },
+            "Aerolíneas Argentinas": {
+                "variable": "P04B_6", 
+                "keywords": ["DESARROLLO TECNOLÓGICO | t2b"]
+            },
+            "Coca Cola": {
+                "variable": "P04B_7", 
+                "keywords": ["DESARROLLO TECNOLÓGICO | t2b"]
+            },
+            "McDonald’s": {
+                "variable": "P04B_4", 
+                "keywords": ["DESARROLLO TECNOLÓGICO | t2b"]
+            }
         }
     },
     {
-        "chart_name": "Chart_YTD_IM13",
-        "ref_chart_name": "Chart_IM13",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"],
-            "Mercado Libre": ["mercado"],
-            "Aerolíneas Argentinas": ["argentinas"],
-            "McDonald’s": ["mcdo"],
-            "Quilmes": ["quilmes"],
-            "Coca Cola": ["coca"]
+        "chart_name": "Chart_YTD_IM12", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03", 
+                "keywords": ["COMUNIDADES EN LAS QUE OPERA | t2b"]
+            },
+            "Shell": {
+                "variable": "P04_2", 
+                "keywords": ["COMUNIDADES EN LAS QUE OPERA | t2b"]
+            },
+            "Axion": {
+                "variable": "P04_1", 
+                "keywords": ["COMUNIDADES EN LAS QUE OPERA | t2b"]
+            },
+            "Puma": {
+                "variable": "P04_3", 
+                "keywords": ["COMUNIDADES EN LAS QUE OPERA | t2b"]
+            },
+            "Mercado Libre": {
+                "variable": "P04B_5", 
+                "keywords": ["COMUNIDADES EN LAS QUE OPERA | t2b"]
+            },
+            "Quilmes": {
+                "variable": "P04B_8", 
+                "keywords": ["COMUNIDADES EN LAS QUE OPERA | t2b"]
+            },
+            "Aerolíneas Argentinas": {
+                "variable": "P04B_6", 
+                "keywords": ["COMUNIDADES EN LAS QUE OPERA | t2b"]
+            },
+            "Coca Cola": {
+                "variable": "P04B_7", 
+                "keywords": ["COMUNIDADES EN LAS QUE OPERA | t2b"]
+            },
+            "McDonald’s": {
+                "variable": "P04B_4", 
+                "keywords": ["COMUNIDADES EN LAS QUE OPERA | t2b"]
+            }
         }
     },
     {
-        "chart_name": "Chart_YTD_IM14",
-        "ref_chart_name": "Chart_IM14",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"],
-            "Mercado Libre": ["mercado"],
-            "Aerolíneas Argentinas": ["argentinas"],
-            "McDonald’s": ["mcdo"],
-            "Quilmes": ["quilmes"],
-            "Coca Cola": ["coca"]
+        "chart_name": "Chart_YTD_IM13", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03", 
+                "keywords": ["ÉTICAS Y TRANSPARENTES | t2b"]
+            },
+            "Shell": {
+                "variable": "P04_2", 
+                "keywords": ["ÉTICAS Y TRANSPARENTES | t2b"]
+            },
+            "Axion": {
+                "variable": "P04_1", 
+                "keywords": ["ÉTICAS Y TRANSPARENTES | t2b"]
+            },
+            "Puma": {
+                "variable": "P04_3", 
+                "keywords": ["ÉTICAS Y TRANSPARENTES | t2b"]
+            },
+            "Mercado Libre": {
+                "variable": "P04B_5", 
+                "keywords": ["ÉTICAS Y TRANSPARENTES | t2b"]
+            },
+            "Quilmes": {
+                "variable": "P04B_8", 
+                "keywords": ["ÉTICAS Y TRANSPARENTES | t2b"]
+            },
+            "Aerolíneas Argentinas": {
+                "variable": "P04B_6", 
+                "keywords": ["ÉTICAS Y TRANSPARENTES | t2b"]
+            },
+            "Coca Cola": {
+                "variable": "P04B_7", 
+                "keywords": ["ÉTICAS Y TRANSPARENTES | t2b"]
+            },
+            "McDonald’s": {
+                "variable": "P04B_4", 
+                "keywords": ["ÉTICAS Y TRANSPARENTES | t2b"]
+            }
         }
     },
     {
-        "chart_name": "Chart_YTD_IM15",
-        "ref_chart_name": "Chart_IM15",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"],
-            "Mercado Libre": ["mercado"],
-            "Aerolíneas Argentinas": ["argentinas"],
-            "McDonald’s": ["mcdo"],
-            "Quilmes": ["quilmes"],
-            "Coca Cola": ["coca"]
+        "chart_name": "Chart_YTD_IM14", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03", 
+                "keywords": ["GENERA ORGULLO | t2b"]
+            },
+            "Shell": {
+                "variable": "P04_2", 
+                "keywords": ["GENERA ORGULLO | t2b"]
+            },
+            "Axion": {
+                "variable": "P04_1", 
+                "keywords": ["GENERA ORGULLO | t2b"]
+            },
+            "Puma": {
+                "variable": "P04_3", 
+                "keywords": ["GENERA ORGULLO | t2b"]
+            },
+            "Mercado Libre": {
+                "variable": "P04B_5", 
+                "keywords": ["GENERA ORGULLO | t2b"]
+            },
+            "Quilmes": {
+                "variable": "P04B_8", 
+                "keywords": ["GENERA ORGULLO | t2b"]
+            },
+            "Aerolíneas Argentinas": {
+                "variable": "P04B_6", 
+                "keywords": ["GENERA ORGULLO | t2b"]
+            },
+            "Coca Cola": {
+                "variable": "P04B_7", 
+                "keywords": ["GENERA ORGULLO | t2b"]
+            },
+            "McDonald’s": {
+                "variable": "P04B_4", 
+                "keywords": ["GENERA ORGULLO | t2b"]
+            }
+        }
+    },
+   {
+        "chart_name": "Chart_YTD_IM15", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03", 
+                "keywords": ["RESPONSABLE | t2b"]
+            },
+            "Shell": {
+                "variable": "P04_2", 
+                "keywords": ["RESPONSABLE | t2b"]
+            },
+            "Axion": {
+                "variable": "P04_1", 
+                "keywords": ["RESPONSABLE | t2b"]
+            },
+            "Puma": {
+                "variable": "P04_3", 
+                "keywords": ["RESPONSABLE | t2b"]
+            },
+            "Mercado Libre": {
+                "variable": "P04B_5", 
+                "keywords": ["RESPONSABLE | t2b"]
+            },
+            "Quilmes": {
+                "variable": "P04B_8", 
+                "keywords": ["RESPONSABLE | t2b"]
+            },
+            "Aerolíneas Argentinas": {
+                "variable": "P04B_6", 
+                "keywords": ["RESPONSABLE | t2b"]
+            },
+            "Coca Cola": {
+                "variable": "P04B_7", 
+                "keywords": ["RESPONSABLE | t2b"]
+            },
+            "McDonald’s": {
+                "variable": "P04B_4", 
+                "keywords": ["RESPONSABLE | t2b"]
+            }
+        }
+    },
+   {
+        "chart_name": "Chart_YTD_IM16", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03", 
+                "keywords": ["CALIDAD INTERNACIONAL | t2b"]
+            },
+            "Shell": {
+                "variable": "P04_2", 
+                "keywords": ["CALIDAD INTERNACIONAL | t2b"]
+            },
+            "Axion": {
+                "variable": "P04_1", 
+                "keywords": ["CALIDAD INTERNACIONAL | t2b"]
+            },
+            "Puma": {
+                "variable": "P04_3", 
+                "keywords": ["CALIDAD INTERNACIONAL | t2b"]
+            },
+            "Mercado Libre": {
+                "variable": "P04B_5", 
+                "keywords": ["CALIDAD INTERNACIONAL | t2b"]
+            },
+            "Quilmes": {
+                "variable": "P04B_8", 
+                "keywords": ["CALIDAD INTERNACIONAL | t2b"]
+            },
+            "Aerolíneas Argentinas": {
+                "variable": "P04B_6", 
+                "keywords": ["CALIDAD INTERNACIONAL | t2b"]
+            },
+            "Coca Cola": {
+                "variable": "P04B_7", 
+                "keywords": ["CALIDAD INTERNACIONAL | t2b"]
+            },
+            "McDonald’s": {
+                "variable": "P04B_4", 
+                "keywords": ["CALIDAD INTERNACIONAL | t2b"]
+            }
+        }
+    },
+   {
+        "chart_name": "Chart_YTD_IM17", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03_E", 
+                "keywords": ["DESARROLLO ENERGÉTICO DE ARGENTINA | t2b"]
+            },
+            "Shell": {
+                "variable": "P4_E_2", 
+                "keywords": ["DESARROLLO ENERGÉTICO DE ARGENTINA | t2b"]
+            },
+            "Axion": {
+                "variable": "P4_E_1", 
+                "keywords": ["DESARROLLO ENERGÉTICO DE ARGENTINA | t2b"]
+            },
+            "Puma": {
+                "variable": "P4_E_3", 
+                "keywords": ["DESARROLLO ENERGÉTICO DE ARGENTINA | t2b"]
+            }
+        }
+    },
+   {
+        "chart_name": "Chart_YTD_IM18", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03_E", 
+                "keywords": ["RENOVANDO EN LOS ÚLTIMOS AÑOS | t2b"]
+            },
+            "Shell": {
+                "variable": "P4_E_2", 
+                "keywords": ["RENOVANDO EN LOS ÚLTIMOS AÑOS | t2b"]
+            },
+            "Axion": {
+                "variable": "P4_E_1", 
+                "keywords": ["RENOVANDO EN LOS ÚLTIMOS AÑOS | t2b"]
+            },
+            "Puma": {
+                "variable": "P4_E_3", 
+                "keywords": ["RENOVANDO EN LOS ÚLTIMOS AÑOS | t2b"]
+            }
+        }
+    },
+   {
+        "chart_name": "Chart_YTD_IM19", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03_E", 
+                "keywords": ["VANGUARDIA EN TECNOLOGÍA | t2b"]
+            },
+            "Shell": {
+                "variable": "P4_E_2", 
+                "keywords": ["VANGUARDIA EN TECNOLOGÍA | t2b"]
+            },
+            "Axion": {
+                "variable": "P4_E_1", 
+                "keywords": ["VANGUARDIA EN TECNOLOGÍA | t2b"]
+            },
+            "Puma": {
+                "variable": "P4_E_3", 
+                "keywords": ["VANGUARDIA EN TECNOLOGÍA | t2b"]
+            }
+        }
+    },
+   {
+        "chart_name": "Chart_YTD_IM20", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03_E", 
+                "keywords": ["TIENEN MUY BUENA ATENCIÓN | t2b"]
+            },
+            "Shell": {
+                "variable": "P4_E_2", 
+                "keywords": ["TIENEN MUY BUENA ATENCIÓN | t2b"]
+            },
+            "Axion": {
+                "variable": "P4_E_1", 
+                "keywords": ["TIENEN MUY BUENA ATENCIÓN | t2b"]
+            },
+            "Puma": {
+                "variable": "P4_E_3", 
+                "keywords": ["TIENEN MUY BUENA ATENCIÓN | t2b"]
+            }
+        }
+    },
+   {
+        "chart_name": "Chart_YTD_IM21", # Nombre exacto del objeto en PPT
+        "is_ytd_calculated": True,    # Activa la lógica de histórico
+        "target_year": "YTD 2026",    # Referencia para el log
+        "year_suffix": "26",          # Ayuda a la normalización
+        "is_percentage": False,       # False para números enteros (88, 75, etc.)
+        "multiplier": 1,              # Forzamos que no multiplique por 100 si los datos ya son enteros
+        "decimals": 0,                # Redondeo a entero (0.88 -> 1)
+        "metrics": {
+            # "Nombre de la serie en PPT": {"variable": "Nombre en Excel", "keywords": ["keyword de búsqueda"]}
+            "YPF": {
+                "variable": "P03_E", 
+                "keywords": ["MÁS ACCESIBLES | t2b"]
+            },
+            "Shell": {
+                "variable": "P4_E_2", 
+                "keywords": ["MÁS ACCESIBLES | t2b"]
+            },
+            "Axion": {
+                "variable": "P4_E_1", 
+                "keywords": ["MÁS ACCESIBLES | t2b"]
+            },
+            "Puma": {
+                "variable": "P4_E_3", 
+                "keywords": ["MÁS ACCESIBLES | t2b"]
+            }
         }
     },
     {
-        "chart_name": "Chart_YTD_IM17",
-        "ref_chart_name": "Chart_IM17",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
+        "chart_name": "Chart_YTD_P09",
+        "variable": "P09",
+        "ref_chart_name": "Chart_P09",
+        "is_ytd_calculated": True,
         "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"]
+        "multiplier": 1,         # <--- FUERZA A QUE NO MULTIPLIQUE POR 100        
+        "decimals": 0,           # <--- Al poner 0, el 0.8807 se convierte en 88        
+        "target_year": "YTD 2026",
+        "year_suffix": "26",
+        "metrics": {
+            "Publicidad/Publicidad en TV": ["publicidad"],
+            "Aumento": ["aumento"],
+            "Promociones": ["promociones"],
+            "Vaca muerta/Gasoducto/Gas no convencional": ["vaca muerta"],
+            "Inversión": ["inversión"],
+            "Privatizacion": ["privatización"],
+            "Jucio/Deuda por expropiación": ["juicio"]
         }
     },
     {
-        "chart_name": "Chart_YTD_IM18",
-        "ref_chart_name": "Chart_IM18",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"]
-        }
+        "chart_name": "Chart_Barras_A8",     
+        "variable": "A8",                   
+        "table_name": "Tabla_Bloques_A8_A9", 
+        "is_top_n_sync": True,               
+        "start_row": 1,                      
+        "max_rows": 4,                       
+        "base_table_name":"Tabla_Bases",
+        "promo_names_table_name": "Tabla_Nombres_Promos",
+        "is_percentage": True,
+        "columns": {"text": 0, "total": 2, "segments": 3},
+        "participation_variable": "A2",
+        "view_mode": "fixed_pep_otros",        # 👈 Parámetro Clave
+        "pepsico_brand": "Tem Lays tem Jogo",
+        # 🎯 Inyectamos la variable global aquí:
+        "fixed_groups_mapping": MAPEO_GRUPOS_BRASIL
+    },    
+    {
+        "chart_name": "Chart_Barras_A9",     
+        "variable": "A9",                   
+        "table_name": "Tabla_Bloques_A8_A9", 
+        "is_top_n_sync": True,               
+        "start_row": 6,                      
+        "max_rows": 4,                       
+        "base_table_name":"Tabla_Bases",
+        "promo_names_table_name": "Tabla_Nombres_Promos",
+        "is_percentage": True,
+        "columns": {"text": 0, "total": 2, "segments": 3},
+        "participation_variable": "A2",
+        "view_mode": "fixed_pep_otros",        # 👈 Parámetro Clave
+        "pepsico_brand": "Tem Lays tem Jogo",
+        # 🎯 Inyectamos la variable global aquí:
+        "fixed_groups_mapping": MAPEO_GRUPOS_BRASIL
+    },    
+# =========================================================================
+    # 🥊 SLIDE 1: HEAD-TO-HEAD (PepsiCo vs Líder de la Competencia)
+    # =========================================================================
+    {
+        "chart_name": "Chart_Barras_A5",     
+        "variable": "A5",                   
+        "table_name": "Tabla_Bloques_A5_A7", 
+        "is_top_n_sync": True,               
+        "start_row": 1,                      
+        "max_rows": 4,                       
+        "base_table_name":"Tabla_Bases",
+        "promo_names_table_name": "Tabla_Nombres_Promos",
+        "is_percentage": True,
+        "columns": {"text": 0, "total": 2, "segments": 3},
+        "participation_variable": "A2",
+        "view_mode": "fixed_pep_otros",        # 👈 Parámetro Clave
+        "pepsico_brand": "Tem Lays tem Jogo",
+        # 🎯 Inyectamos la variable global aquí:
+        "fixed_groups_mapping": MAPEO_GRUPOS_BRASIL
     },
     {
-        "chart_name": "Chart_YTD_IM19",
-        "ref_chart_name": "Chart_IM19",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"]
-        }
+        "chart_name": "Chart_Barras_A6",     
+        "variable": "A6",                  
+        "table_name": "Tabla_Bloques_A5_A7", 
+        "is_top_n_sync": True,               
+        "start_row": 6,                      
+        "max_rows": 4,                       
+        "base_table_name":"Tabla_Bases",
+        "promo_names_table_name": "Tabla_Nombres_Promos",
+        "is_percentage": True,
+        "columns": {"text": 0, "total": 2, "segments": 3},
+        "view_mode": "fixed_pep_otros",
+        "pepsico_brand": "Tem Lays tem Jogo",
+        # 🎯 Inyectamos la variable global aquí:
+        "fixed_groups_mapping": MAPEO_GRUPOS_BRASIL
     },
     {
-        "chart_name": "Chart_YTD_IM20",
-        "ref_chart_name": "Chart_IM20",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"]
-        }
-    },
-    {
-        "chart_name": "Chart_YTD_IM21",
-        "ref_chart_name": "Chart_IM21",    
-        "is_ytd_calculated": True,         
-        "target_year": "YTD 2026",         
-        "year_suffix": "26",               
-        "is_percentage": False,
-        "metrics": {"YPF": ["ypf"],
-            "Shell": ["shell"],
-            "Axion": ["axion"],
-            "Puma": ["puma"]
-        }
-    }                                                                                                                                                                                                                                                                                                                                            
+        "chart_name": "Chart_Barras_A7",     
+        "variable": "A7",                  
+        "table_name": "Tabla_Bloques_A5_A7", 
+        "is_top_n_sync": True,               
+        "start_row": 10,                     
+        "max_rows": 1,                       
+        "base_table_name":"Tabla_Bases",
+        "promo_names_table_name": "Tabla_Nombres_Promos",
+        "is_percentage": True,
+        "columns": {"text": 0, "total": 2, "segments": 3},
+        "view_mode": "fixed_pep_otros",
+        "exclude_labels": ["Sin Promo"],
+        "pepsico_brand": "Tem Lays tem Jogo",
+        # 🎯 Inyectamos la variable global aquí:
+        "fixed_groups_mapping": MAPEO_GRUPOS_BRASIL
+    }    
 ]
+#head_to_head
 # =================================================================
 # 🤖 GENERADOR AUTOMÁTICO DE GRÁFICOS DE ATRIBUTOS (P18) + YTD
 # =================================================================
@@ -2588,7 +4239,7 @@ lista_atributos = [
         "ppt_shape": "Chart_P18_19_Conductores", 
         "ytd_shape": "Chart_YTD_P18_19_Conductores", # <-- Nombre de la forma en PPT
         "keyword": "calidad int"
-    }   
+    }     
 ]
 
 # 2. El loop arma LOS DOS diccionarios automáticamente
@@ -2636,6 +4287,17 @@ TRACKING_CHARTS.extend(graficos_bateria_P18)
 # =========================================================
 
 # El "Mapa de Columnas" (Variable SPSS : Número de columna en la tabla de PPT)
+#MAPA_MARCAS = {
+#    "P03": 1,      # YPF
+#    "P04_2": 1,    # Shell
+#    "P04_1": 2,    # Axion
+#    "P04_3": 3,    # Puma Energy
+#    "P04B_5": 4,   # MercadoLibre
+#    "P04B_8": 5,   # Quilmes
+#    "P04B_6": 6,   # Aerolineas Argentinas
+#    "P04B_7": 7,   # Coca Cola
+#    "P04B_4": 8   # Mc Donalds
+#}
 MAPA_MARCAS = {
     "P03": 2,      # YPF
     "P04_2": 3,    # Shell
@@ -2649,19 +4311,22 @@ MAPA_MARCAS = {
 }
 
 # EL LOOP MÁGICO: Arma la configuración para cada marca y la suma a TRACKING_CHARTS
+print(f"DEBUG: Contenido de MAPA_MARCAS: {MAPA_MARCAS}") # <--- Agregá esto
 for variable_spss, numero_columna in MAPA_MARCAS.items():
     TRACKING_CHARTS.append({
         "chart_name": "Tabla_Heatmap_Marcas",  # ¡Asegurate de ponerle este nombre a la 2da tabla en PPT!
         "variable": variable_spss,
         "is_table": True,
+        "has_header": False,                   # 👈 ¡AGREGAR ESTA LÍNEA! Evita que reemplace los meses en la fila 0        
         "target_box": "t2b",                   # 🎯 Fuerza matemáticamente el Top 2 Box        
         "is_static": True,                     # True = Dispara el dato a una columna fija
         "target_col": numero_columna,
+        "positional":True,
         "calcular_promedio": True,
         "metrics": ATRIBUTOS_COMUNES,           # Reutilizamos el diccionario maestro
         # EL SALVAVIDAS PARA LA IA:
         "ai_table_headers": ["Atributo", "YPF", "Shell", "Axion", "Puma", "Mercado Libre", "Quilmes", "Aerolineas Argentinas", "Coca Cola", "McDonalds"]    
-    })
+    })  
 
 
 
@@ -2695,5 +4360,21 @@ for variable_spss, numero_columna in MAPA_MARCAS.items():
         "metrics": ATRIBUTOS_COMUNES_CONDUCTORES,           
         "ai_table_headers": ["Atributo", "YPF", "Shell", "Axion", "Puma"]    
     })
+
+
+# ===========================================================================
+# MEGA APP — EXCLUSIÓN DE PROMOTRACKING (Pepsico multi-país)
+# ---------------------------------------------------------------------------
+# Chris mantiene en este mismo config el trabajo de otro estudio (PromoTracking
+# Pepsico). Esas entradas apuntan a shapes que no existen en la plantilla de YPF
+# (Tabla_Bloques_A5_A7, Tabla_Bases, Tabla_Nombres_Promos) y su motor
+# (create_slides.update_top_n_block) ni siquiera está cableado en main.py.
+#
+# Las filtramos acá en vez de borrar las líneas, para que el diff contra las
+# próximas versiones que mande Chris siga siendo limpio y no haya que repetir
+# la cirugía en cada sync. El marcador `is_top_n_sync` es el que distingue esas
+# entradas de las de YPF.
+# ===========================================================================
+TRACKING_CHARTS = [c for c in TRACKING_CHARTS if not c.get("is_top_n_sync")]
 
 

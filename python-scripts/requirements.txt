@@ -7,6 +7,10 @@
 # --- Core tools (Fase 2) ---
 openpyxl==3.1.5
 python-pptx==1.0.2
+# brand_audit/main.py importa xlsxwriter directo (Excel de auditoría YTD).
+# Hoy llega igual como dependencia dura de python-pptx, pero lo pinneamos
+# explícitamente para no depender de la transitiva de otro paquete.
+xlsxwriter==3.2.9
 
 # --- Brand Audit engine (Fase 3) ---
 # pandas 2.2.3 es compatible con numpy 2.x en Python 3.12.

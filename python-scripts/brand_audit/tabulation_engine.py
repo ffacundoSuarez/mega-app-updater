@@ -337,7 +337,10 @@ class TabulationEngine:
 
         for c in cols:
             col_numerica = pd.to_numeric(df_valid[c], errors='coerce').fillna(0)
-            df_valid[c] = (col_numerica > 0).astype(int)
+            # 🎯 EL CAMBIO QUIRÚRGICO DENTRO DE TU LÓGICA ORIGINAL:
+            # En lugar de > 0 (que se traga códigos de control como 9), 
+            # evaluamos coincidencia exacta con 1 (el 'Sí' real de SPSS).
+            df_valid[c] = (col_numerica == 1).astype(int)
         
         col_labels = {}
         seen_labels = {} 
@@ -349,20 +352,37 @@ class TabulationEngine:
             if label_excel:
                 clean_label = str(label_excel).strip()
             else:
-                cvl = utils.get_label_dict(self.meta.variable_value_labels, c)
+                # 🎯 PRIORIDAD 1: Ir a buscar la Etiqueta de la Variable (Ej: "El premio que puede ganar")
+                lbl = utils.get_variable_label(self.meta, c)
+                raw_label = str(lbl).strip() if lbl else None
                 
-                if 1.0 in cvl: raw_label = str(cvl[1.0])
-                elif len(cvl) == 1: raw_label = str(list(cvl.values())[0])
-                else: 
-                    lbl = utils.get_variable_label(self.meta, c)
-                    raw_label = str(lbl) if lbl else c
+                # 🎯 PRIORIDAD 2: Si no tiene etiqueta o dice "Selected", intentamos el diccionario de valores o el de la madre
+                if not raw_label or raw_label.lower() == 'selected' or raw_label.lower() == 'none':
+                    cvl = utils.get_label_dict(self.meta.variable_value_labels, c)
                     
-                if " - " in raw_label: clean_label = raw_label.split(" - ")[-1].strip()
-                elif ":" in raw_label: clean_label = raw_label.split(":")[-1].strip()
-                else: clean_label = raw_label.strip()
+                    # Buscamos de forma flexible el valor 1 (sea entero o float)
+                    val_si = cvl.get(1.0) or cvl.get(1) or cvl.get('1')
+                    
+                    if val_si and str(val_si).lower() != 'selected':
+                        raw_label = str(val_si)
+                    elif len(cvl) == 1 and str(list(cvl.values())[0]).lower() != 'selected':
+                        raw_label = str(list(cvl.values())[0])
+                    else:
+                        # Si sigue siendo "Selected", buscamos en el diccionario de la variable madre usando el sub-código
+                        sub_cod = c.split('_')[-1] if '_' in c else c
+                        cvl_madre = utils.get_label_dict(self.meta.variable_value_labels, var_name)
+                        val_madre = cvl_madre.get(sub_cod) or cvl_madre.get(int(sub_cod) if sub_cod.isdigit() else None)
+                        raw_label = str(val_madre) if val_madre else c
+
+                # Limpieza de prefijos molestos en el texto
+                if " - " in str(raw_label): clean_label = str(raw_label).split(" - ")[-1].strip()
+                elif ":" in str(raw_label): clean_label = str(raw_label).split(":")[-1].strip()
+                else: clean_label = str(raw_label).strip()
                 
-                if not clean_label or clean_label.lower() == 'none': clean_label = c
+                if not clean_label or clean_label.lower() == 'none': 
+                    clean_label = c
                 
+            # Control de duplicados real
             if clean_label in seen_labels:
                 seen_labels[clean_label] += 1
                 final_label = f"{clean_label} ({c})" 
@@ -404,7 +424,6 @@ class TabulationEngine:
 
         titulo_excel = self.quest_dict.get(var_name) if hasattr(self, 'quest_dict') and self.quest_dict else None
         
-        # 🚀 PROTECCIÓN PARA ETIQUETAS NULAS
         if titulo_excel:
             titulo_final = str(titulo_excel).strip()
         else:
@@ -474,8 +493,27 @@ class TabulationEngine:
             else:
                 val_labels[code] = str(label_spss).strip()
 
-        df_valid = self.df[self.df[first_col].notna()].copy()
-        if df_valid.empty: return None
+        #df_valid = self.df[self.df[first_col].notna()].copy()
+        #if df_valid.empty: return None
+
+        # =========================================================
+        # 🚀 CORRECCIÓN DE BASE (Múltiple Respuesta Segura)
+        # =========================================================
+        # 1. Filtramos 'cols' para usar SOLO las columnas que realmente existen en el Excel hoy
+        columnas_reales = [c for c in cols if c in self.df.columns]
+        
+        if not columnas_reales:
+            print("❌ Cancelado: Ninguna de las columnas existe en la base de datos.")
+            return None
+
+        # 2. Ahora sí, miramos TODAS las columnas a la vez para armar la base correcta (1000 casos)
+        df_valid = self.df.dropna(subset=columnas_reales, how='all').copy()
+        
+        if df_valid.empty: 
+            print(f"❌ Cancelado: No hay datos válidos en ninguna de las {len(columnas_reales)} columnas.")
+            return None
+        # =========================================================
+
 
     # 🛡️ Blindaje de tipos de datos
         for c in cols:
@@ -666,7 +704,7 @@ class TabulationEngine:
             # 🚀 PROTECCIÓN DE ETIQUETAS (GRID SCALE)
             lbl_raw = utils.get_variable_label(self.meta, c)
             full_label = str(lbl_raw).strip() if lbl_raw else c
-            clean_label = full_label.split(" - ")[-1].strip().upper() if " - " in full_label else full_label.upper()
+            clean_label = full_label.split(" - ")[-1].strip().lower() if " - " in full_label else full_label.lower()
 
             header_label = f"GRID_ATTR:{clean_label}"
             header_row = pd.DataFrame(np.nan, index=[header_label], columns=df_p.columns)
@@ -719,7 +757,7 @@ class TabulationEngine:
             # 🚀 PROTECCIÓN DE ETIQUETAS (GRID SRQ)
             lbl_raw = utils.get_variable_label(self.meta, c)
             full_label = str(lbl_raw).strip() if lbl_raw else c
-            clean_label = full_label.split(" - ")[-1].strip().upper() if " - " in full_label else full_label.upper()
+            clean_label = full_label.split(" - ")[-1].strip().lower() if " - " in full_label else full_label.lower()
 
             header_label = f"GRID_ATTR:{clean_label}"
             header_row = pd.DataFrame(np.nan, index=[header_label], columns=df_p.columns)
@@ -1135,7 +1173,7 @@ class TabulationEngine:
 
                 if tipo_tabla == "MASTER_FUNNEL":
                     num_cols_datos = len(df_p.columns)
-                    banner_label = getattr(self, 'banner_variable_name', "SEGMENTACIÓN").upper()
+                    banner_label = getattr(self, 'banner_variable_name', "SEGMENTACIÓN").lower()
                     worksheet.merge_range(start_row, 1, start_row, num_cols_datos, banner_label, fmt_head)
                     start_row += 1
 
