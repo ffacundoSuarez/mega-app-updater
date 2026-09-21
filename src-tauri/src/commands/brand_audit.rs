@@ -32,8 +32,13 @@ const ASSETS_FOLDER_NAME: &str = "assets";
 /// Assets que vienen empaquetados en el MSI como resource y se copian a
 /// `Documents\MegaApp\assets\` en el primer run. Si el usuario los edita
 /// localmente, no los sobreescribimos (ver `copy_assets_if_missing`).
+///
+/// La plantilla `.pptx` NO va acá a propósito: en un tracking, el informe de una
+/// ola es la plantilla de la siguiente, así que cambia todos los meses. La elige
+/// el usuario en cada corrida (`params.template_pptx`). Cuando venía como asset
+/// fijo, `copy_assets_if_missing` la copiaba una sola vez y nunca la pisaba, lo
+/// que dejaba al usuario clavado para siempre en la plantilla del release.
 const BUNDLED_ASSETS: &[&str] = &[
-    "brand_audit/assets/INFORME COMPLETO YPF MONITOR.pptx",
     "brand_audit/assets/cuestionario.xlsx",
     // manual_tasks.csv se agrega cuando nos lo pasen.
 ];
@@ -51,6 +56,9 @@ pub struct BrandAuditParams {
     /// Path absoluto al `.sav` secundario (opcional).
     #[serde(default)]
     pub sav_secundario: Option<String>,
+    /// Path absoluto a la plantilla `.pptx` (obligatorio). Es el informe de la
+    /// ola anterior: el motor le agrega la columna de la ola nueva.
+    pub template_pptx: String,
     /// Filtro de ola (número entero, ej. 48).
     pub wave_filter: i64,
     /// Nombre visible de la ola (ej. "Abr 26").
@@ -77,6 +85,8 @@ pub struct BrandAuditResult {
     pub ppt: Option<String>,
     pub excel_principal: Option<String>,
     pub excel_secundario: Option<String>,
+    /// Excel de auditoría YTD (nuevo en el motor de agosto 2026).
+    pub auditoria: Option<String>,
     pub log: Option<String>,
     pub study_id: Option<String>,
     /// Salida cruda de stdout (para debugging desde la UI si hace falta).
@@ -202,6 +212,11 @@ pub async fn run_brand_audit(
     if params.wave_name.trim().is_empty() {
         return Err(BrandAuditError::InvalidParam("wave_name está vacío".into()));
     }
+    if params.template_pptx.trim().is_empty() {
+        return Err(BrandAuditError::InvalidParam(
+            "template_pptx está vacío: hay que elegir el informe de la ola anterior".into(),
+        ));
+    }
 
     // --- Resolver carpetas del usuario ------------------------------------
     let root = mega_app_root(&app)?;
@@ -217,6 +232,8 @@ pub async fn run_brand_audit(
     let mut args: Vec<&str> = vec![
         "--sav-principal",
         &params.sav_principal,
+        "--template-pptx",
+        &params.template_pptx,
         "--wave-filter",
         &wave_filter_str,
         "--wave-name",
@@ -252,6 +269,8 @@ pub async fn run_brand_audit(
         env,
         cwd: Some(output_dir.clone()),
         stream_event: Some(PROGRESS_EVENT.to_string()),
+        timeout_secs: Some(7200),
+        track_for_cancel: true,
     };
     let py_out = run_python_script(&app, "run_brand_audit.py", &args, opts).await?;
 
@@ -292,6 +311,7 @@ pub async fn run_brand_audit(
         ppt: get_str("ppt"),
         excel_principal: get_str("excel_principal"),
         excel_secundario: get_str("excel_secundario"),
+        auditoria: get_str("auditoria"),
         log: get_str("log"),
         study_id: get_str("study_id"),
         stdout: py_out.stdout,

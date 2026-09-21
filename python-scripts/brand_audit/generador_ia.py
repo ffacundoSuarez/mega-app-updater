@@ -15,7 +15,7 @@ def redactar_titulos_con_gemini(api_key, mochila_datos):
     
     # IMPORTANTE: Para forzar un formato de salida estricto (JSON), 
     # Gemini 1.5 Pro o Flash son excelentes. Mantenemos el que tenías.
-    model = genai.GenerativeModel('gemini-2.5-flash') 
+    model = genai.GenerativeModel('gemini-3.6-flash') 
 
     datos_texto = json.dumps(mochila_datos, indent=2, ensure_ascii=False)
 
@@ -35,6 +35,7 @@ def redactar_titulos_con_gemini(api_key, mochila_datos):
     3. EL PODER DE LA SÍNTESIS: El insight debe tener entre 12 y 20 palabras como máximo. Impactante, asertivo y fácil de leer de un vistazo.
     4. YPF ES EL PROTAGONISTA: En gráficos competitivos, YPF debe ser el sujeto principal de la oración. (Ej: En lugar de "Shell sube y alcanza a YPF", usa "YPF cede terreno y permite que Shell acorte la brecha").
     5. HERENCIA DE CONTEXTO TEMPORAL: Lee el "insight_anterior" que viene en los datos para entender de dónde venimos, pero NO repitas su estructura. Si veníamos de meses de caída y ahora subió, el titular debe enmarcarse como una "recuperación" o "freno a la sangría".
+    6. NO REPETIRSE: la estructura de los insights no puede repetirse de slide a slide. debe fluir la historia.
     
     FORMATO DE SALIDA ESTRICTO:
     Devuelve ÚNICAMENTE un JSON válido.
@@ -80,7 +81,15 @@ def redactar_titulos_con_gemini(api_key, mochila_datos):
         logging.error(f"Error al comunicarse con Gemini: {e}")
         return {}
     
-def redactar_executive_summary(api_key, mochila_datos):
+def _resumir_para_summary(mochila_datos, titulos_generados=None):
+    """Reduce el payload para el executive summary (evita reenviar mochila_ia completa)."""
+    if titulos_generados:
+        return json.dumps({"titulos_por_slide": titulos_generados}, ensure_ascii=False, indent=2)
+    claves = list(mochila_datos.keys())[:40]
+    digest = {k: mochila_datos.get(k, {}) for k in claves}
+    return json.dumps(digest, ensure_ascii=False, indent=2)
+
+def redactar_executive_summary(api_key, mochila_datos, titulos_generados=None):
     """
     Redacta el Resumen Ejecutivo con formato de "Elevator Pitch" basado en datos.
     """
@@ -89,7 +98,7 @@ def redactar_executive_summary(api_key, mochila_datos):
 
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-2.5-flash') 
-    datos_texto = json.dumps(mochila_datos, indent=2, ensure_ascii=False)
+    datos_texto = _resumir_para_summary(mochila_datos, titulos_generados)
 
     # =========================================================
     # 🧠 PROMPT PARA EXECUTIVE SUMMARY (Enfoque McKinsey)

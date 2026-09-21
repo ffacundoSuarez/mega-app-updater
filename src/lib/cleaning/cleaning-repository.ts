@@ -28,7 +28,6 @@ import type {
   CleaningRow,
   CleaningRule,
   CleaningVersion,
-  FlagCounts,
   VersionStatus,
 } from "./types";
 
@@ -136,34 +135,47 @@ export async function getMaxProcessedRow(
   client: SupabaseClient,
   versionId: string
 ): Promise<number> {
-  const { data, error } = await client
-    .from("cleaning_flags")
-    .select("matched_rules, cleaning_rows!inner(row_number)")
-    .eq("version_id", versionId);
+  const PAGE = 500;
+  let offset = 0;
+  let maxRow = 0;
 
-  if (error) {
-    console.warn("Could not reconcile cursor:", error.message);
-    return 0;
-  }
-  if (!data || data.length === 0) return 0;
+  while (true) {
+    const { data, error } = await client
+      .from("cleaning_flags")
+      .select("matched_rules, cleaning_rows!inner(row_number)")
+      .eq("version_id", versionId)
+      .order("row_number", {
+        ascending: false,
+        foreignTable: "cleaning_rows",
+      })
+      .range(offset, offset + PAGE - 1);
 
-  const rows = data as Array<{
-    matched_rules: unknown;
-    cleaning_rows: { row_number: number } | { row_number: number }[] | null;
-  }>;
+    if (error) {
+      console.warn("Could not reconcile cursor:", error.message);
+      return maxRow;
+    }
+    if (!data || data.length === 0) break;
 
-  const maxRow = rows
-    .filter((f) => !isPurelyDeterministicFlag(f.matched_rules))
-    .map((f) => {
+    const rows = data as Array<{
+      matched_rules: unknown;
+      cleaning_rows: { row_number: number } | { row_number: number }[] | null;
+    }>;
+
+    for (const f of rows) {
+      if (isPurelyDeterministicFlag(f.matched_rules)) continue;
       const cr = f.cleaning_rows;
-      if (!cr) return 0;
-      // Supabase devuelve relación 1:N como array; en este caso sabemos que es 1:1.
+      if (!cr) continue;
       const rn = Array.isArray(cr) ? cr[0]?.row_number : cr.row_number;
-      return Number.isFinite(rn) ? (rn as number) : 0;
-    })
-    .reduce((acc, n) => (n > acc ? n : acc), 0);
+      if (Number.isFinite(rn) && (rn as number) > maxRow) {
+        maxRow = rn as number;
+      }
+    }
 
-  return Number.isFinite(maxRow) ? maxRow : 0;
+    if (data.length < PAGE) break;
+    offset += PAGE;
+  }
+
+  return maxRow;
 }
 
 /**
@@ -240,12 +252,18 @@ export async function updateFlagSimilarity(
 ): Promise<number> {
   if (rowToSimilar.size === 0) return 0;
   let updated = 0;
-  for (const [rowId, similarIds] of rowToSimilar) {
-    const { error } = await client
-      .from("cleaning_flags")
-      .update({ similar_response_ids: similarIds })
-      .eq("version_id", versionId)
-      .eq("row_id", rowId);
+  const updates = [...rowToSimilar.entries()];
+  const results = await Promise.all(
+    updates.map(async ([rowId, similarIds]) => {
+      const { error } = await client
+        .from("cleaning_flags")
+        .update({ similar_response_ids: similarIds })
+        .eq("version_id", versionId)
+        .eq("row_id", rowId);
+      return { rowId, error };
+    })
+  );
+  for (const { rowId, error } of results) {
     if (error) {
       console.warn(
         `Could not update similarity for row ${rowId}: ${error.message}`
@@ -255,31 +273,4 @@ export async function updateFlagSimilarity(
     updated++;
   }
   return updated;
-}
-
-export async function getFlagCounts(
-  client: SupabaseClient,
-  versionId: string
-): Promise<FlagCounts> {
-  const { data, error } = await client
-    .from("cleaning_flags")
-    .select("flag_type, user_decision")
-    .eq("version_id", versionId);
-
-  if (error || !data) {
-    console.warn("Could not get flag counts:", error?.message);
-    return { red: 0, yellow: 0, pending: 0, decided: 0 };
-  }
-
-  const rows = data as Array<{
-    flag_type: "red" | "yellow";
-    user_decision: "keep" | "remove" | null;
-  }>;
-
-  return {
-    red: rows.filter((f) => f.flag_type === "red").length,
-    yellow: rows.filter((f) => f.flag_type === "yellow").length,
-    pending: rows.filter((f) => f.user_decision === null).length,
-    decided: rows.filter((f) => f.user_decision !== null).length,
-  };
 }

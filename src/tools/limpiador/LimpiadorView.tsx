@@ -71,7 +71,7 @@ export function LimpiadorView({
     return () => {
       cancelled = true;
     };
-  }, [view]);
+  }, []);
 
   const navigate = (next: LimpiadorView, opts: NavigateOpts = {}) => {
     setView(next);
@@ -118,7 +118,7 @@ export function LimpiadorView({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6">
       <Header />
       <Separator />
 

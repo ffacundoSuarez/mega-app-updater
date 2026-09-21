@@ -50,8 +50,7 @@ import { cn } from "@/lib/utils";
 import { getCleaningSupabaseClient } from "@/lib/cleaning/supabase-client";
 import { getVersion } from "@/lib/cleaning/cleaning-repository";
 import {
-  countEditedRows,
-  getCleanedRows,
+  getCleanedRowsWithMeta,
 } from "@/lib/cleaning/row-edits-repository";
 import { getReviewFlagCounts } from "@/lib/cleaning/flags-repository";
 import { getProject } from "@/lib/cleaning/projects-repository";
@@ -102,12 +101,11 @@ export function Export({ projectId, versionId, onBack, onGoToReview }: ExportPro
     setError(null);
     try {
       const client = await getCleaningSupabaseClient();
-      const [p, v, c, rows, edited, sync] = await Promise.all([
+      const [p, v, c, { rows, editedCount: edited }, sync] = await Promise.all([
         getProject(projectId),
         getVersion(client, versionId),
         getReviewFlagCounts(versionId),
-        getCleanedRows(versionId),
-        countEditedRows(versionId),
+        getCleanedRowsWithMeta(versionId),
         getReviewSyncStatus(versionId).catch(() => null),
       ]);
       setProject(p);
@@ -240,7 +238,7 @@ export function Export({ projectId, versionId, onBack, onGoToReview }: ExportPro
             <span className="font-medium">No se pudo cargar el export</span>
           </div>
           <pre className="whitespace-pre-wrap font-mono text-xs text-muted-foreground">
-            {error ?? "Versión no encontrada"}
+            {error ?? "Base no encontrada"}
           </pre>
           <div>
             <Button size="sm" onClick={onBack}>
@@ -413,7 +411,7 @@ export function Export({ projectId, versionId, onBack, onGoToReview }: ExportPro
               </li>
               <li>
                 Hoja <strong>Información</strong> con metadata del export
-                (proyecto, versión, totales, fecha).
+                (proyecto, base, totales, fecha).
               </li>
               <li>
                 Las {editedCount} filas con ediciones inline ya tienen los
@@ -664,7 +662,7 @@ function buildXlsxBook(input: {
     ["Proyecto", project.name],
     ["Origen", project.source === "questionpro" ? "QuestionPro" : "Qualtrics"],
     ["Archivo original", version.filename],
-    ["Versión", version.version_number],
+    ["Base", version.version_number],
     ["Filas originales", version.total_rows],
     ["Filas exportadas", rows.length],
     ["Filas eliminadas", removed],

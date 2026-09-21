@@ -206,14 +206,22 @@ export function runDeterministicChecks(
     ipResults.forEach((res, i) => {
       if (!res.duplicada) return;
       const spec = RULE_SPEC[DET_RULE_IP_DUPLICADA];
+      // Filas (row_number) del grupo que comparten EXACTAMENTE esta IP, sin la
+      // fila actual. Sirve para que el revisor vea con cuáles se duplica.
+      const others = res.memberIndexes
+        .filter((j) => j !== i)
+        .map((j) => rows[j].row_number);
+      const shown = others.slice(0, 6).map((n) => `#${n}`).join(", ");
+      const more = others.length > 6 ? ` y ${others.length - 6} más` : "";
+      const conQuienes = others.length > 0 ? ` (filas ${shown}${more})` : "";
       push(rows[i].id, {
         ruleId: DET_RULE_IP_DUPLICADA,
         ...spec,
-        reason: `Esta IP aparece en ${res.total} respuestas de la base.`,
+        reason: `La IP ${res.ip} se repite EXACTA en ${res.total} respuestas${conQuienes}.`,
         friendly_explanation:
-          `Recomiendo revisar porque en "${ipCol.question || "IP"}" la dirección ` +
-          `se repite en ${res.total} respuestas, lo que puede indicar respuestas ` +
-          `duplicadas del mismo dispositivo.`,
+          `Recomiendo revisar porque la dirección IP ${res.ip} aparece en ` +
+          `${res.total} respuestas de la base${conQuienes}, lo que puede indicar ` +
+          `envíos repetidos desde el mismo dispositivo o red.`,
         affected_question_ids: [ipCol.id],
       });
     });

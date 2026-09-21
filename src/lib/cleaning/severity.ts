@@ -72,6 +72,18 @@ export const RULE_COLOR_LABEL: Record<RuleColor, string> = {
   green: "Bajo",
 };
 
+/**
+ * Qué significa cada color en términos de riesgo + acción sugerida. Se usa en
+ * la leyenda del review y en los tooltips de las pills de severidad, para que
+ * el revisor entienda el score sin tener que adivinar.
+ */
+export const RULE_COLOR_MEANING: Record<RuleColor, string> = {
+  red: "Riesgo crítico — casi seguro inválida. Recomendado: eliminar.",
+  orange: "Riesgo alto — probablemente problemática. Revisá con atención.",
+  yellow: "Riesgo medio — dudosa. Conviene una revisión humana.",
+  green: "Riesgo bajo — parece válida. Revisión opcional.",
+};
+
 /** Clases Tailwind para el punto/acento de cada color. */
 export const RULE_COLOR_DOT: Record<RuleColor, string> = {
   red: "bg-red-500",

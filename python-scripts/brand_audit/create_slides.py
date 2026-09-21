@@ -3,6 +3,7 @@
 import datetime
 import logging
 import re
+import os
 from pptx.util import Pt, Inches, Cm
 from pptx.dml.color import RGBColor
 # === MODIFICACIÓN 1: Reemplazar MSO_ALIGNMENT por PP_ALIGN ===
@@ -1291,7 +1292,11 @@ def update_tracking_chart_in_presentation(prs, chart_name, new_wave_label, metri
                             else:
                                 valores_limpios.append(None)
                         old_vals = valores_limpios
-                    
+
+                    # 🔎 [PRINT DEFINITIVO DE CONTROL]
+                    print(f"   📊 [CHART MATCH CHECK] Evaluando Serie PPT: '{series.name}'")
+                    print(f"      -> Diccionario metrics_data en este momento: {list(metrics_data.keys())}")
+
                     new_val = None
                     for keyword, val in metrics_data.items():
                         kw_clean = " ".join(keyword.lower().split())
@@ -1448,24 +1453,26 @@ def update_tracking_table_in_presentation(prs, table_name, new_wave_label, metri
                 num_rows = len(table.rows)
 
                 # =========================================================
-                # 🚀 NUEVO: CONTROL DE ENCABEZADOS
-                # Si tiene encabezado, actualiza la fila 0 y los datos arrancan en la fila 1.
-                # Si NO tiene encabezado, ignora la fila 0 y los datos arrancan directo en la 0.
+                # 🚀 CONTROL DE ENCABEZADOS
+                # =========================================================
                 start_data_row = 1 if has_header else 0
 
                 if has_header:
-                    # 1. ACTUALIZAR EL ENCABEZADO (Desplaza los meses)
+                    # 1. ACTUALIZAR EL ENCABEZADO
                     for col_idx in range(start_data_col, num_cols - 1):
                         texto_a_copiar = table.cell(0, col_idx + 1).text.strip() 
                         escribir_con_formato(table.cell(0, col_idx), texto_a_copiar)
                     
-                    # Inyectamos el nombre de la nueva ola al final
                     escribir_con_formato(table.cell(0, num_cols - 1), new_wave_label)
-                # =========================================================
 
+                # =========================================================
                 # 2. ACTUALIZAR LAS FILAS DE DATOS
+                # =========================================================
                 for row_idx in range(start_data_row, num_rows):
-                    row_label = table.cell(row_idx, label_col).text.strip().lower()
+                    # 👇 LA VACUNA ANTES DE LEER LA CELDA 👇
+                    # Destruye saltos de línea (\n, \r, \x0b) y espacios dobles, uniéndolo todo con un espacio limpio.
+                    texto_crudo = table.cell(row_idx, label_col).text
+                    row_label = " ".join(texto_crudo.split()).lower()
 
                     # A. Desplazar datos históricos a la izquierda
                     for col_idx in range(start_data_col, num_cols - 1):
@@ -1475,12 +1482,23 @@ def update_tracking_table_in_presentation(prs, table_name, new_wave_label, metri
                     # B. Inyectar el dato nuevo
                     new_val = None
                     for keyword, val in metrics_data.items():
-                        if keyword.lower() in row_label:
+                        # Normalizamos la keyword también por si acaso
+                        keyword_limpia = " ".join(str(keyword).split()).lower()
+                        if keyword_limpia in row_label:
                             new_val = val
                             break
                     
                     if new_val is not None:
-                        texto_final = f"{new_val}%" if is_percentage else str(new_val)
+                        # Convertimos a string primero
+                        texto_final = str(new_val)
+                        
+                        # Si es un número con decimales (float), cambiamos el punto por la coma argentina
+                        if isinstance(new_val, float):
+                            texto_final = texto_final.replace(".", ",")
+                            
+                        # Le agregamos el % si la configuración lo pide
+                        texto_final = f"{texto_final}%" if is_percentage else texto_final
+                        
                         escribir_con_formato(table.cell(row_idx, num_cols - 1), texto_final)
                     else:
                         escribir_con_formato(table.cell(row_idx, num_cols - 1), "-")
@@ -1488,11 +1506,16 @@ def update_tracking_table_in_presentation(prs, table_name, new_wave_label, metri
                 return True
     return False
 
-def update_static_table_in_presentation(prs, table_name, target_col, metrics_data, label_col=0):
+
+def update_static_table_in_presentation(prs, table_name, target_col, metrics_data, label_col=0, posicional=False):
     """
-    Inyecta datos en una tabla estática con Heatmap y Búsqueda Fuzzy (Tolerante a errores).
+    Inyecta datos en una tabla estática con Heatmap.
+    Soporta búsqueda por texto (Fuzzy) o por posición (si la tabla no tiene etiquetas).
     """
-    
+    from pptx.dml.color import RGBColor
+    import difflib
+    import math
+
     # --- BISTURÍ DE PRECISIÓN ---
     def escribir_con_formato(celda, nuevo_texto):
         nuevo_texto = str(nuevo_texto).strip()
@@ -1507,10 +1530,11 @@ def update_static_table_in_presentation(prs, table_name, target_col, metrics_dat
         else:
             celda.text = nuevo_texto
 
-    # =========================================================
+    # --- LÓGICA DE COLOR (HEATMAP) ---
+    # AJUSTE: Filtramos "promedio" de la escala para que no afecte los límites del heatmap
     valores_numericos = [
         v for k, v in metrics_data.items() 
-        if str(k).lower() != "promedio" and isinstance(v, (int, float))
+        if "promedio" not in str(k).lower() and isinstance(v, (int, float))
     ]
     col_min = min(valores_numericos) if valores_numericos else 0
     col_max = max(valores_numericos) if valores_numericos else 100
@@ -1541,47 +1565,76 @@ def update_static_table_in_presentation(prs, table_name, target_col, metrics_dat
 
         celda.fill.solid()
         celda.fill.fore_color.rgb = RGBColor(r, g, b)
-    # =========================================================
 
+    # --- ITERACIÓN DE SLIDES ---
     for slide in prs.slides:
         for shape in slide.shapes:
             if shape.has_table and shape.name == table_name:
                 table = shape.table
                 num_rows = len(table.rows)
+                
+                claves_metrics = list(metrics_data.keys())
 
                 for row_idx in range(0, num_rows):
-                    # 👇 MAGIA NUEVA: Leemos las Columnas 0 y 1 simultáneamente 👇
-                    texto_col0 = table.cell(row_idx, 0).text.lower() if len(table.columns) > 0 else ""
-                    texto_col1 = table.cell(row_idx, 1).text.lower() if len(table.columns) > 1 else ""
-                    
-                    row_lbl_0 = " ".join(texto_col0.split())
-                    row_lbl_1 = " ".join(texto_col1.split())
-
                     new_val = None
-                    for keyword, val in metrics_data.items():
-                        kw_clean = " ".join(keyword.lower().split())
-                        
-                        # 1. Match Exacto (Cruza todo)
-                        if (kw_clean in row_lbl_0 or row_lbl_0 in kw_clean and len(row_lbl_0) > 5) or \
-                           (kw_clean in row_lbl_1 or row_lbl_1 in kw_clean and len(row_lbl_1) > 5):
-                            new_val = val
-                            break
-                            
-                        # 2. Match Fuzzy (Tolera faltas de ortografía, tildes y espacios raros)
-                        if len(kw_clean) > 10:
-                            similitud_0 = difflib.SequenceMatcher(None, kw_clean, row_lbl_0).ratio()
-                            similitud_1 = difflib.SequenceMatcher(None, kw_clean, row_lbl_1).ratio()
-                            
-                            if similitud_0 > 0.85 or similitud_1 > 0.85:
-                                new_val = val
-                                break
+                    es_promedio = False # Flag para proteger el color original
                     
-                    if new_val is not None:
-                        celda_objetivo = table.cell(row_idx, target_col)
-                        escribir_con_formato(celda_objetivo, new_val)
+                    if posicional:
+                        # --- MODO A: POSICIONAL ---
+                        if row_idx < len(claves_metrics):
+                            key_pos = claves_metrics[row_idx]
+                            new_val = metrics_data[key_pos]
+                            # Si la llave en el config contiene "promedio", activamos flag
+                            if "promedio" in str(key_pos).lower():
+                                es_promedio = True
+                    else:
+                        # --- MODO B: BÚSQUEDA POR TEXTO ---
+                        texto_col0 = table.cell(row_idx, 0).text.lower() if len(table.columns) > 0 else ""
+                        texto_col1 = table.cell(row_idx, 1).text.lower() if len(table.columns) > 1 else ""
                         
-                        if "promedio" not in row_lbl_0 and "promedio" not in row_lbl_1:
-                            pintar_celda_relativa(celda_objetivo, new_val)
+                        row_lbl_0 = " ".join(texto_col0.split())
+                        row_lbl_1 = " ".join(texto_col1.split())
+
+                        for keyword, val in metrics_data.items():
+                            kw_clean = " ".join(keyword.lower().split())
+                            
+                            # 1. Match Exacto / Contenido
+                            if (kw_clean in row_lbl_0 or row_lbl_0 in kw_clean and len(row_lbl_0) > 5) or \
+                               (kw_clean in row_lbl_1 or row_lbl_1 in kw_clean and len(row_lbl_1) > 5):
+                                new_val = val
+                                if "promedio" in kw_clean: es_promedio = True
+                                break
+                                
+                            # 2. Match Fuzzy
+                            if len(kw_clean) > 10:
+                                similitud_0 = difflib.SequenceMatcher(None, kw_clean, row_lbl_0).ratio()
+                                similitud_1 = difflib.SequenceMatcher(None, kw_clean, row_lbl_1).ratio()
+                                if similitud_0 > 0.85 or similitud_1 > 0.85:
+                                    new_val = val
+                                    if "promedio" in kw_clean: es_promedio = True
+                                    break
+                        
+                        # Doble chequeo: si el texto físico de la celda dice promedio
+                        if "promedio" in row_lbl_0 or "promedio" in row_lbl_1:
+                            es_promedio = True
+
+                    # Inyección y Pintado
+                    if new_val is not None:
+                        try:
+                            celda_objetivo = table.cell(row_idx, target_col)
+                            escribir_con_formato(celda_objetivo, new_val)
+                            
+                            # AJUSTE: Solo pintamos si NO es una fila de promedio
+                            if not es_promedio:
+                                pintar_celda_relativa(celda_objetivo, new_val)
+                            else:
+                                # Si es promedio, nos aseguramos de que no tenga relleno sólido 
+                                # para que mantenga el color original del PPT
+                                celda_objetivo.fill.solid()
+                                celda_objetivo.fill.fore_color.rgb = RGBColor(51, 51, 51)
+
+                        except Exception as e:
+                            print(f"Error en fila {row_idx} col {target_col}: {e}")
                 
                 return True
     return False
@@ -1630,160 +1683,487 @@ def update_header_table_in_presentation(prs, table_name, new_wave_label):
     # Devuelve True solo si encontró y modificó al menos una tabla
     return tabla_encontrada_y_actualizada
 
-def update_ytd_calculated_from_chart(prs, ytd_chart_name, ref_chart_name, target_year_label, year_suffix, metrics_map=None, is_percentage=False, remove_percentage_sign=False, decimals=0, multiplier=1.0):
-    promedios_calculados = {}
-    if metrics_map is None:
-        metrics_map = {}
-    
-    def arreglar_etiqueta(etiqueta):
-        try:
-            val = float(etiqueta)
-            if 40000 < val < 50000:
-                base_date = datetime.datetime(1899, 12, 30)
-                target_date = base_date + datetime.timedelta(days=int(val))
-                meses = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
-                return f"{meses[target_date.month - 1]}-{str(target_date.year)[-2:]}"
-        except:
-            pass
-        return str(etiqueta).lower().strip()
-    
-    def encontrar_coincidencia(texto_objetivo_ytd, titulo_grafico, diccionario_promedios):
-        obj = str(texto_objetivo_ytd).lower().strip()
-        for clave_ref, valor in diccionario_promedios.items():
-            if clave_ref and obj and (clave_ref in obj or obj in clave_ref):
-                return valor
-        if titulo_grafico:
-            for clave_ref, valor in diccionario_promedios.items():
-                if clave_ref and (clave_ref in titulo_grafico or titulo_grafico in clave_ref):
-                    return valor
-        textos_a_buscar = [obj]
-        if titulo_grafico: textos_a_buscar.append(titulo_grafico)
-        for texto in textos_a_buscar:
-            if not texto: continue
-            for nombre_config, palabras_clave in metrics_map.items():
-                if texto in str(nombre_config).lower() or str(nombre_config).lower() in texto:
-                    for kw in palabras_clave:
-                        kw_lower = str(kw).lower()
-                        for clave_ref, valor in diccionario_promedios.items():
-                            if clave_ref and kw_lower in clave_ref:
-                                return valor
-        return None
+#def update_ytd_calculated_from_chart(prs, ytd_chart_name, ref_chart_name, target_year_label, year_suffix, metrics_map=None, is_percentage=False, remove_percentage_sign=False, decimals=0, multiplier=1.0):
+#    promedios_calculados = {}
+#    if metrics_map is None:
+#        metrics_map = {}
+#    
+#    def arreglar_etiqueta(etiqueta):
+#        try:
+#            val = float(etiqueta)
+#            if 40000 < val < 50000:
+#                base_date = datetime.datetime(1899, 12, 30)
+#                target_date = base_date + datetime.timedelta(days=int(val))
+#                meses = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+#                return f"{meses[target_date.month - 1]}-{str(target_date.year)[-2:]}"
+#        except:
+#            pass
+#        return str(etiqueta).lower().strip()
+#    
+#    def encontrar_coincidencia(texto_objetivo_ytd, titulo_grafico, diccionario_promedios):
+#        obj = str(texto_objetivo_ytd).lower().strip()
+#        for clave_ref, valor in diccionario_promedios.items():
+#            if clave_ref and obj and (clave_ref in obj or obj in clave_ref):
+#                return valor
+#        if titulo_grafico:
+#            for clave_ref, valor in diccionario_promedios.items():
+#                if clave_ref and (clave_ref in titulo_grafico or titulo_grafico in clave_ref):
+#                    return valor
+#        textos_a_buscar = [obj]
+#        if titulo_grafico: textos_a_buscar.append(titulo_grafico)
+#        for texto in textos_a_buscar:
+#            if not texto: continue
+#            for nombre_config, palabras_clave in metrics_map.items():
+#                if texto in str(nombre_config).lower() or str(nombre_config).lower() in texto:
+#                    for kw in palabras_clave:
+#                        kw_lower = str(kw).lower()
+#                        for clave_ref, valor in diccionario_promedios.items():
+#                            if clave_ref and kw_lower in clave_ref:
+#                                return valor
+#        return None
+#
+#    # =========================================================
+#    # 1. MODO LECTURA
+#    # =========================================================
+#    for slide in prs.slides:
+#        for shape in slide.shapes:
+#            if shape.has_chart and shape.name == ref_chart_name:
+#                ref_chart = shape.chart
+#                try:
+#                    cats = [arreglar_etiqueta(c.label) for c in ref_chart.plots[0].categories]
+#                except:
+#                    cats = [arreglar_etiqueta(c) for c in ref_chart.plots[0].categories]
+#                
+#                indices_año = [i for i, cat in enumerate(cats) if str(year_suffix).lower() in cat]
+#                
+#                if not indices_año:
+#                    return False 
+#                    
+#                for series in ref_chart.series:
+#                    if not hasattr(series, 'name') or not series.name or str(series.name).strip() == "":
+#                        continue
+#
+#                    valores_validos = [series.values[i] for i in indices_año if series.values[i] is not None]
+#                    if valores_validos:
+#                        promedio = sum(valores_validos) / len(valores_validos)
+#                        
+#                        # 🚀 ACÁ ESTÁ EL ÚNICO CAMBIO: Multiplicamos explícitamente si el JSON lo pide
+#                        promedio = promedio * multiplier
+#
+#                        # Tu código original para no redondear porcentajes pequeños
+#                        if not (is_percentage and promedio <= 1.5):
+#                            promedio = int(round(promedio))
+#                            
+#                        promedios_calculados[series.name.lower().strip()] = promedio
+#                
+#                print(f"\n[RADAR YTD] Promedios listos para inyectar: {promedios_calculados}")
+#
+#    if not promedios_calculados:
+#        return False
+#
+#    # =========================================================
+#    # 2. MODO ESCRITURA
+#    # =========================================================
+#    for slide in prs.slides:
+#        for shape in slide.shapes:
+#            if shape.has_chart and shape.name == ytd_chart_name:
+#                ytd_chart = shape.chart
+#                chart_data = CategoryChartData()
+#                
+#                ytd_title_text = ""
+#                try:
+#                    if ytd_chart.has_title and ytd_chart.chart_title.has_text_frame:
+#                        ytd_title_text = ytd_chart.chart_title.text_frame.text.lower().strip()
+#                except:
+#                    pass
+#
+#                try:
+#                    old_categories = [c.label for c in ytd_chart.plots[0].categories]
+#                except:
+#                    old_categories = [str(c) for c in ytd_chart.plots[0].categories]
+#                    
+#                chart_data.categories = old_categories
+#                
+#                target_lower = str(target_year_label).lower().strip()
+#                suffix_lower = str(year_suffix).lower().strip() 
+#                cat_lower = [str(c).lower().strip() for c in old_categories]
+#                
+#                cat_idx = -1
+#                for i, c in enumerate(cat_lower):
+#                    if target_lower in c or c in target_lower or suffix_lower in c:
+#                        cat_idx = i
+#                        break
+#                
+#                # ESCENARIO 1: El año está en el Eje X
+#                if cat_idx != -1:
+#                    for series in ytd_chart.series:
+#                        old_vals = list(series.values) # 🛡️ Tu código original no rompía la historia
+#                        s_name = series.name
+#                        
+#                        nuevo_promedio = encontrar_coincidencia(s_name, ytd_title_text, promedios_calculados)
+#                        
+#                        if nuevo_promedio is None and len(ytd_chart.series) == 1 and len(promedios_calculados) == 1:
+#                            nuevo_promedio = list(promedios_calculados.values())[0]
+#
+#                        if nuevo_promedio is not None:
+#                            while len(old_vals) <= cat_idx:
+#                                old_vals.append(None)
+#                            old_vals[cat_idx] = nuevo_promedio
+#                            
+#                        formato = '0%' if is_percentage else '0'
+#                        chart_data.add_series(series.name, tuple(old_vals), number_format=formato)
+#                
+#                # ESCENARIO 2: El año está en la Leyenda (Columnas)
+#                else:
+#                    for series in ytd_chart.series:
+#                        old_vals = list(series.values)
+#                        s_name_lower = str(series.name).lower().strip()
+#                        
+#                        if target_lower in s_name_lower or s_name_lower in target_lower or suffix_lower in s_name_lower:
+#                            for i, cat_label in enumerate(old_categories):
+#                                nuevo_promedio = encontrar_coincidencia(cat_label, ytd_title_text, promedios_calculados)
+#                                
+#                                if nuevo_promedio is None and len(old_categories) == 1 and len(promedios_calculados) == 1:
+#                                    nuevo_promedio = list(promedios_calculados.values())[0]
+#
+#                                if nuevo_promedio is not None:
+#                                    while len(old_vals) <= i:
+#                                        old_vals.append(None)
+#                                    old_vals[i] = nuevo_promedio
+#                        
+#                        formato = '0%' if is_percentage else '0'
+#                        chart_data.add_series(series.name, tuple(old_vals), number_format=formato)
+#                
+#                ytd_chart.replace_data(chart_data)
+#                return True
+#    return False
 
-    # =========================================================
-    # 1. MODO LECTURA
-    # =========================================================
-    for slide in prs.slides:
-        for shape in slide.shapes:
-            if shape.has_chart and shape.name == ref_chart_name:
-                ref_chart = shape.chart
-                try:
-                    cats = [arreglar_etiqueta(c.label) for c in ref_chart.plots[0].categories]
-                except:
-                    cats = [arreglar_etiqueta(c) for c in ref_chart.plots[0].categories]
-                
-                indices_año = [i for i, cat in enumerate(cats) if str(year_suffix).lower() in cat]
-                
-                if not indices_año:
-                    return False 
-                    
-                for series in ref_chart.series:
-                    if not hasattr(series, 'name') or not series.name or str(series.name).strip() == "":
-                        continue
+def inyectar_ytd_desde_auditoria(prs, chart_config, df_auditoria):
+    from pptx.chart.data import CategoryChartData
+    import pandas as pd
+    import math
+    import re
+    import logging
 
-                    valores_validos = [series.values[i] for i in indices_año if series.values[i] is not None]
-                    if valores_validos:
-                        promedio = sum(valores_validos) / len(valores_validos)
-                        
-                        # 🚀 ACÁ ESTÁ EL ÚNICO CAMBIO: Multiplicamos explícitamente si el JSON lo pide
-                        promedio = promedio * multiplier
+    ytd_chart_name = chart_config["chart_name"]
+    metrics_map = chart_config.get("metrics", {})
+    is_percentage = chart_config.get("is_percentage", False)    
+    debe_reporcentualizar = chart_config.get("reporcentualizar", False)
 
-                        # Tu código original para no redondear porcentajes pequeños
-                        if not (is_percentage and promedio <= 1.5):
-                            promedio = int(round(promedio))
-                            
-                        promedios_calculados[series.name.lower().strip()] = promedio
-                
-                print(f"\n[RADAR YTD] Promedios listos para inyectar: {promedios_calculados}")
-
-    if not promedios_calculados:
-        return False
-
-    # =========================================================
-    # 2. MODO ESCRITURA
-    # =========================================================
+    # 1. Localizar el gráfico
+    chart = None
     for slide in prs.slides:
         for shape in slide.shapes:
             if shape.has_chart and shape.name == ytd_chart_name:
-                ytd_chart = shape.chart
-                chart_data = CategoryChartData()
-                
-                ytd_title_text = ""
-                try:
-                    if ytd_chart.has_title and ytd_chart.chart_title.has_text_frame:
-                        ytd_title_text = ytd_chart.chart_title.text_frame.text.lower().strip()
-                except:
-                    pass
+                chart = shape.chart
+                break
+    
+    if not chart:
+        return False
 
-                try:
-                    old_categories = [c.label for c in ytd_chart.plots[0].categories]
-                except:
-                    old_categories = [str(c) for c in ytd_chart.plots[0].categories]
-                    
-                chart_data.categories = old_categories
-                
-                target_lower = str(target_year_label).lower().strip()
-                suffix_lower = str(year_suffix).lower().strip() 
-                cat_lower = [str(c).lower().strip() for c in old_categories]
-                
-                cat_idx = -1
-                for i, c in enumerate(cat_lower):
-                    if target_lower in c or c in target_lower or suffix_lower in c:
-                        cat_idx = i
-                        break
-                
-                # ESCENARIO 1: El año está en el Eje X
-                if cat_idx != -1:
-                    for series in ytd_chart.series:
-                        old_vals = list(series.values) # 🛡️ Tu código original no rompía la historia
-                        s_name = series.name
-                        
-                        nuevo_promedio = encontrar_coincidencia(s_name, ytd_title_text, promedios_calculados)
-                        
-                        if nuevo_promedio is None and len(ytd_chart.series) == 1 and len(promedios_calculados) == 1:
-                            nuevo_promedio = list(promedios_calculados.values())[0]
+    v_name_audit = chart_config.get("variable_deducida") or chart_config.get("variable")
 
-                        if nuevo_promedio is not None:
-                            while len(old_vals) <= cat_idx:
-                                old_vals.append(None)
-                            old_vals[cat_idx] = nuevo_promedio
+    # 2. Obtener categorías originales del PowerPoint
+    try:
+        orig_categories = [str(c.label).strip() for c in chart.plots[0].categories]
+    except:
+        orig_categories = [str(c).strip() for c in chart.plots[0].categories]
+    
+    eje_x_es_anio = any("202" in str(c) or "YTD" in str(c).upper() for c in orig_categories)
+
+    # Estructuras temporales para el filtrado
+    series_results = {} 
+    col_has_data = [False] * len(orig_categories)
+    grafico_tiene_al_menos_un_dato_real = False
+
+    # Limpieza forzada y estricta de nombres de columnas del DataFrame maestro
+    df_auditoria.columns = [str(c).strip() for c in df_auditoria.columns]
+
+    # 3. Primer paso: Calcular todos los valores para todas las series
+    for series in chart.series:
+        ser_name = str(series.name).strip() 
+        current_series_values = []
+        old_values = list(series.values)
+        
+        id_fila_base = next((v for k, v in metrics_map.items() if k.lower().strip() == ser_name.lower().strip()), None)
+
+        for i, cat_label in enumerate(orig_categories):
+            nombre_eje_ppt = str(cat_label).strip() 
+
+            # 1. DEFINIMOS ID_FILA Y VARIABLE LOCAL PRIMERO PARA EVITAR EL ERROR DE ÁMBITO
+            id_fila = id_fila_base if eje_x_es_anio else (metrics_map.get(nombre_eje_ppt) or id_fila_base)
+            
+            if isinstance(id_fila, dict) and "variable" in id_fila:
+                v_name_audit_local = id_fila["variable"]
+            else:
+                v_name_audit_local = v_name_audit
+
+            # Mapeo elástico de Año
+            col_excel = None
+            match_num = re.search(r'(\d{2,4})', nombre_eje_ppt)
+            
+            #if match_num and (eje_x_es_anio or "YTD" in nombre_eje_ppt.upper()):
+            #    anio_extraido = match_num.group(1)
+            #    anio_cuatro_digitos = f"20{anio_extraido}" if len(anio_extraido) == 2 else anio_extraido
+            #    
+            #    # Buscamos la columna YTD de forma textual estricta
+            #    col_real = next((c for c in df_auditoria.columns if "YTD" in c.upper() and anio_cuatro_digitos in c), None)
+            #    if col_real:
+            #        col_excel = col_real
+            
+#            if match_num and (eje_x_es_anio or "YTD" in nombre_eje_ppt.upper()):
+#                anio_extraido = match_num.group(1)
+#                anio_cuatro_digitos = f"20{anio_extraido}" if len(anio_extraido) == 2 else anio_extraido
+#                
+#                # 1. Buscamos primero la columna estricta "YTD 2026"
+#                col_candidata = next((c for c in df_auditoria.columns if c.strip() == f"YTD {anio_cuatro_digitos}"), None)
+#                
+#                # Obtener el sub-dataframe de la variable local para validar si esa celda tiene dato real
+#                v_local = id_fila["variable"] if isinstance(id_fila, dict) and "variable" in id_fila else v_name_audit
+#                df_var_actual = df_auditoria[df_auditoria['Variable'] == v_local] if v_local else pd.DataFrame()
+#
+#                # 2. Si la columna estricta existe Y tiene al menos un dato NO nulo para esta variable, la usamos
+#                if col_candidata and not df_var_actual.empty and df_var_actual[col_candidata].notna().any():
+#                    col_excel = col_candidata
+#                else:
+#                    # 3. Si no tiene datos en "YTD 2026" (caso medias/promedios), usamos la columna "YTD_GRUPO: YTD 2026..."
+#                    col_grupo = next((c for c in df_auditoria.columns if f"YTD {anio_cuatro_digitos}" in c.upper() and c != col_candidata), None)
+#                    col_excel = col_grupo if col_grupo else col_candidata
+#
+#            if not col_excel:
+#                col_excel = nombre_eje_ppt
+
+            # =========================================================================
+            # RESOLUCIÓN ROBUSTA DE COLUMNA YTD / YTD_GRUPO
+            # =========================================================================
+            
+            if match_num:
+                anio_extraido = match_num.group(1)
+                anio_4 = f"20{anio_extraido}" if len(anio_extraido) == 2 else anio_extraido
+                
+                # Obtenemos el DataFrame de la variable en la auditoría (ignorando mayúsculas/minúsculas)
+                df_var_actual = df_auditoria[
+                    df_auditoria['Variable'].astype(str).str.lower().str.strip() == str(v_name_audit_local).lower().strip()
+                ]
+                if df_var_actual.empty:
+                    df_var_actual = df_auditoria[df_auditoria['Variable'] == v_name_audit]
+
+                # 1. Buscamos todas las columnas de la auditoría que hagan referencia a ese año (YTD o YTD_GRUPO)
+                cols_anio = [c for c in df_auditoria.columns if anio_4 in str(c) or f"YTD {anio_extraido}" in str(c)]
+                
+                # 2. Priorizamos la columna que REALMENTE TENGA DATOS NO NULOS para esta variable
+                for c_cand in cols_anio:
+                    if not df_var_actual.empty and df_var_actual[c_cand].notna().any():
+                        # Verificamos que al menos un valor no sea string vacío
+                        vals_check = df_var_actual[c_cand].dropna().astype(str).str.strip()
+                        if any(v not in ["", "nan", "none", "null"] for v in vals_check):
+                            col_excel = c_cand
+                            break
+                
+                # 3. Fallback: Si no encontró columna con datos, busca específicamente "YTD_GRUPO" con ese año
+                if not col_excel:
+                    col_grupo = next((c for c in df_auditoria.columns if "YTD_GRUPO" in str(c).upper() and anio_4 in str(c)), None)
+                    if col_grupo:
+                        col_excel = col_grupo
+
+            if not col_excel:
+                col_excel = nombre_eje_ppt
+
+            if "index" in str(ytd_chart_name).lower() or "index" in str(v_name_audit).lower():
+                logging.info(f"🎯 [DEBUG INDEX YTD] Gráfico: '{ytd_chart_name}' | Año PPT: '{nombre_eje_ppt}' | Variable: '{v_name_audit_local}' | Columna Seleccionada: '{col_excel}'")
+
+            id_fila = id_fila_base if eje_x_es_anio else (metrics_map.get(nombre_eje_ppt) or id_fila_base)
+            
+            if isinstance(id_fila, dict) and "variable" in id_fila:
+                v_name_audit_local = id_fila["variable"]
+            else:
+                v_name_audit_local = v_name_audit
+
+            valor_final = None 
+            val_acumulado = 0
+            encontrado_al_menos_uno = False
+
+            if id_fila and v_name_audit_local and col_excel in df_auditoria.columns:
+                kw_list = id_fila["keywords"] if isinstance(id_fila, dict) else id_fila
+                df_filtrado = df_auditoria[df_auditoria['Variable'] == v_name_audit_local]
+
+                if not df_filtrado.empty:
+                    for kw in kw_list:
+                        kw_clean = str(kw).lower().replace("grid_attr:", "").strip()
+                        mask = (df_filtrado['Categoría'].str.lower()
+                                .str.replace("grid_attr:", "", regex=False)
+                                .str.replace(".", "", regex=False)
+                                .str.strip()
+                                .apply(lambda x: kw_clean in str(x)))
+                        match = df_filtrado[mask]
+                        
+                        if not match.empty:
+                            match_valido = match[match[col_excel].notna()]
+                            fila_final = match_valido.index[0] if not match_valido.empty else match.index[0]
                             
-                        formato = '0%' if is_percentage else '0'
-                        chart_data.add_series(series.name, tuple(old_vals), number_format=formato)
-                
-                # ESCENARIO 2: El año está en la Leyenda (Columnas)
-                else:
-                    for series in ytd_chart.series:
-                        old_vals = list(series.values)
-                        s_name_lower = str(series.name).lower().strip()
+                            lista_columnas_reales = list(df_auditoria.columns)
+                            pos_columna_fisica = lista_columnas_reales.index(col_excel) if col_excel in lista_columnas_reales else -1
+                            
+                            val_temp = df_auditoria.iloc[df_auditoria.index.get_loc(fila_final), pos_columna_fisica] if pos_columna_fisica != -1 else None
+                        else:
+                            val_temp = None
                         
-                        if target_lower in s_name_lower or s_name_lower in target_lower or suffix_lower in s_name_lower:
-                            for i, cat_label in enumerate(old_categories):
-                                nuevo_promedio = encontrar_coincidencia(cat_label, ytd_title_text, promedios_calculados)
-                                
-                                if nuevo_promedio is None and len(old_categories) == 1 and len(promedios_calculados) == 1:
-                                    nuevo_promedio = list(promedios_calculados.values())[0]
+                        if val_temp is not None:
+                            if isinstance(val_temp, str):
+                                try: val_temp = float(val_temp.replace('%', '').replace(',', '.'))
+                                except: val_temp = None
+                            
+                            #if val_temp is not None and not (isinstance(val_temp, float) and (math.isnan(val_temp) or math.isinf(val_temp))):
+                            #    val_acumulado += val_temp
+                            #    encontrado_al_menos_uno = True
 
-                                if nuevo_promedio is not None:
-                                    while len(old_vals) <= i:
-                                        old_vals.append(None)
-                                    old_vals[i] = nuevo_promedio
+                            if val_temp is not None and not (isinstance(val_temp, float) and (math.isnan(val_temp) or math.isinf(val_temp))):
+                            # Si es un índice/media numérica (no es porcentaje), NO acumulamos/sumamos, asignamos directo el valor
+                                if not is_percentage and "index" in str(v_name_audit_local).lower():
+                                    val_acumulado = val_temp
+                                else:
+                                    val_acumulado += val_temp
+                                encontrado_al_menos_uno = True
+                                    
+                                # Si ya encontramos la fila de la Media/Promedio en una variable de Índice, cortamos el bucle
+                                if not is_percentage and any(m in str(kw).lower() for m in ["media", "promedio", "mean"]):
+                                    break
+
+                    # =====================================================================
+                    # 🔄 REPORCENTUALIZACIÓN RESTAURADA (VINCULO Y OTROS CASOS)
+                    # =====================================================================
+                    if encontrado_al_menos_uno:
+                        val_excel = val_acumulado
                         
-                        formato = '0%' if is_percentage else '0'
-                        chart_data.add_series(series.name, tuple(old_vals), number_format=formato)
-                
-                ytd_chart.replace_data(chart_data)
-                return True
-    return False
+                        # -------------------------------------------------------------
+                        # 🔄 REPORCENTUALIZACIÓN DE VÍNCULO (RE-BASE EXCLUSIVA A 4 CATS)
+                        # -------------------------------------------------------------
+                        es_caso_vinculo = (v_name_audit_local == "Vinculo") or debe_reporcentualizar or "vinc" in str(ytd_chart_name).lower()
+
+                        if es_caso_vinculo:
+                            # 1. Filtramos las filas de la variable 'Vinculo' desduplicando el case-blindaje
+                            df_base = df_auditoria[df_auditoria['Variable'] == "Vinculo"].copy()
+                            if df_base.empty:
+                                df_base = df_filtrado.copy()
+
+                            df_base['cat_tmp'] = df_base['Categoría'].astype(str).str.lower().str.strip()
+                            
+                            # 🛡️ DESDUPLICAMOS por categoría para evitar sumar 2 veces (minúscula + MAYÚSCULA)
+                            df_base_unica = df_base.drop_duplicates(subset=['cat_tmp']).copy()
+                            
+                            # 2. Las 4 categorías que forman la base 100% (excluyendo 'no posee')
+                            mask_base = df_base_unica['cat_tmp'].apply(lambda x: any(c in str(x) for c in ["leal", "abandonador", "nuevo", "competencia"]) and "no posee" not in str(x))
+                            
+                            total_base = 0.0
+                            for f_idx in df_base_unica[mask_base].index:
+                                try:
+                                    v_str = str(df_base_unica.loc[f_idx, col_excel]).replace('%', '').replace(',', '.').strip()
+                                    total_base += float(v_str)
+                                except (ValueError, TypeError):
+                                    pass
+                            
+                            # 3. Aplicamos la división por la sub-base (ej. val_excel / 63.0)
+                            if total_base > 0:
+                                val_excel = (float(val_excel) / total_base) * 100.0
+
+                        manual_multiplier = chart_config.get("multiplier")
+                        if manual_multiplier is not None: 
+                            val_excel *= manual_multiplier
+                        elif not es_caso_vinculo:
+                            # ESTA LÓGICA DE PROMEDIOS SOLO APLICA SI NO ES VÍNCULO
+                            vals_filt = [v for v in old_values if v is not None and not (isinstance(v, float) and math.isnan(v))]
+                            promedio = sum(vals_filt) / len(vals_filt) if vals_filt else 0
+                            
+                            if promedio > 1.5 and val_excel <= 1.0:
+                                if val_excel < 0.05:
+                                    val_excel *= 100
+                            elif promedio <= 1.5 and val_excel > 1.5: 
+                                val_excel /= 100
+
+                        num_decimals = chart_config.get("decimals", 0)
+                        valor_final = round(val_excel, num_decimals)
+                        if num_decimals == 0: 
+                            valor_final = int(round(valor_final))
+                        
+                        if valor_final == 0 and val_excel > 0 and es_caso_vinculo: 
+                            valor_final = 1
+                            
+                        col_has_data[i] = True
+                        grafico_tiene_al_menos_un_dato_real = True
+
+            current_series_values.append(valor_final)
+        series_results[ser_name] = current_series_values
+
+# =====================================================================
+    # 🔍 PRINT DE DIAGNÓSTICO AL FINAL DEL PROCESAMIENTO DEL GRÁFICO
+    # =====================================================================
+    if "vinc" in ytd_chart_name.lower() or "vinc" in str(v_name_audit).lower():
+        print("\n" + "="*80)
+        print(f"📊 DIAGNÓSTICO FINAL DE INYECCIÓN -> Gráfico: '{ytd_chart_name}'")
+        print(f"   - Variable Audit: {v_name_audit}")
+        print(f"   - Config Reporcentualizar Flag: {debe_reporcentualizar}")
+        print(f"   - Eje X Categorías PPT: {orig_categories}")
+        print("-" * 80)
+        for s_name, s_vals in series_results.items():
+            print(f"   -> Serie: '{s_name}' | Valores calculados para inyectar: {s_vals}")
+        print("="*80 + "\n")
+
+    # 4. Reconstruir ChartData
+    chart_data = CategoryChartData()
+    indices_validos = [i for i, has_data in enumerate(col_has_data) if has_data]
+    
+    if not grafico_tiene_al_menos_un_dato_real or not indices_validos:
+        return False
+
+    chart_data.categories = [orig_categories[i] for i in indices_validos]
+
+    for ser_name, all_vals in series_results.items():
+        filtered_vals = [all_vals[i] for i in indices_validos]
+        
+        # 📐 ESCALADO PARA POWERPOINT
+        # Si PowerPoint requiere base 1.0 (0.58) pero calculamos escala 100 (58), convertimos a base 1.0
+        final_series_vals = []
+        for v in filtered_vals:
+            if v is None:
+                final_series_vals.append(None)
+            elif is_percentage and abs(v) > 1.1:
+                final_series_vals.append(v / 100.0)
+            else:
+                final_series_vals.append(v)
+
+        #if is_percentage:
+        #    primer = next((v for v in final_series_vals if v is not None), 0)
+        #    formato = '0%' if (0 < abs(primer) <= 1.1) else '0"%"'
+        #else:
+        #    formato = '0'
+
+        num_decimals = chart_config.get("decimals", 0)
+        
+        if is_percentage:
+            primer = next((v for v in final_series_vals if v is not None), 0)
+            if num_decimals == 1:
+                formato = '0.0%' if (0 < abs(primer) <= 1.1) else '0.0"%"'
+            else:
+                formato = '0%' if (0 < abs(primer) <= 1.1) else '0"%"'
+        else:
+            if num_decimals == 1:
+                formato = '0.0'
+            elif num_decimals == 2:
+                formato = '0.00'
+            else:
+                formato = '0'
+
+        chart_data.add_series(ser_name, tuple(final_series_vals), number_format=formato)
+
+    # 5. Inyección final
+    try:
+        chart.replace_data(chart_data)
+        logging.info(f"✅ YTD inyectado correctamente en gráfico '{ytd_chart_name}'.")
+        return True
+    except Exception as e:
+        print(f"❌ Error al inyectar datos en {ytd_chart_name}: {e}")
+        return False
+    
 
 def generar_slide_desde_template(prs, layout_nombre, titulo_pregunta, insight_ia, categorias, valores, tipo_grafico="dona"):
     """
@@ -1837,6 +2217,14 @@ def generar_slide_desde_template(prs, layout_nombre, titulo_pregunta, insight_ia
     return True
 
 
+# =========================================================================
+# NOTA: aca vivia update_top_n_block (motor de PromoTracking Pepsico) junto
+# con sus helpers verificar_significancia_vs_total y _escribir_celda_pro.
+# Eran ~918 lineas de OTRO estudio: apuntaban a shapes que no existen en la
+# plantilla de YPF y a variables (A5..A9) que no estan en el .sav. Nadie las
+# llamaba. Se borraron por no ser parte de esta herramienta. Ver
+# docs/BRAND_AUDIT_SYNC.md para el criterio al sincronizar con Chris.
+# =========================================================================
 
 def renombrar_por_geometria(prs):
     """

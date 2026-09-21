@@ -45,28 +45,45 @@ jobs:
         with:
           workspaces: src-tauri
 
-      # El sidecar Python pesa ~80 MB y tarda varios minutos en armarse.
-      # Lo cacheamos según el hash de requirements.txt + el script bundler.
-      # Si cualquiera de los dos cambia, se recompila desde cero automáticamente.
-      - name: Cache Python sidecar
+      # Cacheamos SÓLO el runtime de Python (descarga pesada + pip install),
+      # no los scripts. La clave depende de requirements.txt + el bundler.
+      #
+      # OJO: antes cacheábamos src-tauri/binaries entero (runtime Y scripts) y
+      # el bundler se salteaba con cache-hit. Como la clave no mira los .py, un
+      # cambio en el motor con requirements sin tocar dejaba el release con los
+      # scripts viejos. Ahora el bundler corre SIEMPRE y refresca los scripts;
+      # el runtime igual sale del cache, así que sigue siendo rápido.
+      - name: Cache Python runtime
         id: cache-python
         uses: actions/cache@v4
         with:
-          path: src-tauri/binaries
+          path: src-tauri/binaries/python-runtime
           key: python-sidecar-${{ runner.os }}-${{ hashFiles('python-scripts/requirements.txt', 'scripts/bundle-python.ps1') }}
 
       - name: Bundle Python sidecar
-        if: steps.cache-python.outputs.cache-hit != 'true'
         run: npm run bundle:python
 
       - name: Install npm deps
         run: npm ci
 
+      - name: Verify version files in sync
+        shell: pwsh
+        run: |
+          $pkg = (Get-Content package.json | ConvertFrom-Json).version
+          $tauri = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $cargo = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          $app = (Select-String -Path src/App.tsx -Pattern 'APP_VERSION = "(.+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          if ($pkg -ne $tauri -or $pkg -ne $cargo -or $pkg -ne $app) {
+            Write-Error "Version mismatch: package=$pkg tauri=$tauri cargo=$cargo app=$app"
+            exit 1
+          }
+          Write-Host "Version sync OK: $pkg"
+
       # Build firmado (mismo flujo que release). createUpdaterArtifacts=true en
       # tauri.conf.json exige la clave de firma, aunque en CI el artifact sea
       # solo para QA y nunca se publique.
-      - name: Build Tauri app
-        run: npm run tauri build
+      - name: Build Tauri app (NSIS only)
+        run: npm run tauri build -- --bundles nsis
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -81,7 +98,5 @@ jobs:
           path: |
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/release/bundle/nsis/*.sig
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/msi/*.sig
           retention-days: 14
           if-no-files-found: error

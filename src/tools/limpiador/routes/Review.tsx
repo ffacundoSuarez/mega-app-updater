@@ -14,7 +14,7 @@
 // similares collapsable, grilla de la fila completa, decisión keep/remove,
 // y el botón "Sincronizar con QuestionPro" (5.C) sigue en el header.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   AlertTriangle,
@@ -67,6 +67,8 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { notifyError } from "@/lib/notify";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   bulkUpdateFlagDecisions,
   createManualRemoveFlag,
@@ -100,6 +102,7 @@ import {
   RULE_COLOR_ACCENT,
   RULE_COLOR_DOT,
   RULE_COLOR_LABEL,
+  RULE_COLOR_MEANING,
   RULE_COLOR_PILL,
   RULE_COLOR_RANK,
   type RuleColor,
@@ -233,7 +236,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
       setUnflaggedRows(rows);
       setUnflaggedLoaded(true);
     } catch (err) {
-      window.alert(
+      notifyError(
         `No se pudieron cargar las filas sin flags: ${
           err instanceof Error ? err.message : String(err)
         }`
@@ -317,6 +320,17 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
       return a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0;
     });
   }, [flags, virtualItems, filterRecommendation, filterColor, filterColumn, colorOf]);
+
+  /** Virtualización simple de la lista de flags (solo renderiza filas visibles). */
+  const FLAG_ROW_HEIGHT = 56;
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  const [listScrollTop, setListScrollTop] = useState(0);
+  const listVirtStart = Math.max(0, Math.floor(listScrollTop / FLAG_ROW_HEIGHT) - 3);
+  const listVirtEnd = Math.min(
+    visibleFlags.length,
+    listVirtStart + Math.ceil(480 / FLAG_ROW_HEIGHT) + 6
+  );
+  const listVirtSlice = visibleFlags.slice(listVirtStart, listVirtEnd);
 
   // Heatmap: flags por columna afectada (sobre el set ya filtrado por
   // tipo/decisión), con el color de severidad del peor flag de cada columna.
@@ -426,7 +440,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
           await loadFlags();
           setCounts(await getReviewFlagCounts(versionId));
         } catch (err) {
-          window.alert(
+          notifyError(
             `No se pudo marcar para eliminar: ${
               err instanceof Error ? err.message : String(err)
             }`
@@ -457,7 +471,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
         );
         setCounts(await getReviewFlagCounts(versionId));
       } catch (err) {
-        window.alert(
+        notifyError(
           `No se pudo actualizar el flag: ${
             err instanceof Error ? err.message : String(err)
           }`
@@ -509,7 +523,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
         setSelected(new Set());
         setCounts(await getReviewFlagCounts(versionId));
       } catch (err) {
-        window.alert(
+        notifyError(
           `No se pudieron actualizar los flags: ${
             err instanceof Error ? err.message : String(err)
           }`
@@ -532,7 +546,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
       await loadAll();
       await loadFlags();
     } catch (err) {
-      window.alert(
+      notifyError(
         `No se pudo resetear: ${
           err instanceof Error ? err.message : String(err)
         }`
@@ -570,7 +584,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
           return next;
         });
       } catch (err) {
-        window.alert(
+        notifyError(
           `No se pudo guardar el edit: ${
             err instanceof Error ? err.message : String(err)
           }`
@@ -598,7 +612,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
           return next;
         });
       } catch (err) {
-        window.alert(
+        notifyError(
           `No se pudo revertir: ${
             err instanceof Error ? err.message : String(err)
           }`
@@ -613,7 +627,11 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
   const toggleSelect = (id: string) =>
     setSelected((s) => {
       const next = new Set(s);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
 
@@ -636,9 +654,13 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
-        Cargando review…
+      <div className="flex flex-col gap-3">
+        <Skeleton className="h-8 w-72" />
+        <Skeleton className="h-10 w-full max-w-xl" />
+        <div className="flex gap-4">
+          <Skeleton className="h-[480px] w-80 shrink-0 rounded-lg" />
+          <Skeleton className="h-[480px] flex-1 rounded-lg" />
+        </div>
       </div>
     );
   }
@@ -652,7 +674,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
             <span className="font-medium">No se pudo cargar el review</span>
           </div>
           <pre className="whitespace-pre-wrap font-mono text-xs text-muted-foreground">
-            {error ?? "Versión no encontrada"}
+            {error ?? "Base no encontrada"}
           </pre>
           <div>
             <Button size="sm" onClick={onBack}>
@@ -668,7 +690,7 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
   const allFlagsCount = counts.red + counts.yellow;
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
@@ -704,6 +726,9 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
 
       {/* Stats compactas */}
       <ReviewStats counts={counts} editedRows={editedRowsCount} />
+
+      {/* Leyenda de severidad: qué significa cada color */}
+      <SeverityLegend />
 
       {/* Toggle "Mostrar filas sin flags" */}
       <UnflaggedToggle
@@ -781,7 +806,11 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
               </div>
             )}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div
+            ref={listScrollRef}
+            className="min-h-0 flex-1 overflow-y-auto"
+            onScroll={(e) => setListScrollTop(e.currentTarget.scrollTop)}
+          >
             {visibleFlags.length === 0 ? (
               <div className="flex flex-col items-center gap-2 px-3 py-10 text-center text-xs text-muted-foreground">
                 {allFlagsCount === 0 ? (
@@ -797,19 +826,28 @@ export function Review({ versionId, onBack, onGoToExport }: ReviewProps) {
                 )}
               </div>
             ) : (
-              visibleFlags.map((flag) => (
-                <FlagListItem
-                  key={flag.id}
-                  flag={flag}
-                  schema={version.schema.columns}
-                  color={colorOf(flag)}
-                  active={flag.id === selectedFlagId}
-                  selected={selected.has(flag.id)}
-                  edited={flag.row ? editsMap.has(flag.row.id) : false}
-                  onSelect={() => setSelectedFlagId(flag.id)}
-                  onToggleSelect={() => toggleSelect(flag.id)}
-                />
-              ))
+              <div
+                style={{ height: visibleFlags.length * FLAG_ROW_HEIGHT }}
+                className="relative"
+              >
+                <div
+                  style={{ transform: `translateY(${listVirtStart * FLAG_ROW_HEIGHT}px)` }}
+                >
+                  {listVirtSlice.map((flag) => (
+                    <FlagListItem
+                      key={flag.id}
+                      flag={flag}
+                      schema={version.schema.columns}
+                      color={colorOf(flag)}
+                      active={flag.id === selectedFlagId}
+                      selected={selected.has(flag.id)}
+                      edited={flag.row ? editsMap.has(flag.row.id) : false}
+                      onSelect={() => setSelectedFlagId(flag.id)}
+                      onToggleSelect={() => toggleSelect(flag.id)}
+                    />
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -900,6 +938,38 @@ function UnflaggedToggle({
         )}
         {enabled ? "Ocultar filas sin flags" : "Mostrar todas las filas"}
       </Button>
+    </div>
+  );
+}
+
+// --- SeverityLegend ------------------------------------------------------
+
+/**
+ * Leyenda fija que explica qué riesgo/acción implica cada color de severidad.
+ * Apunta al punto de confusión del usuario: los colores del score no se
+ * entendían. Cada color muestra su etiqueta + el significado completo en
+ * tooltip.
+ */
+function SeverityLegend() {
+  const order: RuleColor[] = ["red", "orange", "yellow", "green"];
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md border bg-card/50 px-3 py-2 text-[11px]">
+      <span className="font-medium uppercase tracking-wide text-muted-foreground">
+        Severidad
+      </span>
+      {order.map((c) => (
+        <span
+          key={c}
+          title={RULE_COLOR_MEANING[c]}
+          className="inline-flex cursor-help items-center gap-1.5"
+        >
+          <span className={cn("size-2.5 rounded-full", RULE_COLOR_DOT[c])} />
+          <span className="font-medium">{RULE_COLOR_LABEL[c]}</span>
+          <span className="text-muted-foreground">
+            {RULE_COLOR_MEANING[c].split(" — ")[1] ?? RULE_COLOR_MEANING[c]}
+          </span>
+        </span>
+      ))}
     </div>
   );
 }
@@ -1198,9 +1268,13 @@ interface ColumnHeatmapProps {
 }
 
 const HEATMAP_MAX = 50;
-const BAR_MIN_PX = 6;
-const BAR_MAX_PX = 40;
 
+/**
+ * Lista de columnas (preguntas) con flags. Antes eran barras anónimas donde no
+ * se entendía qué columna era cada una; ahora cada fila muestra el texto de la
+ * pregunta + su id + un mini-bar proporcional + el conteo, y es clickeable para
+ * filtrar. La lista tiene scroll propio para no estirar la pantalla.
+ */
 function ColumnHeatmap({
   stats,
   schemaById,
@@ -1215,7 +1289,7 @@ function ColumnHeatmap({
     <div className="rounded-lg border bg-card p-3">
       <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         <BarChart3 className="size-3.5" />
-        Columnas con flags ({stats.length})
+        Preguntas con flags ({stats.length})
         {activeColumn && (
           <button
             type="button"
@@ -1226,13 +1300,12 @@ function ColumnHeatmap({
           </button>
         )}
       </div>
-      <div className="flex items-end gap-1 overflow-x-auto pb-1">
+      <div className="flex max-h-44 flex-col gap-0.5 overflow-y-auto pr-1">
         {shown.map((s) => {
           const col = schemaById.get(s.columnId);
           const label = col?.question || s.columnId;
-          const barPx =
-            BAR_MIN_PX +
-            Math.round((s.count / max) * (BAR_MAX_PX - BAR_MIN_PX));
+          const showId = col?.question && col.question !== s.columnId;
+          const pct = Math.max(4, Math.round((s.count / max) * 100));
           const isActive = activeColumn === s.columnId;
           return (
             <button
@@ -1241,22 +1314,35 @@ function ColumnHeatmap({
               onClick={() => onPick(s.columnId)}
               title={`${label} — ${s.count} flag${s.count === 1 ? "" : "s"}`}
               className={cn(
-                "flex w-7 shrink-0 flex-col items-center gap-0.5 rounded-sm p-0.5 outline-none transition-colors",
+                "flex items-center gap-2 rounded-sm px-1.5 py-1 text-left outline-none transition-colors",
                 isActive ? "bg-foreground/10 ring-1 ring-foreground/30" : "hover:bg-muted/40"
               )}
             >
-              <span className="text-[9px] tabular-nums text-muted-foreground">
+              <span
+                className={cn("size-2 shrink-0 rounded-full", RULE_COLOR_DOT[s.worst])}
+              />
+              <span className="min-w-0 flex-1 truncate text-xs">
+                {label}
+                {showId && (
+                  <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">
+                    {s.columnId}
+                  </span>
+                )}
+              </span>
+              <span className="hidden h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted sm:block">
+                <span
+                  className={cn("block h-full rounded-full", RULE_COLOR_DOT[s.worst])}
+                  style={{ width: `${pct}%` }}
+                />
+              </span>
+              <span className="w-7 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
                 {s.count}
               </span>
-              <span
-                className={cn("w-full rounded-t-sm", RULE_COLOR_DOT[s.worst])}
-                style={{ height: `${barPx}px` }}
-              />
             </button>
           );
         })}
         {stats.length > HEATMAP_MAX && (
-          <span className="ml-2 self-center text-[10px] text-muted-foreground">
+          <span className="px-1.5 py-1 text-[10px] text-muted-foreground">
             +{stats.length - HEATMAP_MAX} más
           </span>
         )}
@@ -1663,8 +1749,9 @@ function FlagDetailPanel({
         {/* Badges + meta */}
         <div className="flex flex-wrap items-center gap-2">
           <span
+            title={RULE_COLOR_MEANING[color]}
             className={cn(
-              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+              "inline-flex cursor-help items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium",
               RULE_COLOR_PILL[color]
             )}
           >

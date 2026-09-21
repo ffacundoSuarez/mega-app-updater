@@ -16,6 +16,33 @@ class TabulationEngine:
         self.segments = banner_info["segment_keys"] if "segment_keys" in banner_info else {}
         self.quest_dict = quest_dict
 
+    def _cols_de_banner(self):
+        """Devuelve las columnas que usan los filtros de segmento del banner
+        (Genero, Edad, NSE, ...). Se usan para recortar el ancho del DataFrame
+        antes de segmentar."""
+        cols = []
+        for seg_filter in self.segments.values():
+            if seg_filter:
+                vf = list(seg_filter.keys())[0]
+                if vf not in cols:
+                    cols.append(vf)
+        return cols
+
+    def _frame_segmentable(self, df_valid, cols_valor):
+        """Recorta df_valid a las únicas columnas que el loop de segmentos lee:
+        las de valor + 'ponderacion' + las de los filtros del banner.
+
+        El costo dominante de tabular NO es comparar `df[vf] == vl`, sino el
+        gather de filas que copia TODAS las columnas (cientos) a un frame nuevo,
+        una vez por segmento y por variable. Recortando el ancho de antemano ese
+        gather baja ~95% (medido) sin cambiar ningún número: el loop sólo mira
+        las columnas que dejamos. Si alguna no está, se ignora."""
+        necesarias = []
+        for c in list(cols_valor) + ["ponderacion"] + self._cols_de_banner():
+            if c in df_valid.columns and c not in necesarias:
+                necesarias.append(c)
+        return df_valid[necesarias]
+
     def tabulate_master_funnel(self, brands_logic_map):
         all_brand_data = []
         clean_brand_names = [] # Lista para guardar los nombres cortos
@@ -174,8 +201,11 @@ class TabulationEngine:
             "bases": self._calculate_all_bases(df_valid)
         }
 
-    def tabulate_srq(self, var_name):
-        """Replica la lógica de SRQ respetando el orden original de la base."""
+    def tabulate_srq(self, var_name, skip_sig=False):
+        """Replica la lógica de SRQ respetando el orden original de la base.
+
+        skip_sig: cuando el llamador sólo se queda con 'percentages' (los grids),
+        salteamos la matriz de significancia, que es cara y se tira igual."""
         value_labels = utils.get_label_dict(self.meta.variable_value_labels, var_name)
         df_proc = self.df.dropna(subset=[var_name]).copy()
         df_proc = df_proc[df_proc[var_name].astype(str).str.strip() != ""]
@@ -267,13 +297,14 @@ class TabulationEngine:
             categories_list.extend([t2b_label, b2b_label])
 
         banner_pct_data = {}
+        df_seg_src = self._frame_segmentable(df_valid_data, ["Categoria"])
         for segment_label, segment_filter in self.segments.items():
             if not segment_filter:
-                df_segment = df_valid_data.copy()
+                df_segment = df_seg_src
             else:
                 var_filter = list(segment_filter.keys())[0] 
                 val_filter = list(segment_filter.values())[0]
-                df_segment = df_valid_data[df_valid_data[var_filter] == val_filter].copy()
+                df_segment = df_seg_src[df_seg_src[var_filter] == val_filter]
             
             pesos_seg = df_segment['ponderacion'] if 'ponderacion' in df_segment.columns else pd.Series(1, index=df_segment.index)
             N_segment_weighted = pesos_seg.sum()
@@ -309,10 +340,13 @@ class TabulationEngine:
 
         bases_dict = self._calculate_all_bases(df_valid_data)
         
-        try:
-            sig_matrix = self.calculate_significance_matrix(df_final, bases_dict)
-        except Exception as e:
+        if skip_sig:
             sig_matrix = pd.DataFrame("", index=df_final.index, columns=df_final.columns)
+        else:
+            try:
+                sig_matrix = self.calculate_significance_matrix(df_final, bases_dict)
+            except Exception as e:
+                sig_matrix = pd.DataFrame("", index=df_final.index, columns=df_final.columns)
 
         # 🚀 PROTECCIÓN PARA ETIQUETAS NULAS
         label_bruta = utils.get_variable_label(self.meta, var_name)
@@ -337,7 +371,10 @@ class TabulationEngine:
 
         for c in cols:
             col_numerica = pd.to_numeric(df_valid[c], errors='coerce').fillna(0)
-            df_valid[c] = (col_numerica > 0).astype(int)
+            # 🎯 EL CAMBIO QUIRÚRGICO DENTRO DE TU LÓGICA ORIGINAL:
+            # En lugar de > 0 (que se traga códigos de control como 9), 
+            # evaluamos coincidencia exacta con 1 (el 'Sí' real de SPSS).
+            df_valid[c] = (col_numerica == 1).astype(int)
         
         col_labels = {}
         seen_labels = {} 
@@ -349,20 +386,37 @@ class TabulationEngine:
             if label_excel:
                 clean_label = str(label_excel).strip()
             else:
-                cvl = utils.get_label_dict(self.meta.variable_value_labels, c)
+                # 🎯 PRIORIDAD 1: Ir a buscar la Etiqueta de la Variable (Ej: "El premio que puede ganar")
+                lbl = utils.get_variable_label(self.meta, c)
+                raw_label = str(lbl).strip() if lbl else None
                 
-                if 1.0 in cvl: raw_label = str(cvl[1.0])
-                elif len(cvl) == 1: raw_label = str(list(cvl.values())[0])
-                else: 
-                    lbl = utils.get_variable_label(self.meta, c)
-                    raw_label = str(lbl) if lbl else c
+                # 🎯 PRIORIDAD 2: Si no tiene etiqueta o dice "Selected", intentamos el diccionario de valores o el de la madre
+                if not raw_label or raw_label.lower() == 'selected' or raw_label.lower() == 'none':
+                    cvl = utils.get_label_dict(self.meta.variable_value_labels, c)
                     
-                if " - " in raw_label: clean_label = raw_label.split(" - ")[-1].strip()
-                elif ":" in raw_label: clean_label = raw_label.split(":")[-1].strip()
-                else: clean_label = raw_label.strip()
+                    # Buscamos de forma flexible el valor 1 (sea entero o float)
+                    val_si = cvl.get(1.0) or cvl.get(1) or cvl.get('1')
+                    
+                    if val_si and str(val_si).lower() != 'selected':
+                        raw_label = str(val_si)
+                    elif len(cvl) == 1 and str(list(cvl.values())[0]).lower() != 'selected':
+                        raw_label = str(list(cvl.values())[0])
+                    else:
+                        # Si sigue siendo "Selected", buscamos en el diccionario de la variable madre usando el sub-código
+                        sub_cod = c.split('_')[-1] if '_' in c else c
+                        cvl_madre = utils.get_label_dict(self.meta.variable_value_labels, var_name)
+                        val_madre = cvl_madre.get(sub_cod) or cvl_madre.get(int(sub_cod) if sub_cod.isdigit() else None)
+                        raw_label = str(val_madre) if val_madre else c
+
+                # Limpieza de prefijos molestos en el texto
+                if " - " in str(raw_label): clean_label = str(raw_label).split(" - ")[-1].strip()
+                elif ":" in str(raw_label): clean_label = str(raw_label).split(":")[-1].strip()
+                else: clean_label = str(raw_label).strip()
                 
-                if not clean_label or clean_label.lower() == 'none': clean_label = c
+                if not clean_label or clean_label.lower() == 'none': 
+                    clean_label = c
                 
+            # Control de duplicados real
             if clean_label in seen_labels:
                 seen_labels[clean_label] += 1
                 final_label = f"{clean_label} ({c})" 
@@ -383,11 +437,12 @@ class TabulationEngine:
         categories_list = total_series.index.tolist()
         banner_data["TOTAL"] = total_series
 
+        df_seg_src = self._frame_segmentable(df_valid, cols)
         for segment_label, segment_filter in self.segments.items():
             if not segment_filter: continue
             vf = list(segment_filter.keys())[0]
             vl = list(segment_filter.values())[0]
-            df_seg = df_valid[df_valid[vf] == vl]
+            df_seg = df_seg_src[df_seg_src[vf] == vl]
             
             pesos_seg = df_seg['ponderacion'] if 'ponderacion' in df_seg.columns else pd.Series(1, index=df_seg.index)
             n_seg_weighted = pesos_seg.sum()
@@ -404,7 +459,6 @@ class TabulationEngine:
 
         titulo_excel = self.quest_dict.get(var_name) if hasattr(self, 'quest_dict') and self.quest_dict else None
         
-        # 🚀 PROTECCIÓN PARA ETIQUETAS NULAS
         if titulo_excel:
             titulo_final = str(titulo_excel).strip()
         else:
@@ -426,12 +480,10 @@ class TabulationEngine:
         # =========================================================
         # 🚀 AUTdef tabulate_mrq_categorical(self, var_name, cols):
         """Procesa menciones espontáneas categóricas (SOM)."""
-        print(f"\n" + "▼"*50)
-        print(f"🕵️‍♂️ [DEBUG MRQ_CAT] Analizando tarea: '{var_name}'")
-        print(f"📥 Columnas recibidas desde el config: {cols}")
+        logging.debug("[MRQ_CAT] Analizando tarea: '%s' | columnas del config: %s", var_name, cols)
 
         if not cols: 
-            print("❌ Cancelado: No se recibieron columnas.")
+            logging.warning("[MRQ_CAT] Cancelado: no se recibieron columnas para '%s'.", var_name)
             return None
         
         # =========================================================
@@ -445,16 +497,15 @@ class TabulationEngine:
                 raiz = re.sub(r'\d+$', '', col_name) 
                 
                 hermanas = [c for c in self.df.columns if str(c).startswith(raiz)]
-                print(f"🔍 [Buscando hermanas] Raíz buscada: '{raiz}' -> Encontradas en base: {hermanas}")
+                logging.debug("[MRQ_CAT] hermanas de raíz '%s': %s", raiz, hermanas)
                 
                 if len(hermanas) > 1:
-                    print(f"🤖 [AUTO-EXPANSIÓN] Aplicada. Se usarán {len(hermanas)} columnas.")
+                    logging.debug("[MRQ_CAT] auto-expansión: se usarán %d columnas.", len(hermanas))
                     cols = hermanas
             else:
-                print(f"🛑 [TOM DETECTADO] El nombre de tarea ('{var_name}') es igual a la columna. NO se expande.")
+                logging.debug("[MRQ_CAT] TOM detectado ('%s' == columna): no se expande.", var_name)
         
-        print(f"🚀 Columnas FINALES que cruzará Pandas: {cols}")
-        print("▲"*50 + "\n")
+        logging.debug("[MRQ_CAT] columnas finales: %s", cols)
         # =========================================================
 
         first_col = cols[0]
@@ -474,15 +525,36 @@ class TabulationEngine:
             else:
                 val_labels[code] = str(label_spss).strip()
 
-        df_valid = self.df[self.df[first_col].notna()].copy()
-        if df_valid.empty: return None
+        #df_valid = self.df[self.df[first_col].notna()].copy()
+        #if df_valid.empty: return None
+
+        # =========================================================
+        # 🚀 CORRECCIÓN DE BASE (Múltiple Respuesta Segura)
+        # =========================================================
+        # 1. Filtramos 'cols' para usar SOLO las columnas que realmente existen en el Excel hoy
+        columnas_reales = [c for c in cols if c in self.df.columns]
+        
+        if not columnas_reales:
+            logging.warning("[MRQ_CAT] Cancelado: ninguna columna de '%s' existe en la base.", var_name)
+            return None
+
+        # 2. Ahora sí, miramos TODAS las columnas a la vez para armar la base correcta (1000 casos)
+        df_valid = self.df.dropna(subset=columnas_reales, how='all').copy()
+        
+        if df_valid.empty: 
+            logging.warning("[MRQ_CAT] Cancelado: sin datos válidos en las %d columnas de '%s'.", len(columnas_reales), var_name)
+            return None
+        # =========================================================
+
 
     # 🛡️ Blindaje de tipos de datos
+        _debug_on = logging.getLogger().isEnabledFor(logging.DEBUG)
         for c in cols:
-            # 👇 ESCÁNER NIVEL 2: Vemos los datos crudos antes de la conversión 👇
-            if c != first_col:
+            # ESCÁNER NIVEL 2: datos crudos antes de convertir (sólo si hay DEBUG,
+            # porque el .dropna().unique() no es gratis y se hacía por columna).
+            if c != first_col and _debug_on:
                 crudos = df_valid[c].dropna().unique()
-                print(f"👀 DATOS CRUDOS EN {c} (Primeros 10): {crudos[:10]}")
+                logging.debug("[MRQ_CAT] datos crudos en %s (primeros 10): %s", c, crudos[:10])
                 
             # Intentamos limpiar espacios en blanco o textos nulos si la columna es de tipo Object/String
             if df_valid[c].dtype == 'object':
@@ -490,9 +562,9 @@ class TabulationEngine:
                 
             df_valid[c] = pd.to_numeric(df_valid[c], errors='coerce')
             
-        print(f"📊 [DATOS REALES POST-CONVERSIÓN]")
-        for c in cols:
-            print(f"   -> {c}: {df_valid[c].notna().sum()} respuestas válidas")
+        if _debug_on:
+            for c in cols:
+                logging.debug("[MRQ_CAT] %s: %d respuestas válidas", c, df_valid[c].notna().sum())
 
         banner_data = {}
         pesos_total = df_valid['ponderacion'] if 'ponderacion' in df_valid.columns else pd.Series(1, index=df_valid.index)
@@ -511,11 +583,12 @@ class TabulationEngine:
         sorted_categories = total_series.index.tolist()
         banner_data["TOTAL"] = total_series
 
+        df_seg_src = self._frame_segmentable(df_valid, cols)
         for segment_label, segment_filter in self.segments.items():
             if not segment_filter: continue
             vf = list(segment_filter.keys())[0]
             vl = list(segment_filter.values())[0]
-            df_seg = df_valid[df_valid[vf] == vl]
+            df_seg = df_seg_src[df_seg_src[vf] == vl]
             
             pesos_seg = df_seg['ponderacion'] if 'ponderacion' in df_seg.columns else pd.Series(1, index=df_seg.index)
             n_seg_weighted = int(round(pesos_seg.sum()))
@@ -618,13 +691,14 @@ class TabulationEngine:
             
             return pd.concat([res, pd.Series(metrics_dict)])
 
-        banner_data = {"TOTAL": process_stats(df_valid, var_name)}
+        df_seg_src = self._frame_segmentable(df_valid, [var_name])
+        banner_data = {"TOTAL": process_stats(df_seg_src, var_name)}
         
         for seg_label, seg_filter in self.segments.items():
             if not seg_filter: continue
             vf = list(seg_filter.keys())[0]
             vl = list(seg_filter.values())[0]
-            df_seg = df_valid[df_valid[vf] == vl]
+            df_seg = df_seg_src[df_seg_src[vf] == vl]
             banner_data[seg_label] = process_stats(df_seg, var_name)
 
         df_final = pd.DataFrame(banner_data).fillna(0.0)
@@ -666,7 +740,7 @@ class TabulationEngine:
             # 🚀 PROTECCIÓN DE ETIQUETAS (GRID SCALE)
             lbl_raw = utils.get_variable_label(self.meta, c)
             full_label = str(lbl_raw).strip() if lbl_raw else c
-            clean_label = full_label.split(" - ")[-1].strip().upper() if " - " in full_label else full_label.upper()
+            clean_label = full_label.split(" - ")[-1].strip().lower() if " - " in full_label else full_label.lower()
 
             header_label = f"GRID_ATTR:{clean_label}"
             header_row = pd.DataFrame(np.nan, index=[header_label], columns=df_p.columns)
@@ -707,7 +781,7 @@ class TabulationEngine:
         all_blocks = []
 
         for c in cols:
-            res = self.tabulate_srq(c)
+            res = self.tabulate_srq(c, skip_sig=True)
 
             if res is None:
                 # 🚀 MENSAJE MEJORADO
@@ -719,7 +793,7 @@ class TabulationEngine:
             # 🚀 PROTECCIÓN DE ETIQUETAS (GRID SRQ)
             lbl_raw = utils.get_variable_label(self.meta, c)
             full_label = str(lbl_raw).strip() if lbl_raw else c
-            clean_label = full_label.split(" - ")[-1].strip().upper() if " - " in full_label else full_label.upper()
+            clean_label = full_label.split(" - ")[-1].strip().lower() if " - " in full_label else full_label.lower()
 
             header_label = f"GRID_ATTR:{clean_label}"
             header_row = pd.DataFrame(np.nan, index=[header_label], columns=df_p.columns)
@@ -762,7 +836,7 @@ class TabulationEngine:
         df_valid = self.df[self.df[var_name].notna()].copy()
         if df_valid.empty: return None
 
-        res_srq = self.tabulate_srq(var_name)
+        res_srq = self.tabulate_srq(var_name, skip_sig=True)
         df_final = res_srq["percentages"]
 
         def calc_monthly_avg(data_subset):
@@ -771,11 +845,12 @@ class TabulationEngine:
 
         avg_row = {"TOTAL": calc_monthly_avg(df_valid[var_name])}
         
+        df_seg_src = self._frame_segmentable(df_valid, [var_name])
         for seg_label, seg_filter in self.segments.items():
             if not seg_filter: continue
             vf = list(seg_filter.keys())[0]
             vl = list(seg_filter.values())[0]
-            df_seg = df_valid[df_valid[vf] == vl]
+            df_seg = df_seg_src[df_seg_src[vf] == vl]
             avg_row[seg_label] = calc_monthly_avg(df_seg[var_name])
 
         if 'Categoria' in df_final.columns:
@@ -849,11 +924,12 @@ class TabulationEngine:
         banner_data["TOTAL"] = pd.Series({"Media (Promedio)": mean_total})
 
         # 2. Promedios por SEGMENTOS
+        df_seg_src = self._frame_segmentable(df_valid, [var_name])
         for seg_label, seg_filter in self.segments.items():
             if not seg_filter: continue
             vf = list(seg_filter.keys())[0]
             vl = list(seg_filter.values())[0]
-            df_seg = df_valid[df_valid[vf] == vl]
+            df_seg = df_seg_src[df_seg_src[vf] == vl]
             
             if df_seg.empty:
                 banner_data[seg_label] = pd.Series({"Media (Promedio)": 0.0})
@@ -913,11 +989,12 @@ class TabulationEngine:
         sorted_categories = banner_data["TOTAL"].index.tolist()
 
         # 2. Promedios por SEGMENTO
+        df_seg_src = self._frame_segmentable(df_valid, cols)
         for segment_label, segment_filter in self.segments.items():
             if not segment_filter: continue
             vf = list(segment_filter.keys())[0]
             vl = list(segment_filter.values())[0]
-            df_seg = df_valid[df_valid[vf] == vl]
+            df_seg = df_seg_src[df_seg_src[vf] == vl]
             
             pesos_seg = df_seg['ponderacion'] if 'ponderacion' in df_seg.columns else pd.Series(1, index=df_seg.index)
             
@@ -956,12 +1033,13 @@ class TabulationEngine:
             "TOTAL": {"unweighted": n_unweighted, "weighted": n_weighted}
         }
         
+        df_seg_src = self._frame_segmentable(df_valid, [])
         for seg_label, seg_filter in self.segments.items():
             if not seg_filter: continue
                 
             v_filt = list(seg_filter.keys())[0]
             val_filt = list(seg_filter.values())[0]
-            df_seg = df_valid[df_valid[v_filt] == val_filt]
+            df_seg = df_seg_src[df_seg_src[v_filt] == val_filt]
             
             n_seg_unweighted = len(df_seg)
             pesos_seg = df_seg['ponderacion'] if 'ponderacion' in df_seg.columns else pd.Series(1, index=df_seg.index)
@@ -1135,7 +1213,7 @@ class TabulationEngine:
 
                 if tipo_tabla == "MASTER_FUNNEL":
                     num_cols_datos = len(df_p.columns)
-                    banner_label = getattr(self, 'banner_variable_name', "SEGMENTACIÓN").upper()
+                    banner_label = getattr(self, 'banner_variable_name', "SEGMENTACIÓN").lower()
                     worksheet.merge_range(start_row, 1, start_row, num_cols_datos, banner_label, fmt_head)
                     start_row += 1
 

@@ -11,6 +11,14 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+/** Mapa de acento de color por herramienta (tokens en index.css). */
+const TOOL_ACCENT: Partial<Record<ViewId, string>> = {
+  limpiador: "bg-tool-limpiador/15 text-tool-limpiador",
+  "brand-audit": "bg-tool-brand-audit/15 text-tool-brand-audit",
+  cuestionario: "bg-tool-cuestionario/15 text-tool-cuestionario",
+  codificacion: "bg-tool-codificacion/15 text-tool-codificacion",
+};
+
 export type ViewId = "home" | "files" | "settings" | ToolId;
 export type ToolId = "brand-audit" | "limpiador" | "cuestionario" | "codificacion";
 
@@ -124,7 +132,7 @@ export function Toolbar({ activeView, onSelectView, appVersion }: ToolbarProps) 
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>v{appVersion}</span>
             <span className="flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-emerald-500" />
+              <span className="size-1.5 rounded-full bg-success animate-pulse" />
               Al día
             </span>
           </div>
@@ -173,14 +181,24 @@ function NavEntry({
       <button
         type="button"
         onClick={onClick}
+        aria-current={active ? "page" : undefined}
         className={cn(
-          "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors",
-          "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+          "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-all duration-200 ease-out",
+          "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:scale-[0.98]",
           active &&
-            "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+            "bg-sidebar-accent font-medium text-sidebar-accent-foreground shadow-sm ring-1 ring-sidebar-ring/30"
         )}
       >
-        <Icon className="size-4 shrink-0 opacity-80" />
+        <span
+          className={cn(
+            "flex size-7 shrink-0 items-center justify-center rounded-md transition-colors",
+            active && TOOL_ACCENT[item.id]
+              ? TOOL_ACCENT[item.id]
+              : "bg-transparent"
+          )}
+        >
+          <Icon className="size-4 opacity-90" />
+        </span>
         <span className="truncate">{item.label}</span>
       </button>
     </li>

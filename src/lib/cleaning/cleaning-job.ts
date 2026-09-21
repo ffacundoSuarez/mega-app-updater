@@ -43,6 +43,8 @@ import type { CleaningRow, CleaningRule, FlagType } from "./types";
 const DEFAULT_BATCH_SIZE = 10;
 /** Pausa entre batches para no saturar OpenAI. Mismo valor que el original. */
 const DEFAULT_BATCH_DELAY_MS = 2000;
+/** Reintentos máximos por batch antes de abortar el job. */
+const MAX_BATCH_RETRIES = 3;
 
 export interface CleaningJobProgress {
   versionId: string;
@@ -140,7 +142,8 @@ async function executeJob(
   } = options;
 
   const log = onLog ?? defaultLogger;
-  let batchIndex = 0;
+    let batchIndex = 0;
+    let batchRetries = 0;
 
   let totalProcessed = 0;
   let totalFlagged = 0;
@@ -268,10 +271,30 @@ async function executeJob(
           lastBatchFlags: flaggedCount,
           lastBatchRows: rows.length,
         });
+        batchRetries = 0;
       } catch (batchError) {
-        // Igual que el original: loguear y seguir con el siguiente batch.
-        // El cursor NO avanza: el siguiente loop reintentará las mismas filas.
-        log("error", `Error in batch: ${errorMessage(batchError)}`);
+        batchRetries += 1;
+        const errMsg = errorMessage(batchError);
+        log(
+          "error",
+          `Error in batch (intento ${batchRetries}/${MAX_BATCH_RETRIES}): ${errMsg}`
+        );
+        if (batchRetries >= MAX_BATCH_RETRIES) {
+          const fatal = `Job abortado tras ${MAX_BATCH_RETRIES} fallos en el mismo batch: ${errMsg}`;
+          await updateVersion(client, versionId, {
+            status: "error",
+            processed_rows: cursor,
+            progress_percentage: progressPct(cursor, version.total_rows),
+            error_message: fatal,
+          });
+          return {
+            versionId,
+            status: "error",
+            totalProcessed,
+            totalFlagged,
+            errorMessage: fatal,
+          };
+        }
       }
 
       // Si el batch volvió incompleto, llegamos al final.

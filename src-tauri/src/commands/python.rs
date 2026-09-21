@@ -8,7 +8,13 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::AppHandle;
 
-use crate::python_bridge::{run_python_script, PythonBridgeError, PythonRunOptions};
+use crate::python_bridge::{cancel_active_python_sidecar, run_python_script, PythonBridgeError, PythonRunOptions};
+
+/// Cancela el sidecar Python en ejecución (Brand Audit u otro script streaming).
+#[tauri::command]
+pub async fn cancel_python_sidecar() -> Result<(), String> {
+    cancel_active_python_sidecar()
+}
 
 /// Respuesta del ping al sidecar Python.
 ///

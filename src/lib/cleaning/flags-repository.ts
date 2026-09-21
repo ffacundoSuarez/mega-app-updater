@@ -69,57 +69,76 @@ export async function getSimilarRows(
  * restamos en memoria. Suficiente para los volúmenes que maneja la herramienta
  * (encuestas de market research, no big data).
  */
+/**
+ * Trae las filas de la versión que NO tienen ningún flag.
+ * Pagina internamente la lectura de `cleaning_rows` para no traer todo de una.
+ */
 export async function listUnflaggedRows(
   versionId: string
 ): Promise<CleaningRow[]> {
   const client = await getCleaningSupabaseClient();
+  const PAGE = 1000;
 
-  const [{ data: flagged, error: flagsErr }, { data: allRows, error: rowsErr }] =
-    await Promise.all([
-      client
-        .from("cleaning_flags")
-        .select("row_id")
-        .eq("version_id", versionId),
-      client
-        .from("cleaning_rows")
-        .select("*")
-        .eq("version_id", versionId)
-        .order("row_number", { ascending: true }),
-    ]);
+  const { data: flagged, error: flagsErr } = await client
+    .from("cleaning_flags")
+    .select("row_id")
+    .eq("version_id", versionId);
 
   if (flagsErr) {
     throw new Error(`No se pudieron leer los flags: ${flagsErr.message}`);
-  }
-  if (rowsErr) {
-    throw new Error(`No se pudieron leer las filas: ${rowsErr.message}`);
   }
 
   const flaggedIds = new Set(
     ((flagged ?? []) as Array<{ row_id: string }>).map((f) => f.row_id)
   );
-  return ((allRows ?? []) as unknown as CleaningRow[]).filter(
-    (r) => !flaggedIds.has(r.id)
-  );
+
+  const unflagged: CleaningRow[] = [];
+  let offset = 0;
+
+  while (true) {
+    const { data: pageRows, error: rowsErr } = await client
+      .from("cleaning_rows")
+      .select("*")
+      .eq("version_id", versionId)
+      .order("row_number", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+
+    if (rowsErr) {
+      throw new Error(`No se pudieron leer las filas: ${rowsErr.message}`);
+    }
+    if (!pageRows || pageRows.length === 0) break;
+
+    for (const row of pageRows as unknown as CleaningRow[]) {
+      if (!flaggedIds.has(row.id)) unflagged.push(row);
+    }
+
+    if (pageRows.length < PAGE) break;
+    offset += PAGE;
+  }
+
+  return unflagged;
 }
 
+export interface ListFlagsOptions {
+  flagType?: FlagType;
+  userDecision?: "pending" | "keep" | "remove";
+  offset?: number;
+  limit?: number;
+}
+
+/** @deprecated Usar ListFlagsOptions */
 export interface ListFlagsFilters {
   flagType?: FlagType;
-  /**
-   * Filtra por estado de decisión:
-   *   - 'pending' → user_decision IS NULL
-   *   - 'keep' / 'remove' → exact match
-   */
   userDecision?: "pending" | "keep" | "remove";
 }
 
 /**
  * Trae los flags de una versión con la fila incrustada en `flag.row`.
- * Ordenados por created_at ASC para que la UI tenga un orden estable
- * mientras el usuario itera.
+ * Soporta paginación con `offset`/`limit`.
  */
 export async function listFlags(
   versionId: string,
-  filters: ListFlagsFilters = {}
+  filters: ListFlagsFilters | ListFlagsOptions = {}
 ): Promise<CleaningFlagWithRow[]> {
   const client = await getCleaningSupabaseClient();
   let query = client
@@ -135,6 +154,12 @@ export async function listFlags(
     query = query.is("user_decision", null);
   } else if (filters.userDecision) {
     query = query.eq("user_decision", filters.userDecision);
+  }
+
+  const offset = "offset" in filters ? filters.offset : undefined;
+  const limit = "limit" in filters ? filters.limit : undefined;
+  if (offset != null && limit != null) {
+    query = query.range(offset, offset + limit - 1);
   }
 
   const { data, error } = await query;

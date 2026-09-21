@@ -9,11 +9,6 @@ mod python_bridge;
 // esté vacío; en CI viene del secret `UPDATER_GITHUB_TOKEN`.
 const UPDATER_GITHUB_TOKEN: Option<&str> = option_env!("UPDATER_GITHUB_TOKEN");
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Builder del plugin updater: si tenemos PAT, lo inyectamos como header
@@ -41,14 +36,16 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(updater_builder.build())
         .invoke_handler(tauri::generate_handler![
-            greet,
             commands::python::run_python_hello,
+            commands::python::cancel_python_sidecar,
             commands::brand_audit::run_brand_audit,
             commands::questionpro::questionpro_create_survey,
             commands::questionpro::questionpro_create_block,
             commands::questionpro::questionpro_create_question,
             commands::survey_import::read_survey_schema,
             commands::survey_import::import_survey_rows,
+            commands::codificacion_import::parse_codificacion_responses,
+            commands::codificacion_import::parse_codificacion_category_book,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
