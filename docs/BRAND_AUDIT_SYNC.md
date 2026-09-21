@@ -55,34 +55,7 @@ re-aplicarlos.
 
 ## Parches que SÍ viven dentro del motor (re-aplicar en cada sync)
 
-### 1. `config.py` — exclusión de PromoTracking
-
-Al final del archivo:
-
-```python
-TRACKING_CHARTS = [c for c in TRACKING_CHARTS if not c.get("is_top_n_sync")]
-```
-
-Chris mantiene en el mismo config el trabajo de otro estudio (PromoTracking
-Pepsico multi-país). Esas entradas apuntan a shapes que no existen en la
-plantilla de YPF y su motor (`create_slides.update_top_n_block`) ni siquiera está
-cableado en `main.py`.
-
-Se filtra en vez de borrar líneas para que el diff contra las próximas versiones
-siga siendo legible.
-
-### 2. `create_slides.py` — ruta de logos
-
-La carpeta de logos venía hardcodeada al escritorio de la máquina de Chris
-(`C:\Users\User\Desktop\imagenes\Brasil`), lo que sólo funcionaba ahí. Ahora sale
-de `config.LOGOS_DIR`, que el wrapper apunta a `<assets>/logos`:
-
-```python
-carpeta_logos = getattr(config, "LOGOS_DIR", None)
-if carpeta_logos and os.path.exists(carpeta_logos):
-```
-
-### 3. `generador_ia.py` — payload del executive summary
+### 1. `generador_ia.py` — payload del executive summary
 
 Agregamos `_resumir_para_summary()` y el parámetro `titulos_generados` en
 `redactar_executive_summary()`, para no reenviar la mochila de datos completa a
@@ -90,6 +63,70 @@ Gemini.
 
 Nota: en el motor de agosto 2026 esta función quedó huérfana (ver abajo), pero el
 parche se mantiene por si se reactiva.
+
+### 2. `tabulation_engine.py` — optimizaciones de performance
+
+Tres cambios que bajan el tiempo total ~20% (415 s → 332 s medidos) **sin tocar
+un solo número**: el informe sale idéntico (246/246 shapes y todas las tablas del
+Excel iguales, comparado con `scripts/compare-ppt.py`). Viven dentro del motor,
+así que **hay que re-aplicarlos en cada sync**:
+
+- **Recorte de columnas antes de segmentar.** El helper `_frame_segmentable()` y
+  su uso en cada método de tabulación (`tabulate_srq`, `tabulate_mrq`,
+  `tabulate_mrq_categorical`, `tabulate_scale`, `tabulate_numeric`,
+  `tabulate_numeric_grid`, `_calculate_all_bases`, y el promedio mensual). El loop
+  de segmentos hacía `df_valid[df_valid[vf] == vl]`, que copia TODAS las columnas
+  (cientos) una vez por segmento y por variable. El costo real es ese *gather*, no
+  el `==` (medido: cachear la máscara ahorra 1 %, recortar columnas 96 %). Se
+  recorta a las columnas que el loop realmente lee (la de valor + `ponderacion` +
+  las del banner) antes de segmentar.
+- **`skip_sig` en `tabulate_srq`.** Los grids (`tabulate_srq_grid`,
+  `tabulate_frequency`) sólo se quedan con `percentages` y tiran la matriz de
+  significancia. El parámetro `skip_sig=True` evita calcularla.
+- **Prints de `tabulate_mrq_categorical` a `logging`.** Eran `print()` a stdout en
+  el loop; ahora son `logging.debug` (más un guard `isEnabledFor(DEBUG)` para no
+  pagar el `.dropna().unique()` por columna cuando no hay debug).
+
+Verificación: correr el informe con y sin el parche (o antes/después del sync) y
+cruzarlos con `scripts/compare-ppt.py` a tolerancia 0.0001. Tiene que dar 246/246.
+
+## Purga de PromoTracking (re-hacer en cada sync)
+
+Chris mantiene en el mismo repo el trabajo de **otro estudio**: PromoTracking
+Pepsico multi-país. Es código de otra herramienta que no tiene nada que ver con
+YPF, y lo confirmamos por tres vías: las variables que usa (`A2`, `A5`–`A9`)
+tienen cero columnas en el `.sav` de YPF, los shapes que toca no existen en la
+plantilla, y su motor nunca se llama. Lo borramos entero. **Cuando Chris mande
+una versión nueva, va a volver a traerlo y hay que sacarlo de vuelta.**
+
+Qué borrar:
+
+- **`create_slides.py`**: la función `update_top_n_block` (el motor de
+  PromoTracking, ~870 líneas) y sus dos helpers `verificar_significancia_vs_total`
+  y `_escribir_celda_pro`. Se reconocen porque los helpers sólo se usan dentro de
+  `update_top_n_block`, que a su vez no se llama desde ningún lado.
+- **`config.py`**: las entradas de `TRACKING_CHARTS` marcadas con
+  `"is_top_n_sync": True` (los `Chart_Barras_A5`…`A9`), y todo el bloque de
+  constantes "CONFIGURACIÓN GLOBAL DE MERCADOS" (`PAIS_ACTUAL`,
+  `ORDEN_PROMOS_MERCADOS`, los `MAPEO_GRUPOS_*` por país, `MAPA_PARTICIPACION_A2`,
+  `PROMOS_PEPSICO_DETECTADAS`, `PROMO_LIDER_COMPETENCIA`,
+  `COMPETENCIA_ORDENADA_GLOBAL`).
+
+Qué **NO** tocar: `ATRIBUTOS_COMUNES2`. El nombre engaña, pero la usa
+`Tabla_Valor_de_Marca`, que es un gráfico de YPF.
+
+Grep de control (después de purgar, no debería quedar nada):
+
+```powershell
+Select-String -Path "python-scripts\brand_audit\*.py" `
+  -Pattern "is_top_n_sync|update_top_n_block|MAPEO_GRUPOS|PAIS_ACTUAL|pepsico"
+```
+
+Nota histórica: antes esto se resolvía con un filtro
+(`TRACKING_CHARTS = [c for c in TRACKING_CHARTS if not c.get("is_top_n_sync")]`) y
+un parche de `LOGOS_DIR` en `update_top_n_block`. Los dos desaparecieron al borrar
+el código muerto; el wrapper todavía setea `config.LOGOS_DIR` pero ya no lo lee
+nadie.
 
 ## Cosas que hay que mirar en cada sync
 
@@ -194,8 +231,19 @@ Las únicas apariciones esperadas son la inicialización, las dos asignaciones d
 Referencia para detectar regresiones. Base de 1,76 GB, 52.929 casos × 1.892
 variables, ola 53, sin IA:
 
-- Total: **725 s**, de los cuales tabulación ~68%, carga del `.sav` 66 s (9%),
-  armado del PPT ~89 s (12%), export a Excel 42 s (6%).
+Progresión (mismos inputs, mismo output 246/246):
+
+- **725 s** — motor de Chris tal cual llegó.
+- **~414 s** — tras anular `process_data` (ver abajo).
+- **332 s** — tras el recorte de columnas + `skip_sig` en el motor.
+
+Desglose del baseline de 725 s: tabulación ~68%, carga del `.sav` 66 s (9%),
+armado del PPT ~89 s (12%), export a Excel 42 s (6%).
+
+Nota sobre la carga del `.sav`: leer sólo un subconjunto de columnas (`usecols`)
+NO sirve. `pyreadstat` lee fila por fila, así que leer 766 de 1.892 columnas
+sigue tardando ~54 s (vs 60 s). Y recortar por config cambiaría el output, porque
+`generate_default_tasks` tabula toda columna presente en el DataFrame.
 - Pico de RAM: ~2,5 GB, por el `df_historico = df.copy()` de `utils.py`.
 - La base requiere encoding `latin1`: fallan tanto el default como `cp1252`. Los
   intentos fallidos cuestan ~1 s en total, así que el lector con reintentos no es

@@ -116,6 +116,18 @@ pub async fn run_python_script(
         return Err(PythonBridgeError::PythonNotBundled { path: python_exe });
     }
 
+    // En debug leemos los scripts directo del repo (python-scripts/), así una
+    // edición de un .py se toma con solo volver a correr, sin re-bundlear. En
+    // release siguen saliendo de los resources empaquetados en el MSI.
+    //
+    // El runtime de Python se resuelve siempre por resources en los dos modos:
+    // cambia muy poco y pesa cientos de MB, no vale la pena.
+    #[cfg(debug_assertions)]
+    let script_path: PathBuf = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(PYTHON_SCRIPTS_DIR)
+        .join(script_name);
+    #[cfg(not(debug_assertions))]
     let script_path: PathBuf = app.path().resolve(
         format!("{PYTHON_SCRIPTS_DIR}/{script_name}"),
         BaseDirectory::Resource,

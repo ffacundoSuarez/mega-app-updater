@@ -39,15 +39,22 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Cache Python sidecar
+      # Cacheamos SÓLO el runtime de Python (descarga pesada + pip install),
+      # no los scripts. La clave depende de requirements.txt + el bundler.
+      #
+      # OJO: antes cacheábamos src-tauri/binaries entero (runtime Y scripts) y
+      # el bundler se salteaba con cache-hit. Como la clave no mira los .py, un
+      # cambio en el motor con requirements sin tocar publicaba el release con
+      # los scripts viejos. Ahora el bundler corre SIEMPRE y refresca los
+      # scripts; el runtime igual sale del cache, así que sigue siendo rápido.
+      - name: Cache Python runtime
         id: cache-python
         uses: actions/cache@v4
         with:
-          path: src-tauri/binaries
+          path: src-tauri/binaries/python-runtime
           key: python-sidecar-${{ runner.os }}-${{ hashFiles('python-scripts/requirements.txt', 'scripts/bundle-python.ps1') }}
 
       - name: Bundle Python sidecar
-        if: steps.cache-python.outputs.cache-hit != 'true'
         run: npm run bundle:python
 
       - name: Install npm deps

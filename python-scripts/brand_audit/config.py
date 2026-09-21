@@ -5,12 +5,9 @@ from pptx.enum.chart import XL_CHART_TYPE
 
 # --- CONFIGURACIÓN GLOBAL DEL ESTUDIO (MIGRADO DEL JSON) ---
 STUDY_ID = "Ypf Agosto 2026- Prueba Automatizacion" 
-#STUDY_ID = "672 Promotracking"
 
 #BANNER_VARIABLES = [],
 BANNER_VARIABLES = ["Genero", "Edad", "NSE", "Region", "Auto", "Vinculo", "Region2"]
-#esto es para PromoTracking
-#BANNER_VARIABLES = ["Total", "PROMO_cod"]
 
 #BANNER_VARIABLES = ["Wave"]
 
@@ -55,10 +52,6 @@ RUN_LLM = False # Asegúrate de que esta variable exista o esté definida.
 
 # --- ARCHIVOS Y RUTAS ---
 SAV_FILE = "681-YPF Monitor Institucional_unificada_Agosto - Con abiertas.sav"
-
-#SAV_FILE = "672_MEGA Research - Promotracking Compilado_Total.sav"
-
-#SAV_FILE = "672_Promo.sav"
 TEMPLATE_PPX = 'informe_Ypf Julio 2026- Version Automatizacion.pptx'
 
 #TEMPLATE_PPX = 'Posibles automatizaciones - argperu.pptx'
@@ -145,216 +138,6 @@ CHART_TYPES = {
   'COLUMN_VERTICAL': XL_CHART_TYPE.COLUMN_CLUSTERED,
   'BAR_STACKED_100': XL_CHART_TYPE.BAR_STACKED_100
 }
-
-# =========================================================================
-# 🌍 CONFIGURACIÓN GLOBAL DE MERCADOS (BRAND AUDIT 2026)
-# =========================================================================
-
-# 🇧🇷/🇲🇽 Variable de control para la corrida actual (el analista la cambia aquí)
-PAIS_ACTUAL = "ARG"  # Opciones: "BR", "MX", "AR", "COL", "GUATEMALA", "PERU"
-
-
-# =========================================================================
-# 🔀 ORDEN VISUAL DE PROMOCIONES POR PAÍS
-# =========================================================================
-# El analista edita estas listas para cambiar la prioridad de las columnas en el PPT.
-# El motor del backend hace un match inteligente (flexible) usando estos strings.
-ORDEN_PROMOS_MERCADOS = {
-    "BR": [
-        "Hellmanns NBA",
-        "Snickers Free Fire 2026",
-        "Clear Dourado 2026",
-        "Grand Break na Formula 1",
-        "Budweiser Budtour",
-        "Coca-Cola Um Grito de Gol 2026",
-        "Tem Lays tem Jogo",
-        "Rexona Eterno Convocado 2026",
-        "Cartão que dá Jogo",
-        "No promo"
-    ],
-    "MX": [
-        "Coca - Cola te acerca",
-        "El poder de one",
-        "La promo de la afición mas intensa",
-        "Primer Tiempo",
-        "El Tres Ganador",
-        "#DestapaPringoools",
-        "Kia Drive Tour",
-        "Gana boletos comprando un McTrío",
-        "Con la verde de bodega aurrera",
-        "Experiencia Deportiva con Spin Premia"
-    ],
-    "AR": [
-        "Fan del partido",
-        "Hospitality 2026",
-        "Mundial de premios",
-        "Viaje al mundial FIFA 2026",
-        "Vamos con Supervielle!",
-        "Una promo para creer",
-        "Argentina Llena de Energía",
-        "MostaClub",
-        "La Lucchettineta",
-        "Estamos Listos"
-    ],
-    "CH": [
-        "Tira y Gana",
-        "Destapa la pasión del mundial 2026",
-        "Tus Tarjetas Visa Scotiabank te llevan a la Copa",
-        "Banco de Chile Vive el Mundial",
-        "Final copa mundial de la fifa 2026",
-        "Xbox - Acepta el desafío Fanta",
-        "Marsoprole - Concurso 50 mochilas con $1.000.000",
-        "Corridas Milo 2026 - Gana implementación deportiva para tu colegio",
-        "Concurso Avant Premiere El Diablo se Viste a la Moda 2 - Entradas dobles",
-        "Gana un Viaje al BGS en Brasil con Shelao"
-    ],
-    "GTM": [
-        "Los 11 titulares",
-        "Un antojo para todo heroe",
-        "Block",
-        "La promo que faltaba de Señorial",
-        "Mete gol y gana con Diana",
-        "Destapala con emoción",
-        "Tira y Gana",
-        "Experiencia de la Copa Mundial de la FIFA 2026",
-        "MAX te lleva al país campeón - Sorteo viaje al Mundial"
-    ],
-    "COL": [
-        "Coca - Cola te acerca 2026",
-        "La Promo más fácil del mundo, con Nestlé siempre ganas",
-        "m&m's ¡Te lleva!",
-        "Vuélate en el jet de Jet",
-        "Papitas pal' pollo",
-        "Tira y Gana",
-        "Fichaje Nacional",
-        "Ara te lleva a la cancha",
-        "Gana Como Los Grandes",
-        "Quién pidió premios?"
-    ]
-}
-
-# =========================================================================
-# 🌎 MAPEOS GLOBALES DE COMPETENCIA (Definidos una sola vez arriba)
-# =========================================================================
-MAPEO_GRUPOS_MEXICO = {
-# 🎯 Usamos solo una palabra clave única de la columna en lugar de la frase gigante:
-    "primer tiempo": "PEP", 
-    "sabritas": "PEP",       # Pongo ambas por seguridad si tu base varía
-    
-    "cola": "COMPETENCIA_DIRECTA",
-    "afición mas intensa": "COMPETENCIA_DIRECTA",
-    "tres ganador": "COMPETENCIA_DIRECTA",
-    "#destapapringoools": "COMPETENCIA_DIRECTA",
-    "mctrío": "COMPETENCIA_DIRECTA",
-    "mctrio": "COMPETENCIA_DIRECTA",
-    
-    "poder de one": "COMPETENCIA_OTROS",
-    "kia drive tour": "COMPETENCIA_OTROS",
-    "bodega aurrera": "COMPETENCIA_OTROS",
-    "spin premia": "COMPETENCIA_OTROS"
-}
-
-MAPEO_GRUPOS_PERU = {
-    "tapas verdes": "PEP",
-    "viaje con sabor": "PEP",
-    "golea": "PEP",
-    "álbum": "COMPETENCIA_DIRECTA",
-    "album": "COMPETENCIA_DIRECTA",
-    "yape": "COMPETENCIA_DIRECTA",
-    "inca": "COMPETENCIA_DIRECTA",
-    "field": "COMPETENCIA_DIRECTA",
-    "cómodo": "COMPETENCIA_OTROS",
-    "comodo": "COMPETENCIA_OTROS",
-    "trident": "COMPETENCIA_OTROS",
-    "concierto": "COMPETENCIA_OTROS",
-    "atún": "COMPETENCIA_OTROS",
-    "atun": "COMPETENCIA_OTROS",
-    "primor": "COMPETENCIA_OTROS"
-}
-
-MAPEO_GRUPOS_CHILE = {
-    "tira y gana": "PEP",
-    "pasión del mundial": "COMPETENCIA_DIRECTA",
-    "pasion del mundial": "COMPETENCIA_DIRECTA",
-    "fanta": "COMPETENCIA_DIRECTA",
-    "xbox": "COMPETENCIA_DIRECTA",
-    "milo": "COMPETENCIA_DIRECTA",
-    "colegio": "COMPETENCIA_DIRECTA",    
-    "shelao": "COMPETENCIA_DIRECTA",
-    "scotiabank": "COMPETENCIA_OTROS",
-    "visa": "COMPETENCIA_OTROS",
-    "banco de chile": "COMPETENCIA_OTROS",
-    "fifa 2026": "COMPETENCIA_OTROS",
-    "soprole": "COMPETENCIA_OTROS",
-    "diablo se viste": "COMPETENCIA_OTROS"
-}
-
-MAPEO_GRUPOS_COLOMBIA = {
-    "tira y gana": "PEP",
-    "coca - cola": "COMPETENCIA_DIRECTA",
-    "nestlé": "COMPETENCIA_DIRECTA",
-    "nestle": "COMPETENCIA_DIRECTA",
-    "m&m": "COMPETENCIA_DIRECTA",
-    "papitas": "COMPETENCIA_DIRECTA",
-    "grandes": "COMPETENCIA_DIRECTA",
-    "premios?": "COMPETENCIA_DIRECTA",
-    "jet": "COMPETENCIA_OTROS",
-    "fichaje": "COMPETENCIA_OTROS",
-    "ara te lleva": "COMPETENCIA_OTROS"
-}
-
-MAPEO_GRUPOS_GUATEMALA = {
-    "tira y gana": "PEP",
-    "titulares": "COMPETENCIA_DIRECTA",
-    "heroe": "COMPETENCIA_DIRECTA",
-    "block": "COMPETENCIA_DIRECTA",
-    "señorial": "COMPETENCIA_DIRECTA",
-    "senorial": "COMPETENCIA_DIRECTA",
-    "diana": "COMPETENCIA_DIRECTA",
-    "destapala": "COMPETENCIA_DIRECTA",
-    "experiencia de la copa": "COMPETENCIA_OTROS",
-    "max te lleva": "COMPETENCIA_OTROS"
-}
-
-MAPEO_GRUPOS_BRASIL = {
-    "lays": "PEP",
-    "grito de gol": "COMPETENCIA_DIRECTA",
-    "coca-cola": "COMPETENCIA_DIRECTA",
-    "hellmann": "COMPETENCIA_OTROS",
-    "snickers": "COMPETENCIA_OTROS",
-    "clear": "COMPETENCIA_OTROS",
-    "grand break": "COMPETENCIA_OTROS",
-    "formula 1": "COMPETENCIA_OTROS",
-    "budwiser": "COMPETENCIA_OTROS",
-    "rexona": "COMPETENCIA_OTROS",
-    "cartão": "COMPETENCIA_OTROS",
-    "cartao": "COMPETENCIA_OTROS"
-}
-
-MAPEO_GRUPOS_ARGENTINA = {
-    "fan del partido": "PEP",
-    "hospitality": "COMPETENCIA_DIRECTA",
-    "mundial de premios": "COMPETENCIA_DIRECTA",
-    "viaje al mundial": "COMPETENCIA_OTROS",
-    "supervielle": "COMPETENCIA_OTROS",
-    "creer": "COMPETENCIA_OTROS",
-    "energía": "COMPETENCIA_OTROS",
-    "energia": "COMPETENCIA_OTROS",
-    "mostaclub": "COMPETENCIA_OTROS",
-    "lucchettineta": "COMPETENCIA_OTROS",
-    "listos": "COMPETENCIA_OTROS"
-}
-
-# =========================================================================
-# 🧠 PUENTE DE MEMORIA COMPARTIDA (ANALYTICS EN CALIENTE)
-# =========================================================================
-# Estos objetos se inicializan vacíos. Cuando el script pase por la pestaña 
-# de la pregunta A2 en el main.py, se llenarán con los datos reales de la ola.
-MAPA_PARTICIPACION_A2 = {}       # Mapeo de { Columna: %_Participacion }
-PROMOS_PEPSICO_DETECTADAS = []   # Lista de columnas que pertenecen a PepsiCo
-PROMO_LIDER_COMPETENCIA = None    # Nombre de la columna de la competencia con mayor %
-COMPETENCIA_ORDENADA_GLOBAL = [] # El resto de las marcas ordenadas de mayor a menor peso
-
 
 # =========================================================
 # 🧹 LIMPIEZA DE BASES (VARIABLES A ELIMINAR)
@@ -4050,93 +3833,6 @@ TRACKING_CHARTS = [
             "Jucio/Deuda por expropiación": ["juicio"]
         }
     },
-    {
-        "chart_name": "Chart_Barras_A8",     
-        "variable": "A8",                   
-        "table_name": "Tabla_Bloques_A8_A9", 
-        "is_top_n_sync": True,               
-        "start_row": 1,                      
-        "max_rows": 4,                       
-        "base_table_name":"Tabla_Bases",
-        "promo_names_table_name": "Tabla_Nombres_Promos",
-        "is_percentage": True,
-        "columns": {"text": 0, "total": 2, "segments": 3},
-        "participation_variable": "A2",
-        "view_mode": "fixed_pep_otros",        # 👈 Parámetro Clave
-        "pepsico_brand": "Tem Lays tem Jogo",
-        # 🎯 Inyectamos la variable global aquí:
-        "fixed_groups_mapping": MAPEO_GRUPOS_BRASIL
-    },    
-    {
-        "chart_name": "Chart_Barras_A9",     
-        "variable": "A9",                   
-        "table_name": "Tabla_Bloques_A8_A9", 
-        "is_top_n_sync": True,               
-        "start_row": 6,                      
-        "max_rows": 4,                       
-        "base_table_name":"Tabla_Bases",
-        "promo_names_table_name": "Tabla_Nombres_Promos",
-        "is_percentage": True,
-        "columns": {"text": 0, "total": 2, "segments": 3},
-        "participation_variable": "A2",
-        "view_mode": "fixed_pep_otros",        # 👈 Parámetro Clave
-        "pepsico_brand": "Tem Lays tem Jogo",
-        # 🎯 Inyectamos la variable global aquí:
-        "fixed_groups_mapping": MAPEO_GRUPOS_BRASIL
-    },    
-# =========================================================================
-    # 🥊 SLIDE 1: HEAD-TO-HEAD (PepsiCo vs Líder de la Competencia)
-    # =========================================================================
-    {
-        "chart_name": "Chart_Barras_A5",     
-        "variable": "A5",                   
-        "table_name": "Tabla_Bloques_A5_A7", 
-        "is_top_n_sync": True,               
-        "start_row": 1,                      
-        "max_rows": 4,                       
-        "base_table_name":"Tabla_Bases",
-        "promo_names_table_name": "Tabla_Nombres_Promos",
-        "is_percentage": True,
-        "columns": {"text": 0, "total": 2, "segments": 3},
-        "participation_variable": "A2",
-        "view_mode": "fixed_pep_otros",        # 👈 Parámetro Clave
-        "pepsico_brand": "Tem Lays tem Jogo",
-        # 🎯 Inyectamos la variable global aquí:
-        "fixed_groups_mapping": MAPEO_GRUPOS_BRASIL
-    },
-    {
-        "chart_name": "Chart_Barras_A6",     
-        "variable": "A6",                  
-        "table_name": "Tabla_Bloques_A5_A7", 
-        "is_top_n_sync": True,               
-        "start_row": 6,                      
-        "max_rows": 4,                       
-        "base_table_name":"Tabla_Bases",
-        "promo_names_table_name": "Tabla_Nombres_Promos",
-        "is_percentage": True,
-        "columns": {"text": 0, "total": 2, "segments": 3},
-        "view_mode": "fixed_pep_otros",
-        "pepsico_brand": "Tem Lays tem Jogo",
-        # 🎯 Inyectamos la variable global aquí:
-        "fixed_groups_mapping": MAPEO_GRUPOS_BRASIL
-    },
-    {
-        "chart_name": "Chart_Barras_A7",     
-        "variable": "A7",                  
-        "table_name": "Tabla_Bloques_A5_A7", 
-        "is_top_n_sync": True,               
-        "start_row": 10,                     
-        "max_rows": 1,                       
-        "base_table_name":"Tabla_Bases",
-        "promo_names_table_name": "Tabla_Nombres_Promos",
-        "is_percentage": True,
-        "columns": {"text": 0, "total": 2, "segments": 3},
-        "view_mode": "fixed_pep_otros",
-        "exclude_labels": ["Sin Promo"],
-        "pepsico_brand": "Tem Lays tem Jogo",
-        # 🎯 Inyectamos la variable global aquí:
-        "fixed_groups_mapping": MAPEO_GRUPOS_BRASIL
-    }    
 ]
 #head_to_head
 # =================================================================
@@ -4360,21 +4056,5 @@ for variable_spss, numero_columna in MAPA_MARCAS.items():
         "metrics": ATRIBUTOS_COMUNES_CONDUCTORES,           
         "ai_table_headers": ["Atributo", "YPF", "Shell", "Axion", "Puma"]    
     })
-
-
-# ===========================================================================
-# MEGA APP — EXCLUSIÓN DE PROMOTRACKING (Pepsico multi-país)
-# ---------------------------------------------------------------------------
-# Chris mantiene en este mismo config el trabajo de otro estudio (PromoTracking
-# Pepsico). Esas entradas apuntan a shapes que no existen en la plantilla de YPF
-# (Tabla_Bloques_A5_A7, Tabla_Bases, Tabla_Nombres_Promos) y su motor
-# (create_slides.update_top_n_block) ni siquiera está cableado en main.py.
-#
-# Las filtramos acá en vez de borrar las líneas, para que el diff contra las
-# próximas versiones que mande Chris siga siendo limpio y no haya que repetir
-# la cirugía en cada sync. El marcador `is_top_n_sync` es el que distingue esas
-# entradas de las de YPF.
-# ===========================================================================
-TRACKING_CHARTS = [c for c in TRACKING_CHARTS if not c.get("is_top_n_sync")]
 
 
