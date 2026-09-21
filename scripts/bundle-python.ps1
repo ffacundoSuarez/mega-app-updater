@@ -51,6 +51,22 @@ function Write-Step {
     Write-Host "==> $Message" -ForegroundColor Cyan
 }
 
+# SHA256 en hex mayúscula, el mismo formato que Get-FileHash.
+# No usamos ese cmdlet: en el PowerShell 5.1 de GitHub Actions no existe
+# y el bundle se cae antes de llegar a pip.
+function Get-Sha256Hex {
+    param([string]$Path)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $hash = $sha.ComputeHash($stream)
+    } finally {
+        $stream.Dispose()
+        $sha.Dispose()
+    }
+    return ([System.BitConverter]::ToString($hash)).Replace("-", "")
+}
+
 # --- 0. Validaciones previas ---------------------------------------------
 if (-not (Test-Path $requirements)) {
     throw "No se encontró $requirements. Esperado desde el PLAN.md (Fase 2)."
@@ -140,7 +156,7 @@ Write-Host "  $actualVersion"
 
 # --- 6. Instalar dependencias con pip (omitir si requirements no cambió) ----
 $hashFile = Join-Path $runtimeDir ".requirements.sha256"
-$reqHash = (Get-FileHash $requirements -Algorithm SHA256).Hash
+$reqHash = Get-Sha256Hex $requirements
 $skipPip = (Test-Path $hashFile) -and ((Get-Content $hashFile -Raw).Trim() -eq $reqHash)
 
 if ($skipPip -and -not $Force) {
