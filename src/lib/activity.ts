@@ -22,6 +22,8 @@ export type ActivityEventType =
   | "codificacion_error"
   | "brand_audit_done"
   | "brand_audit_error"
+  | "unificador_done"
+  | "unificador_error"
   | "info"
   | "error";
 

@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ClipboardCheck,
+  Layers,
   Loader2,
   Sparkles,
   Tags,
@@ -90,6 +91,13 @@ const QUICK_TOOLS_HERRAMIENTAS: (QuickTool & { accent: string })[] = [
     description: "Informe PPT + Excel (estudio YPF).",
     icon: BarChart3,
     accent: "tool-brand-audit",
+  },
+  {
+    id: "unificador",
+    label: "Unificador de Olas",
+    description: "Apila la ola nueva sobre la base madre SPSS.",
+    icon: Layers,
+    accent: "tool-unificador",
   },
 ];
 
@@ -434,6 +442,7 @@ export function HomeView({
 const TOOL_ACCENT_CLASSES: Record<string, string> = {
   "tool-limpiador": "bg-tool-limpiador/10 text-tool-limpiador",
   "tool-brand-audit": "bg-tool-brand-audit/10 text-tool-brand-audit",
+  "tool-unificador": "bg-tool-unificador/10 text-tool-unificador",
   "tool-cuestionario": "bg-tool-cuestionario/10 text-tool-cuestionario",
   "tool-codificacion": "bg-tool-codificacion/10 text-tool-codificacion",
 };

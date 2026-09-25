@@ -92,6 +92,70 @@ export function runBrandAudit(
   return invoke<BrandAuditResult>("run_brand_audit", { params });
 }
 
+// --- Unificador de Olas ----------------------------------------------------
+
+export const UNIFICADOR_PROGRESS_EVENT = "unificador-progress";
+
+export interface UnificadorParams {
+  madre: string;
+  parcial: string;
+  wave: number;
+  outputDir?: string | null;
+}
+
+export interface UnificadorResult {
+  ok: boolean;
+  outputPath: string | null;
+  mrsetsPath: string | null;
+  wave: number | null;
+  waveLabel: string | null;
+  rowsTotal: number | null;
+  rowsWave: number | null;
+  alerts: string[];
+  emptyDerived: string[];
+  align: Record<string, unknown> | null;
+  stdout: string;
+  stderr: string;
+}
+
+export interface UnificadorProgressPayload {
+  stream: "stdout" | "stderr";
+  line: string;
+}
+
+export interface UnificadorPreview {
+  ok: boolean;
+  preview?: boolean;
+  madre?: {
+    encoding: string;
+    rows: number;
+    columns: number;
+    max_wave: number;
+    suggested_wave: number;
+    suggested_label: string;
+    wave_labels: Record<number, string>;
+  };
+  parcial?: {
+    rows: number;
+    columns: number;
+    encoding: string;
+  } | null;
+  error?: string;
+}
+
+export function previewUnificador(params: {
+  madre: string;
+  parcial?: string | null;
+}): Promise<UnificadorPreview> {
+  return invoke<UnificadorPreview>("preview_unificador", { params });
+}
+
+export function runUnificador(
+  params: UnificadorParams,
+): Promise<UnificadorResult> {
+  return invoke<UnificadorResult>("run_unificador", { params });
+}
+
 // --- QuestionPro -----------------------------------------------------------
 
 /** Payload para crear una encuesta en QP desde Rust (evita CORS del WebView). */

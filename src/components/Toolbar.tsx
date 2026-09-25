@@ -5,6 +5,7 @@ import {
   ClipboardCheck,
   FolderOpen,
   Home,
+  Layers,
   Settings2,
   Sparkles,
   Tags,
@@ -15,12 +16,18 @@ import { cn } from "@/lib/utils";
 const TOOL_ACCENT: Partial<Record<ViewId, string>> = {
   limpiador: "bg-tool-limpiador/15 text-tool-limpiador",
   "brand-audit": "bg-tool-brand-audit/15 text-tool-brand-audit",
+  unificador: "bg-tool-unificador/15 text-tool-unificador",
   cuestionario: "bg-tool-cuestionario/15 text-tool-cuestionario",
   codificacion: "bg-tool-codificacion/15 text-tool-codificacion",
 };
 
 export type ViewId = "home" | "files" | "settings" | ToolId;
-export type ToolId = "brand-audit" | "limpiador" | "cuestionario" | "codificacion";
+export type ToolId =
+  | "brand-audit"
+  | "unificador"
+  | "limpiador"
+  | "cuestionario"
+  | "codificacion";
 
 interface NavItem {
   id: ViewId;
@@ -59,6 +66,11 @@ const HERRAMIENTA_TOOLS: NavItem[] = [
     id: "brand-audit",
     label: "Brand Audit · YPF",
     icon: BarChart3,
+  },
+  {
+    id: "unificador",
+    label: "Unificador de Olas",
+    icon: Layers,
   },
 ];
 
