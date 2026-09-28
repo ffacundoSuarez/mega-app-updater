@@ -28,6 +28,7 @@ Contrato con Rust (args):
   --template-pptx PATH           (obligatorio, plantilla = informe de la ola anterior)
   --wave-filter INT              (obligatorio, ej 48)
   --wave-name STR                (obligatorio, ej "Abr 26")
+  --ytd-var STR                  (obligatorio, ej "YTD_AGOSTO")
   --output-dir PATH              (obligatorio, carpeta donde guardar outputs)
   --assets-dir PATH              (obligatorio, carpeta con cuestionario + csv + logos)
   --use-ai-insights              (flag, opcional)
@@ -81,6 +82,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--template-pptx", required=True, type=Path)
     parser.add_argument("--wave-filter", required=True, type=int)
     parser.add_argument("--wave-name", required=True, type=str)
+    parser.add_argument(
+        "--ytd-var",
+        required=True,
+        type=str,
+        help="Variable YTD del mes en la base (ej. YTD_AGOSTO)",
+    )
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--assets-dir", required=True, type=Path)
     parser.add_argument("--use-ai-insights", action="store_true")
@@ -165,6 +172,9 @@ def main() -> int:
     ba_config.WAVE_FILTER = args.wave_filter
     ba_config.NEW_WAVE_NAME = args.wave_name
     ba_config.APPLY_WAVE_FILTER = True
+    # Variable YTD por mes (YTD_AGOSTO, YTD_SEPTIEMBRE, …) creada en la unificación.
+    # Reemplaza el recode de Wave → YTD_GRUPO con corte fijo en agosto.
+    ba_config.YTD_VAR = str(args.ytd_var).strip()
 
     # ---------------------------------------------------------------------
     # Corte de ola: hay DOS filtros en el motor y sólo debe quedar uno activo.

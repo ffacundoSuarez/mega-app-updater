@@ -34,6 +34,13 @@ import {
 } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -60,6 +67,47 @@ interface ProgressLine {
   id: number;
 }
 
+/** Meses YTD: cada uno mapea a la variable de la base unificada. */
+const YTD_MESES = [
+  { value: "YTD_ENERO", label: "Enero" },
+  { value: "YTD_FEBRERO", label: "Febrero" },
+  { value: "YTD_MARZO", label: "Marzo" },
+  { value: "YTD_ABRIL", label: "Abril" },
+  { value: "YTD_MAYO", label: "Mayo" },
+  { value: "YTD_JUNIO", label: "Junio" },
+  { value: "YTD_JULIO", label: "Julio" },
+  { value: "YTD_AGOSTO", label: "Agosto" },
+  { value: "YTD_SEPTIEMBRE", label: "Septiembre" },
+  { value: "YTD_OCTUBRE", label: "Octubre" },
+  { value: "YTD_NOVIEMBRE", label: "Noviembre" },
+  { value: "YTD_DICIEMBRE", label: "Diciembre" },
+] as const;
+
+type YtdVar = (typeof YTD_MESES)[number]["value"];
+
+/** Infiere YTD_MES a partir del nombre de ola ("Ago 26", "Septiembre 2026", …). */
+function guessYtdVarFromWaveName(name: string): YtdVar {
+  const s = name.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
+  const rules: [RegExp, YtdVar][] = [
+    [/\b(ene|enero)\b/, "YTD_ENERO"],
+    [/\b(feb|febrero)\b/, "YTD_FEBRERO"],
+    [/\b(mar|marzo)\b/, "YTD_MARZO"],
+    [/\b(abr|abril)\b/, "YTD_ABRIL"],
+    [/\b(may|mayo)\b/, "YTD_MAYO"],
+    [/\b(jun|junio)\b/, "YTD_JUNIO"],
+    [/\b(jul|julio)\b/, "YTD_JULIO"],
+    [/\b(ago|agosto)\b/, "YTD_AGOSTO"],
+    [/\b(sep|sept|set|septiembre|setiembre)\b/, "YTD_SEPTIEMBRE"],
+    [/\b(oct|octubre)\b/, "YTD_OCTUBRE"],
+    [/\b(nov|noviembre)\b/, "YTD_NOVIEMBRE"],
+    [/\b(dic|diciembre)\b/, "YTD_DICIEMBRE"],
+  ];
+  for (const [re, v] of rules) {
+    if (re.test(s)) return v;
+  }
+  return "YTD_AGOSTO";
+}
+
 // Valores por defecto del estudio YPF ABRIL 2026 (Fase 3 hardcoded).
 // Ver PLAN.md §3.bis — cuando generalicemos, esto sale de un archivo por estudio.
 const DEFAULTS = {
@@ -77,6 +125,10 @@ export function BrandAuditView() {
     String(DEFAULTS.waveFilter),
   );
   const [waveName, setWaveName] = useState<string>(DEFAULTS.waveName);
+  // Variable YTD del mes (YTD_AGOSTO, …). Default según el nombre de ola.
+  const [ytdVar, setYtdVar] = useState<YtdVar>(
+    guessYtdVarFromWaveName(DEFAULTS.waveName),
+  );
   const [useAiInsights, setUseAiInsights] = useState(false);
   const [useAiSummary, setUseAiSummary] = useState(false);
   const [hasStoredKey, setHasStoredKey] = useState<boolean>(false);
@@ -155,6 +207,7 @@ export function BrandAuditView() {
     !!savPrincipal &&
     !!templatePptx &&
     !!waveName.trim() &&
+    !!ytdVar &&
     Number.isFinite(Number(waveFilter)) &&
     status !== "running";
 
@@ -206,6 +259,7 @@ export function BrandAuditView() {
         templatePptx,
         waveFilter: waveFilterNum,
         waveName: waveName.trim(),
+        ytdVar,
         useAiInsights,
         useAiSummary,
         geminiApiKey,
@@ -243,6 +297,7 @@ export function BrandAuditView() {
     templatePptx,
     waveFilter,
     waveName,
+    ytdVar,
     useAiInsights,
     useAiSummary,
   ]);
@@ -306,8 +361,8 @@ export function BrandAuditView() {
 
           <Separator />
 
-          {/* Parámetros de ola */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Parámetros de ola + variable YTD del mes (misma fila) */}
+          <div className="grid grid-cols-3 gap-4">
             <div className="flex flex-col gap-2">
               <Label htmlFor="wave-filter">Ola (número)</Label>
               <Input
@@ -326,11 +381,40 @@ export function BrandAuditView() {
               <Input
                 id="wave-name"
                 value={waveName}
-                onChange={(e) => setWaveName(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setWaveName(next);
+                  // Si el nombre trae un mes reconocible, alineamos el YTD.
+                  setYtdVar(guessYtdVarFromWaveName(next));
+                }}
                 placeholder="Abr 26"
               />
               <p className="text-xs text-muted-foreground">
                 Etiqueta que va a aparecer en los gráficos.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="ytd-var">Variable YTD</Label>
+              <Select
+                value={ytdVar}
+                onValueChange={(v) => setYtdVar(v as YtdVar)}
+              >
+                <SelectTrigger id="ytd-var" className="w-full">
+                  <SelectValue placeholder="Mes YTD" />
+                </SelectTrigger>
+                <SelectContent>
+                  {YTD_MESES.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}{" "}
+                      <span className="font-mono text-xs text-muted-foreground">
+                        ({m.value})
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Columna de la base unificada para las tablas YTD.
               </p>
             </div>
           </div>

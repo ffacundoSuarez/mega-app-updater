@@ -57,6 +57,8 @@ export interface BrandAuditParams {
   templatePptx: string;
   waveFilter: number;
   waveName: string;
+  /** Variable YTD del mes en la base unificada (ej. YTD_AGOSTO). */
+  ytdVar: string;
   useAiInsights?: boolean;
   useAiSummary?: boolean;
   geminiApiKey?: string | null;

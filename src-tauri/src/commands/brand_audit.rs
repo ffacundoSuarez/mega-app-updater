@@ -63,6 +63,9 @@ pub struct BrandAuditParams {
     pub wave_filter: i64,
     /// Nombre visible de la ola (ej. "Abr 26").
     pub wave_name: String,
+    /// Variable YTD del mes en la base unificada (ej. "YTD_AGOSTO").
+    /// Cada mes tiene su propia columna creada en la unificación.
+    pub ytd_var: String,
     /// Si true, activa la IA de títulos. Requiere `gemini_api_key`.
     #[serde(default)]
     pub use_ai_insights: bool,
@@ -212,6 +215,11 @@ pub async fn run_brand_audit(
     if params.wave_name.trim().is_empty() {
         return Err(BrandAuditError::InvalidParam("wave_name está vacío".into()));
     }
+    if params.ytd_var.trim().is_empty() {
+        return Err(BrandAuditError::InvalidParam(
+            "ytd_var está vacío: hay que elegir la variable YTD del mes".into(),
+        ));
+    }
     if params.template_pptx.trim().is_empty() {
         return Err(BrandAuditError::InvalidParam(
             "template_pptx está vacío: hay que elegir el informe de la ola anterior".into(),
@@ -238,6 +246,8 @@ pub async fn run_brand_audit(
         &wave_filter_str,
         "--wave-name",
         &params.wave_name,
+        "--ytd-var",
+        &params.ytd_var,
         "--output-dir",
         &output_dir_str,
         "--assets-dir",

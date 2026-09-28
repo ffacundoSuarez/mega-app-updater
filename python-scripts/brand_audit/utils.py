@@ -37,6 +37,80 @@ except Exception as e:
 # ----------------------------------------------------
 
 # --- FUNCIONES DE MANEJO DE METADATOS Y ARCHIVOS ---
+
+def find_column_ci(df, name):
+    """Devuelve el nombre real de la columna si existe (sin importar mayúsculas)."""
+    if name is None:
+        return None
+    target = str(name).lower()
+    for col in df.columns:
+        if str(col).lower() == target:
+            return col
+    return None
+
+
+def ensure_weight_column(df, var_peso="ponderacion", require=True, meta=None):
+    """
+    Ubica la columna de peso sin importar mayúsculas y la deja como `var_peso`.
+
+    pyreadstat no prende el WEIGHT ON de SPSS: el motor sólo pondera si existe
+    una columna llamada exactamente como WEIGHT_VAR (default: ponderacion).
+    Si require=True y no está, falla en vez de inventar pesos en 1.0.
+    """
+    canon = var_peso or "ponderacion"
+    encontrada = find_column_ci(df, canon)
+    if encontrada is None:
+        if require:
+            raise ValueError(
+                f"No está la variable de ponderación '{canon}' en la base. "
+                "Sin ella los datos salen sin ponderar. Revisá el .sav de la unificación."
+            )
+        df[canon] = 1.0
+        logging.warning(
+            f"⚠️ No está '{canon}': se usa peso 1.0 (sin ponderar) en esta base."
+        )
+        return df
+
+    if encontrada != canon:
+        df = df.rename(columns={encontrada: canon})
+        if meta is not None:
+            _rename_meta_column(meta, encontrada, canon)
+        logging.info(f"⚖️ Columna de peso '{encontrada}' renombrada a '{canon}'.")
+
+    df[canon] = df[canon].fillna(1.0)
+    return df
+
+
+def _rename_meta_column(meta, old_name, new_name):
+    """Renombra una variable en los dicts de metadata de pyreadstat."""
+    if hasattr(meta, "column_names") and meta.column_names is not None:
+        meta.column_names = [new_name if c == old_name else c for c in meta.column_names]
+    for attr in ("variable_to_label", "column_names_to_labels", "variable_value_labels", "value_labels"):
+        store = getattr(meta, attr, None)
+        if isinstance(store, dict) and old_name in store:
+            store[new_name] = store.pop(old_name)
+
+
+def resolve_ytd_banner_var(df, ytd_var):
+    """
+    Valida que la variable YTD del mes (ej. YTD_SEPTIEMBRE) exista en la base.
+
+    Devuelve el nombre real de la columna. Falla con mensaje explícito si falta.
+    """
+    if not ytd_var or not str(ytd_var).strip():
+        raise ValueError(
+            "Falta la variable YTD del mes (ej. YTD_AGOSTO). "
+            "Elegila en la misma fila que la ola."
+        )
+    encontrada = find_column_ci(df, str(ytd_var).strip())
+    if encontrada is None:
+        raise ValueError(
+            f"Falta la variable '{ytd_var}' en la base; "
+            "tiene que venir de la unificación."
+        )
+    return encontrada
+
+
 def load_data_and_apply_base_filter(sav_file, is_secundaria=False):
     """Carga la base, aplica manejo de errores y filtra la base de datos (Retorna df, meta)."""
     
@@ -48,11 +122,14 @@ def load_data_and_apply_base_filter(sav_file, is_secundaria=False):
         ola_objetivo = getattr(config, 'WAVE_FILTER_SECUNDARIO', None)
         var_peso = getattr(config, 'WEIGHT_VAR_SECUNDARIO', getattr(config, 'WEIGHT_VAR', 'ponderacion'))
         var_ola = getattr(config, 'WAVE_VAR_SECUNDARIO', 'OLA') # <--- Lee "OLA"
+        # Secundaria: Chris ya renombra Ponderador_reg en main.py; acá no exigimos.
+        require_peso = False
     else:
         aplica_filtro_ola = getattr(config, 'APPLY_WAVE_FILTER', False)
         ola_objetivo = getattr(config, 'WAVE_FILTER', 47)
         var_peso = getattr(config, 'WEIGHT_VAR', 'ponderacion')
         var_ola = getattr(config, 'WAVE_VAR', 'Wave') # <--- Lee "Wave"
+        require_peso = True
     # =========================================================
 
     # ==============================================================
@@ -254,12 +331,17 @@ def load_data_and_apply_base_filter(sav_file, is_secundaria=False):
     # =========================================================
     # PONDERACIÓN DINÁMICA
     # =========================================================
-    if var_peso in df.columns:
-        df[var_peso] = df[var_peso].fillna(1.0)
-        df_historico[var_peso] = df_historico[var_peso].fillna(1.0) # 🚀 Peso al histórico
-    else:
-        df[var_peso] = 1.0 
-        df_historico[var_peso] = 1.0 # 🚀 Peso al histórico
+    # Busca la columna sin importar mayúsculas y la deja como var_peso.
+    # En la base principal, si falta, aborta (antes inventaba 1.0 y salía sin ponderar).
+    df = ensure_weight_column(df, var_peso=var_peso, require=require_peso, meta=meta)
+    df_historico = ensure_weight_column(
+        df_historico, var_peso=var_peso, require=require_peso, meta=None
+    )
+    n_unw = len(df)
+    n_w = float(df[var_peso].sum()) if var_peso in df.columns else float(n_unw)
+    logging.info(
+        f"⚖️ Ponderación '{var_peso}': N={n_unw} | n ponderada={n_w:.2f}"
+    )
 
     # 🚀 AHORA RETORNAMOS 3 COSAS (Actual, Histórico y Metadatos)
     return df, df_historico, meta
