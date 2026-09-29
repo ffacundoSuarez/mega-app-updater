@@ -21,6 +21,9 @@ RECALCULAR_TABLAS = False
 
 WAVE_VAR = "Wave"            # Ya NO necesitás mentirle poniendo "F3" acá 🎉
 WEIGHT_VAR = "ponderacion"
+# Variable YTD del mes en la base unificada (YTD_AGOSTO, YTD_SEPTIEMBRE, …).
+# El wrapper la pisa con lo que eligió el usuario. Si falta, main.py falla.
+YTD_VAR = "YTD_AGOSTO"
 FILTRAR_BASE = True          # True para recortar por país
 VARIABLE_FILTRO = "Wave"       # Tu columna de control de mercado
 VALOR_FILTRO = 53             # 4 = Brasil, o el ID que toque

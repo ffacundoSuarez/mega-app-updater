@@ -57,6 +57,8 @@ export interface BrandAuditParams {
   templatePptx: string;
   waveFilter: number;
   waveName: string;
+  /** Variable YTD del mes en la base unificada (ej. YTD_AGOSTO). */
+  ytdVar: string;
   useAiInsights?: boolean;
   useAiSummary?: boolean;
   geminiApiKey?: string | null;
@@ -90,6 +92,70 @@ export function runBrandAudit(
   params: BrandAuditParams,
 ): Promise<BrandAuditResult> {
   return invoke<BrandAuditResult>("run_brand_audit", { params });
+}
+
+// --- Unificador de Olas ----------------------------------------------------
+
+export const UNIFICADOR_PROGRESS_EVENT = "unificador-progress";
+
+export interface UnificadorParams {
+  madre: string;
+  parcial: string;
+  wave: number;
+  outputDir?: string | null;
+}
+
+export interface UnificadorResult {
+  ok: boolean;
+  outputPath: string | null;
+  mrsetsPath: string | null;
+  wave: number | null;
+  waveLabel: string | null;
+  rowsTotal: number | null;
+  rowsWave: number | null;
+  alerts: string[];
+  emptyDerived: string[];
+  align: Record<string, unknown> | null;
+  stdout: string;
+  stderr: string;
+}
+
+export interface UnificadorProgressPayload {
+  stream: "stdout" | "stderr";
+  line: string;
+}
+
+export interface UnificadorPreview {
+  ok: boolean;
+  preview?: boolean;
+  madre?: {
+    encoding: string;
+    rows: number;
+    columns: number;
+    max_wave: number;
+    suggested_wave: number;
+    suggested_label: string;
+    wave_labels: Record<number, string>;
+  };
+  parcial?: {
+    rows: number;
+    columns: number;
+    encoding: string;
+  } | null;
+  error?: string;
+}
+
+export function previewUnificador(params: {
+  madre: string;
+  parcial?: string | null;
+}): Promise<UnificadorPreview> {
+  return invoke<UnificadorPreview>("preview_unificador", { params });
+}
+
+export function runUnificador(
+  params: UnificadorParams,
+): Promise<UnificadorResult> {
+  return invoke<UnificadorResult>("run_unificador", { params });
 }
 
 // --- QuestionPro -----------------------------------------------------------

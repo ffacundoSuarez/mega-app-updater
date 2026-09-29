@@ -41,6 +41,7 @@
     --color-background: var(--background);
     --color-tool-limpiador: var(--tool-limpiador);
     --color-tool-brand-audit: var(--tool-brand-audit);
+    --color-tool-unificador: var(--tool-unificador);
     --color-tool-cuestionario: var(--tool-cuestionario);
     --color-tool-codificacion: var(--tool-codificacion);
     --color-success: var(--success);
@@ -79,6 +80,7 @@
     /* Acentos por herramienta */
     --tool-limpiador: oklch(0.62 0.11 185);
     --tool-brand-audit: oklch(0.58 0.22 285);
+    --tool-unificador: oklch(0.60 0.16 35);
     --tool-cuestionario: oklch(0.55 0.20 260);
     --tool-codificacion: oklch(0.78 0.16 75);
     /* Paleta categórica para gráficos */
@@ -121,6 +123,7 @@
     --ring: oklch(0.72 0.12 185);
     --tool-limpiador: oklch(0.72 0.12 185);
     --tool-brand-audit: oklch(0.68 0.20 285);
+    --tool-unificador: oklch(0.70 0.14 35);
     --tool-cuestionario: oklch(0.65 0.18 260);
     --tool-codificacion: oklch(0.82 0.14 75);
     --chart-1: oklch(0.72 0.12 185);

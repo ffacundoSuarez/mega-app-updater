@@ -8,6 +8,7 @@ export function prefetchToolChunks(): void {
 
   const load = () => {
     void import("@/tools/brand-audit/BrandAuditView");
+    void import("@/tools/unificador/UnificadorView");
     void import("@/tools/limpiador/LimpiadorView");
     void import("@/tools/cuestionario/CuestionarioView");
     void import("@/tools/codificacion/CodificacionView");

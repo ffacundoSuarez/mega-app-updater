@@ -247,17 +247,15 @@ def run_brand_audit():
         excel_results_sec = []
 
         # ---------------------------------------------------------------------
-        # 🎯 APLICAMOS LA REGLA EXACTA DE RECODE WAVE DE SPSS A LA BASE HISTÓRICA
+        # 🎯 BANNER YTD DESDE LA VARIABLE DEL MES (unificación)
         # ---------------------------------------------------------------------
-        mes_corte_audit = getattr(config, "MES_CORTE", 8)
-        var_wave_name = getattr(config, "WAVE_VAR", "Wave")
-        
-        # 1. Asignamos la columna 'YTD_GRUPO' directamente en los microdatos según la regla SPSS
-        df_hist = utils.aplicar_recode_ytd_spss(df_hist, mes_corte_audit, var_wave=var_wave_name)
-        logging.info(f"📊 [YTD SPSS NATIVO] Variable 'YTD_GRUPO' generada en df_hist con mes corte: {mes_corte_audit}")
+        # Antes se fabricaba YTD_GRUPO recodificando Wave con MES_CORTE=8 (agosto).
+        # Ahora la base trae YTD_AGOSTO / YTD_SEPTIEMBRE / … y leemos la del mes.
+        ytd_var_config = getattr(config, "YTD_VAR", None)
+        ytd_col = utils.resolve_ytd_banner_var(df_hist, ytd_var_config)
+        logging.info(f"📊 [YTD] Banner histórico sobre variable '{ytd_col}'")
 
-        # 2. Re-preparamos el banner histórico para incluir 'YTD_GRUPO' si existe
-        banner_vars_hist = ['YTD_GRUPO'] if 'YTD_GRUPO' in df_hist.columns else [var_wave_name]
+        banner_vars_hist = [ytd_col]
         banner_info_hist, master_col_hist = utils.prepare_banner_info(
             df_hist, banner_vars_hist, meta.variable_value_labels
         )
@@ -363,14 +361,15 @@ def run_brand_audit():
             indices_originales = list(df_p.index)
 
             for anio in anios_audit:
-                # Extrae directamente la columna YTD calculada de la tabulación nativa
+                # Extrae la columna YTD del banner (etiquetas "YTD 2022", …) en cada fila
                 valores_ytd = df_p.apply(
                     lambda row: utils.calcular_ytd_homogeneo(
-                        row.to_dict(), 
-                        anio, 
-                        mes_corte_audit, 
-                        df_variable_completa=df_p
-                    ), axis=1
+                        row.to_dict(),
+                        anio,
+                        None,
+                        df_variable_completa=df_p,
+                    ),
+                    axis=1,
                 )
                 df_p[f"YTD {anio}"] = valores_ytd.values
 

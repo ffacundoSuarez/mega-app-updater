@@ -39,6 +39,8 @@ pub fn run() {
             commands::python::run_python_hello,
             commands::python::cancel_python_sidecar,
             commands::brand_audit::run_brand_audit,
+            commands::unificador::run_unificador,
+            commands::unificador::preview_unificador,
             commands::questionpro::questionpro_create_survey,
             commands::questionpro::questionpro_create_block,
             commands::questionpro::questionpro_create_question,

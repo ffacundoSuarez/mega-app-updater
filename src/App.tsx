@@ -69,6 +69,16 @@ const BrandAuditView = lazy(() =>
 
 );
 
+const UnificadorView = lazy(() =>
+
+  import("@/tools/unificador/UnificadorView").then((m) => ({
+
+    default: m.UnificadorView,
+
+  }))
+
+);
+
 const LimpiadorView = lazy(() =>
 
   import("@/tools/limpiador/LimpiadorView").then((m) => ({
@@ -120,6 +130,8 @@ const FilesView = lazy(() =>
 const TOOL_VIEWS: ToolId[] = [
 
   "brand-audit",
+
+  "unificador",
 
   "limpiador",
 
@@ -204,6 +216,8 @@ const HomeScreen = withSuspense(HomeView);
 const FilesScreen = withSuspense(FilesView);
 
 const BrandAuditScreen = withSuspense(BrandAuditView);
+
+const UnificadorScreen = withSuspense(UnificadorView);
 
 const LimpiadorScreen = withSuspense(LimpiadorView);
 
@@ -564,6 +578,24 @@ function AppShell() {
               Component={BrandAuditScreen}
 
               componentProps={brandAuditProps}
+
+            />
+
+          )}
+
+
+
+          {visitedViews.has("unificador") && (
+
+            <ViewSlot
+
+              active={activeView === "unificador"}
+
+              viewId="unificador"
+
+              Component={UnificadorScreen}
+
+              componentProps={{}}
 
             />
 

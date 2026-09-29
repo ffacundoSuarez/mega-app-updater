@@ -55,6 +55,28 @@ re-aplicarlos.
 
 ## Parches que SÍ viven dentro del motor (re-aplicar en cada sync)
 
+### 0. Ponderación obligatoria + YTD por mes (`utils.py` / `main.py` / `config.py`)
+
+Pedidos de campo (ponderación + tablas YTD mensuales). Se pierden al reemplazar
+archivos de Chris:
+
+- **`utils.py`**: helpers `find_column_ci`, `ensure_weight_column`,
+  `resolve_ytd_banner_var`, y el bloque de ponderación en
+  `load_data_and_apply_base_filter` (renombra la columna de peso sin importar
+  mayúsculas; en la base principal, si falta, **aborta** en vez de inventar
+  pesos en 1.0).
+- **`main.py`**: el banner histórico usa `config.YTD_VAR` (ej. `YTD_SEPTIEMBRE`)
+  vía `resolve_ytd_banner_var`, en lugar de fabricar `YTD_GRUPO` con
+  `aplicar_recode_ytd_spss` y `MES_CORTE=8`.
+- **`config.py`**: `YTD_VAR = "YTD_AGOSTO"` (el wrapper lo pisa).
+
+El wrapper ya pasa `--ytd-var` y setea `ba_config.YTD_VAR`; eso sí sobrevive al
+sync. Tests: desde `python-scripts/`,
+
+```powershell
+& ..\src-tauri\binaries\python-runtime\python.exe -m unittest discover -s brand_audit/tests -v
+```
+
 ### 1. `generador_ia.py` — payload del executive summary
 
 Agregamos `_resumir_para_summary()` y el parámetro `titulos_generados` en
@@ -259,7 +281,7 @@ $rt = "src-tauri\binaries\python-runtime\python.exe"
 # 2. Corrida completa por el wrapper real
 & $rt -X utf8 python-scripts\run_brand_audit.py `
   --sav-principal "<base.sav>" --template-pptx "<plantilla.pptx>" `
-  --wave-filter <N> --wave-name "<Mes AA>" `
+  --wave-filter <N> --wave-name "<Mes AA>" --ytd-var "YTD_AGOSTO" `
   --output-dir "<salida>" --assets-dir "python-scripts\brand_audit\assets"
 ```
 
