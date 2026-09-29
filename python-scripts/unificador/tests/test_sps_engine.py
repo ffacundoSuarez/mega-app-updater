@@ -81,6 +81,26 @@ class TestEngineCommands(unittest.TestCase):
         )
         self.assertEqual(list(eng.df["P01_A1"]), [5.0, 1.0, 3.0])
 
+    def test_recode_1111_sobre_int8(self):
+        """RECODE a 1111 no se trunca aunque la fuente sea Int8 (optimizar_tipos)."""
+        df = pd.DataFrame({"P01_A1": pd.Series([1, 4, 5], dtype="Int8")})
+        eng = SpsEngine(df)
+        eng.run_source(
+            "recode P01_A1 (2 thru 5=1111)(99=99) into P01_A1T4B."
+        )
+        self.assertEqual(eng.df["P01_A1T4B"].iloc[0], 1.0)  # no mapeado: intacto
+        self.assertEqual(eng.df["P01_A1T4B"].iloc[1], 1111.0)
+        self.assertEqual(eng.df["P01_A1T4B"].iloc[2], 1111.0)
+
+    def test_recode_1111_inplace_int8(self):
+        """RECODE in-place sobre Int8 también preserva 1111."""
+        df = pd.DataFrame({"X": pd.Series([4, 5, 1], dtype="Int8")})
+        eng = SpsEngine(df)
+        eng.run_source("recode X (4 thru 5=1111).")
+        self.assertEqual(eng.df["X"].iloc[0], 1111.0)
+        self.assertEqual(eng.df["X"].iloc[1], 1111.0)
+        self.assertEqual(eng.df["X"].iloc[2], 1.0)
+
     def test_alter_type_string(self):
         df = pd.DataFrame({"T": [1.0, 2.0]})
         eng = SpsEngine(df)

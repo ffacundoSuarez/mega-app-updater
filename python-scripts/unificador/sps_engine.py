@@ -259,12 +259,13 @@ class SpsEngine:
             result = self._apply_recode(src, mappings)
             if into_vars:
                 dst_real = self._ensure_col(dst_name)
+                # Ensanchar ANTES de mergear: si dst es Int8, 1111 se trunca.
+                self._widen_if_needed(dst_real, result)
                 merged = self._apply_where(self.df[dst_real], result)
-                self._widen_if_needed(dst_real, merged)
                 self.df[dst_real] = merged
             else:
-                merged = self._apply_where(src, result)
-                self._widen_if_needed(src_real, merged)
+                self._widen_if_needed(src_real, result)
+                merged = self._apply_where(self.df[src_real], result)
                 self.df[src_real] = merged
 
     def _parse_recode_spec(self, spec: str) -> tuple[Any, Any]:
@@ -312,10 +313,13 @@ class SpsEngine:
     def _apply_recode(
         self, src: pd.Series, mappings: list[tuple[Any, Any]]
     ) -> pd.Series:
-        """Aplica mappings en orden; valores no listados quedan intactos."""
-        out = src.copy()
-        # Trabajar en float para comparar
-        numeric = pd.to_numeric(src, errors="coerce")
+        """Aplica mappings en orden; valores no listados quedan intactos.
+
+        El resultado sale en float64 para que códigos como 1111 no se trunquen
+        si la serie de origen es Int8/Int16 (optimizar_tipos).
+        """
+        out = pd.to_numeric(src, errors="coerce").astype("float64")
+        numeric = out
         assigned = pd.Series(False, index=src.index)
 
         for sources, target in mappings:
@@ -343,7 +347,7 @@ class SpsEngine:
         if target is np.nan or (isinstance(target, float) and np.isnan(target)):
             result.loc[mask] = np.nan
         else:
-            result.loc[mask] = target
+            result.loc[mask] = float(target) if isinstance(target, (int, float)) else target
         return result
 
     # ---------------------------------------------------------- ALTER TYPE

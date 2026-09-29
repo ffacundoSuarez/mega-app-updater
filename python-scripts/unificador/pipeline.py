@@ -11,7 +11,7 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 
-from unificador.align import AlignReport, align_and_stack
+from unificador.align import align_and_stack, collapse_case_duplicates
 from unificador.sav_io import escribir_sav, leer_metadata, leer_sav
 from unificador.sps_engine import EngineMeta, SpsEngine
 
@@ -81,12 +81,17 @@ def suggest_next_wave(madre_path: str) -> dict[str, Any]:
     }
 
 
+def _stamp_wave_column(df: pd.DataFrame, wave: int) -> None:
+    """Asigna Wave=ola por posición, eliminando variantes de casing previas."""
+    drop = [c for c in df.columns if str(c).lower() == "wave" and c != "Wave"]
+    if drop:
+        df.drop(columns=drop, inplace=True)
+    df["Wave"] = float(wave)
+
+
 def _patch_wave_54(df: pd.DataFrame, meta: EngineMeta, wave: int) -> None:
     """Completa labels / Trimestral / YTD solo para la ola nueva."""
-    if "Wave" not in df.columns:
-        df["Wave"] = float(wave)
-    else:
-        df["Wave"] = float(wave)
+    _stamp_wave_column(df, wave)
 
     label = _WAVE_LABELS_EXTRA.get(wave, f"Wave {wave}")
     meta.value_labels.setdefault("Wave", {})
@@ -124,25 +129,58 @@ def _vl_has_key(store: dict, k: Any) -> bool:
     return False
 
 
-def _merge_meta_into_ref(meta_ref: Any, engine_meta: EngineMeta) -> Any:
+def _remap_meta_keys_to_casing(
+    store: dict[str, Any],
+    casing: dict[str, str],
+) -> dict[str, Any]:
+    """Reescribe claves de metadata al casing canónico (madre / final)."""
+    out: dict[str, Any] = {}
+    for c, val in store.items():
+        target = casing.get(c.lower(), c)
+        if target in out and target != c:
+            # Ya hay entrada con el casing canónico: no pisar.
+            continue
+        out[target] = val
+    return out
+
+
+def _merge_meta_into_ref(
+    meta_ref: Any,
+    engine_meta: EngineMeta,
+    final_columns: list[str] | None = None,
+) -> Any:
     """Fusiona labels del motor sobre la metadata de la madre.
 
     Medidas y value labels: la madre gana en variables que ya tenía;
     las variables nuevas toman lo de la parcial (vía engine_meta).
-    Claves nuevas de value labels (ej. Wave 54) se agregan sin pisar las viejas.
+    Claves nuevas de value labels (ej. Wave 54, P161=6) se agregan sin pisar.
+    Las claves del motor se remapean al casing de las columnas finales.
     """
 
     class MergedMeta:
         pass
 
+    casing = {c.lower(): c for c in (final_columns or [])}
+    # Incluir nombres de la madre por si final_columns es None
+    for c in (getattr(meta_ref, "column_names", None) or []):
+        casing.setdefault(str(c).lower(), str(c))
+    for c in (getattr(meta_ref, "column_names_to_labels", None) or {}):
+        casing.setdefault(c.lower(), c)
+
+    eng_labels = _remap_meta_keys_to_casing(engine_meta.column_labels, casing)
+    eng_vl = _remap_meta_keys_to_casing(engine_meta.value_labels, casing)
+    eng_fmt = _remap_meta_keys_to_casing(engine_meta.formats, casing)
+    eng_meas = _remap_meta_keys_to_casing(engine_meta.measures, casing)
+
     m = MergedMeta()
     base_labels = dict(getattr(meta_ref, "column_names_to_labels", None) or {})
-    base_labels.update(engine_meta.column_labels)
+    for c, lab in eng_labels.items():
+        base_labels.setdefault(c, lab)
     m.column_names_to_labels = base_labels
 
     madre_vl = getattr(meta_ref, "variable_value_labels", None) or {}
     base_vl: dict[str, dict] = {c: dict(vl) for c, vl in madre_vl.items() if vl}
-    for c, vl in engine_meta.value_labels.items():
+    for c, vl in eng_vl.items():
         if c not in base_vl:
             base_vl[c] = dict(vl)
             continue
@@ -156,7 +194,8 @@ def _merge_meta_into_ref(meta_ref: Any, engine_meta: EngineMeta) -> Any:
     m.variable_value_labels = base_vl
 
     base_fmt = dict(getattr(meta_ref, "original_variable_types", None) or {})
-    base_fmt.update(engine_meta.formats)
+    for c, fmt in eng_fmt.items():
+        base_fmt.setdefault(c, fmt)
     m.original_variable_types = base_fmt
 
     madre_meas = {
@@ -164,7 +203,7 @@ def _merge_meta_into_ref(meta_ref: Any, engine_meta: EngineMeta) -> Any:
         for c, v in (getattr(meta_ref, "variable_measure", None) or {}).items()
         if v and str(v).lower() != "unknown"
     }
-    for c, meas in engine_meta.measures.items():
+    for c, meas in eng_meas.items():
         madre_meas.setdefault(c, meas)
     m.variable_measure = madre_meas
     return m
@@ -236,8 +275,8 @@ def run_pipeline(
         eng.run_file(str(sps1_path))
 
         emit("derivando", f"Asignando Wave {wave} y derivadas (Script 2)…")
-        eng.df["Wave"] = float(wave)
-        eng._cols["wave"] = "Wave"
+        _stamp_wave_column(eng.df, wave)
+        eng._cols = {c.lower(): c for c in eng.df.columns}
         eng.run_file(str(sps2_path))
         _patch_wave_54(eng.df, eng.meta, wave)
 
@@ -247,8 +286,36 @@ def run_pipeline(
     report.encoding_madre = madre_holder["enc"]
     report.alerts.extend(eng.meta.alerts)
 
+    # Colapsar variantes de casing (wave/Wave, P01_a1/P01_A1) y reestampar ola.
+    preferred = {c.lower(): c for c in eng.df.columns}
+    preferred["wave"] = "Wave"
+    eng.df, _collapsed, collapse_alerts = collapse_case_duplicates(
+        eng.df, preferred=preferred
+    )
+    report.alerts.extend(collapse_alerts)
+    _stamp_wave_column(eng.df, wave)
+    eng._cols = {c.lower(): c for c in eng.df.columns}
+    # Remapear metadata del motor al casing canónico post-colapso
+    casing = {c.lower(): c for c in eng.df.columns}
+    eng.meta.column_labels = {
+        casing.get(k.lower(), k): v for k, v in eng.meta.column_labels.items()
+    }
+    eng.meta.value_labels = {
+        casing.get(k.lower(), k): v for k, v in eng.meta.value_labels.items()
+    }
+    eng.meta.formats = {
+        casing.get(k.lower(), k): v for k, v in eng.meta.formats.items()
+    }
+    eng.meta.measures = {
+        casing.get(k.lower(), k): v for k, v in eng.meta.measures.items()
+    }
+
     emit("apilando", "Alineando columnas y apilando…")
-    stacked, align_rep = align_and_stack(madre_holder["df"], eng.df)
+    stacked, align_rep = align_and_stack(
+        madre_holder["df"],
+        eng.df,
+        preferred_parcial=eng._cols,
+    )
     report.align = asdict(align_rep)
     report.rows_total = align_rep.rows_total
     report.rows_wave = int((stacked["Wave"] == float(wave)).sum()) if "Wave" in stacked.columns else 0
@@ -275,7 +342,9 @@ def run_pipeline(
         report.alerts.append(
             f"Se omitieron variables scratch al escribir: {', '.join(scratch)}"
         )
-    merged_meta = _merge_meta_into_ref(madre_holder["meta"], eng.meta)
+    merged_meta = _merge_meta_into_ref(
+        madre_holder["meta"], eng.meta, final_columns=list(stacked.columns)
+    )
     escribir_sav(stacked, str(out), meta_ref=merged_meta)
     report.output_path = str(out.resolve())
 
