@@ -28,6 +28,9 @@ pub struct UnificadorParams {
     /// Si se omite, Rust elige una carpeta timestamp bajo Documents\MegaApp.
     #[serde(default)]
     pub output_dir: Option<String>,
+    /// Base histórica para el cliente. Si falta, solo se escribe la unificada.
+    #[serde(default)]
+    pub cliente: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -45,6 +48,10 @@ pub struct UnificadorResult {
     pub align: Option<Value>,
     pub stdout: String,
     pub stderr: String,
+    /// Segunda salida. Vacío si no se cargó base cliente.
+    pub client_output_path: Option<String>,
+    pub client_rows_total: Option<i64>,
+    pub client_new_columns: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -178,6 +185,12 @@ pub async fn run_unificador(
     let madre = params.madre.trim().to_string();
     let parcial = params.parcial.trim().to_string();
     let wave_str = params.wave.to_string();
+    let cliente = params
+        .cliente
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
 
     let output_dir = if let Some(ref d) = params.output_dir {
         if !d.trim().is_empty() {
@@ -206,7 +219,37 @@ pub async fn run_unificador(
         ));
     }
 
-    let args: Vec<&str> = vec![
+    // Segunda salida, al lado de la unificada. No pisa madre, cliente ni unificada.
+    let cliente_output_str = if let Some(ref c) = cliente {
+        let cliente_path = PathBuf::from(c);
+        if !cliente_path.exists() {
+            return Err(UnificadorError::InvalidParam(format!(
+                "No existe la base cliente: {c}"
+            )));
+        }
+        let cliente_stem = cliente_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("cliente");
+        let mut cliente_out = output_dir.join(format!("{cliente_stem}_w{}.sav", params.wave));
+        if cliente_out == output_path {
+            cliente_out = output_dir.join(format!("{cliente_stem}_cliente_w{}.sav", params.wave));
+        }
+        if cliente_out == PathBuf::from(&madre)
+            || cliente_out == cliente_path
+            || cliente_out == output_path
+        {
+            return Err(UnificadorError::InvalidParam(
+                "la salida de cliente no puede pisar la madre, la base cliente ni la unificada"
+                    .into(),
+            ));
+        }
+        Some(cliente_out.to_string_lossy().to_string())
+    } else {
+        None
+    };
+
+    let mut args: Vec<&str> = vec![
         "--madre",
         &madre,
         "--parcial",
@@ -216,6 +259,9 @@ pub async fn run_unificador(
         "--output",
         &output_path_str,
     ];
+    if let (Some(c), Some(out_c)) = (cliente.as_deref(), cliente_output_str.as_deref()) {
+        args.extend(["--cliente", c, "--cliente-output", out_c]);
+    }
 
     let opts = PythonRunOptions {
         stream_event: Some(PROGRESS_EVENT.to_string()),
@@ -260,5 +306,8 @@ pub async fn run_unificador(
         align: final_json.get("align").cloned(),
         stdout: py_out.stdout,
         stderr: py_out.stderr,
+        client_output_path: json_string(&final_json, "client_output_path"),
+        client_rows_total: json_i64(&final_json, "client_rows_total"),
+        client_new_columns: json_string_vec(&final_json, "client_new_columns"),
     })
 }

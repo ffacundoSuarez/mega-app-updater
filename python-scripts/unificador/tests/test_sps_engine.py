@@ -105,7 +105,10 @@ class TestEngineCommands(unittest.TestCase):
         df = pd.DataFrame({"T": [1.0, 2.0]})
         eng = SpsEngine(df)
         eng.run_source("ALTER TYPE T (A2000).")
-        self.assertEqual(eng.df["T"].dtype, object)
+        # pandas reciente infiere StringDtype; el valor sigue siendo texto.
+        self.assertTrue(
+            pd.api.types.is_string_dtype(eng.df["T"]) or eng.df["T"].dtype == object
+        )
         self.assertEqual(eng.df["T"].iloc[0], "1.0")
 
     def test_compute_and_if(self):
@@ -211,10 +214,19 @@ class TestScriptsSobreParcial(unittest.TestCase):
                     f"{col} vacía sin alerta",
                 )
 
-        # Trimestral / YTD: Wave 54 no está en el script (hasta 53 / 52).
-        # El pipeline parchea después; acá solo verificamos que el motor no crasheó.
+        # Script 2 ya cubre Wave 54: Trimestral 18 y YTD mensual. No inventa YTD anual.
         self.assertIn("Wave", eng.df.columns)
         self.assertTrue((eng.df["Wave"] == 54).all())
+        self.assertTrue((eng.df["Trimestral"] == 18).all())
+        self.assertTrue((eng.df["YTD_SEPTIEMBRE"] == 5).all())
+        self.assertNotIn("YTD", eng.df.columns)
+
+        for col in ("P161_9", "P162_3", "P162_4", "P164_1_T2B"):
+            self.assertIn(col, eng.df.columns)
+        # Esta parcial no trae respuestas en P164_*; el T2B queda vacío a propósito.
+        self.assertEqual(int(eng.df["P164_1"].notna().sum()), 0)
+        p01 = {float(v) for v in eng.df["P01_A1T2B"].dropna().unique()}
+        self.assertEqual(p01, {11.0, 33.0, 99.0})
 
         # Bloque Wave=21 no debe haber corrido (P40 no copiado desde P124)
         # Solo chequeamos que terminó OK y hay MRSETS recolectados.

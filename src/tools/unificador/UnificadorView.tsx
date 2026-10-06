@@ -53,6 +53,7 @@ const STAGE_LABELS: Record<string, string> = {
   derivando: "Derivando variables (Script 2)…",
   apilando: "Alineando y apilando…",
   escribiendo: "Escribiendo .sav…",
+  cliente: "Armando base para cliente…",
   listo: "Listo",
 };
 
@@ -70,6 +71,7 @@ function formatNum(n: number | null | undefined): string {
 export function UnificadorView() {
   const [madre, setMadre] = useState<string | null>(null);
   const [parcial, setParcial] = useState<string | null>(null);
+  const [cliente, setCliente] = useState<string | null>(null);
   const [wave, setWave] = useState<string>("54");
   const [preview, setPreview] = useState<UnificadorPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -80,7 +82,7 @@ export function UnificadorView() {
   const [result, setResult] = useState<UnificadorResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const dropTargetRef = useRef<"madre" | "parcial" | null>(null);
+  const dropTargetRef = useRef<"madre" | "parcial" | "cliente" | null>(null);
   const active = status !== "running";
 
   // Drop: si hay un target explícito (click en zona), va ahí; si no, la
@@ -102,9 +104,14 @@ export function UnificadorView() {
         if (savs[1] && !madre) setMadre(savs[1]);
         return;
       }
+      if (target === "cliente") {
+        setCliente(savs[0]);
+        return;
+      }
       if (!madre) {
         setMadre(savs[0]);
         if (savs[1]) setParcial(savs[1]);
+        if (savs[2]) setCliente(savs[2]);
       } else if (!parcial) {
         setParcial(savs[0]);
       } else {
@@ -173,14 +180,15 @@ export function UnificadorView() {
     return opts;
   }, [preview, wave]);
 
-  const pickFile = async (which: "madre" | "parcial") => {
+  const pickFile = async (which: "madre" | "parcial" | "cliente") => {
     const selected = await open({
       multiple: false,
       filters: [{ name: "SPSS", extensions: ["sav"] }],
     });
     if (typeof selected === "string") {
       if (which === "madre") setMadre(selected);
-      else setParcial(selected);
+      else if (which === "parcial") setParcial(selected);
+      else setCliente(selected);
     }
   };
 
@@ -233,6 +241,7 @@ export function UnificadorView() {
         madre,
         parcial,
         wave: Number(wave),
+        cliente,
       });
       setResult(res);
       setStatus("success");
@@ -277,8 +286,9 @@ export function UnificadorView() {
           </h1>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          Apila la ola nueva (.sav) sobre la base madre acumulada. Puede tardar
-          varios minutos: conviene cerrar Excel u otras apps pesadas.
+          Apila la ola nueva (.sav) sobre la base madre acumulada. Si cargás la
+          base cliente, además sale el .sav para entregar. Puede tardar varios
+          minutos: conviene cerrar Excel u otras apps pesadas.
         </p>
       </div>
 
@@ -307,6 +317,19 @@ export function UnificadorView() {
           onDragEnter={() => {
             dropTargetRef.current = "parcial";
           }}
+        />
+        <DropCard
+          title="Base cliente"
+          description="Opcional. Histórica que se entrega al cliente (.sav)"
+          path={cliente}
+          isDragging={isDragging}
+          disabled={!active}
+          onPick={() => void pickFile("cliente")}
+          onClear={() => setCliente(null)}
+          onDragEnter={() => {
+            dropTargetRef.current = "cliente";
+          }}
+          className="sm:col-span-2"
         />
       </div>
 
@@ -447,6 +470,37 @@ export function UnificadorView() {
                     {result.outputPath}
                   </p>
                 )}
+                {result.clientOutputPath ? (
+                  <div className="space-y-1 pt-2">
+                    <p className="text-sm text-muted-foreground">
+                      Base para cliente · {formatNum(result.clientRowsTotal)}{" "}
+                      filas
+                      {result.rowsWave != null
+                        ? ` · ${formatNum(result.rowsWave)} de la ola`
+                        : ""}
+                    </p>
+                    <p className="truncate font-mono text-xs text-muted-foreground">
+                      {result.clientOutputPath}
+                    </p>
+                    {(result.clientNewColumns ?? []).length > 0 ? (
+                      <div className="pt-1">
+                        <p className="text-xs font-medium">
+                          Columnas nuevas incluidas (
+                          {result.clientNewColumns.length})
+                        </p>
+                        <ul className="mt-1 max-h-32 list-disc space-y-0.5 overflow-y-auto pl-4 text-xs text-muted-foreground">
+                          {result.clientNewColumns.map((col) => (
+                            <li key={col}>{col}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Sin columnas nuevas
+                      </p>
+                    )}
+                  </div>
+                ) : null}
               </div>
             </div>
             {result.alerts.length > 0 && (
@@ -502,6 +556,7 @@ function DropCard({
   onPick,
   onClear,
   onDragEnter,
+  className,
 }: {
   title: string;
   description: string;
@@ -512,6 +567,7 @@ function DropCard({
   onPick: () => void;
   onClear: () => void;
   onDragEnter: () => void;
+  className?: string;
 }) {
   return (
     <button
@@ -526,6 +582,7 @@ function DropCard({
           : "border-border bg-card hover:border-tool-unificador/50",
         accent && !path && "border-tool-unificador/30",
         disabled && "opacity-60",
+        className,
       )}
     >
       <div className="flex w-full items-center justify-between gap-2">

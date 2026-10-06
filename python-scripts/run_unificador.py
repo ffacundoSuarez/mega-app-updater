@@ -11,6 +11,8 @@ Args:
   --parcial PATH
   --wave INT
   --output PATH          (archivo .sav de salida; no pisa la madre)
+  --cliente PATH         (opcional: base histórica para el cliente)
+  --cliente-output PATH  (opcional: .sav de la base cliente; no pisa entradas)
   --sps1 PATH            (opcional)
   --sps2 PATH            (opcional)
   --preview-only         (solo metadata de la madre + sugerencia de wave)
@@ -59,6 +61,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--parcial", type=Path, default=None)
     p.add_argument("--wave", type=int, default=None)
     p.add_argument("--output", type=Path, default=None)
+    p.add_argument("--cliente", type=Path, default=None)
+    p.add_argument("--cliente-output", type=Path, default=None)
     p.add_argument("--sps1", type=Path, default=None)
     p.add_argument("--sps2", type=Path, default=None)
     p.add_argument("--preview-only", action="store_true")
@@ -112,6 +116,36 @@ def main() -> int:
             )
             return 1
 
+        cliente_output: Path | None = None
+        if args.cliente is not None:
+            if not args.cliente.exists():
+                emit_result(
+                    {"ok": False, "error": f"No existe la base cliente: {args.cliente}"}
+                )
+                return 1
+            cliente_output = args.cliente_output
+            if cliente_output is None:
+                cliente_output = args.output.with_name(
+                    f"{args.cliente.stem}_w{int(args.wave)}.sav"
+                )
+                if cliente_output.resolve() == args.output.resolve():
+                    cliente_output = args.output.with_name(
+                        f"{args.cliente.stem}_cliente_w{int(args.wave)}.sav"
+                    )
+            prohibidos = {
+                args.madre.resolve(),
+                args.cliente.resolve(),
+                args.output.resolve(),
+            }
+            if cliente_output.resolve() in prohibidos:
+                emit_result(
+                    {
+                        "ok": False,
+                        "error": "La salida de cliente no puede pisar la madre, la base cliente ni la unificada",
+                    }
+                )
+                return 1
+
         report = run_pipeline(
             madre_path=str(args.madre),
             parcial_path=str(args.parcial),
@@ -120,6 +154,8 @@ def main() -> int:
             sps1=str(args.sps1) if args.sps1 else None,
             sps2=str(args.sps2) if args.sps2 else None,
             progress=emit_progress,
+            cliente_path=str(args.cliente) if args.cliente else None,
+            cliente_output_path=str(cliente_output) if cliente_output else None,
         )
         payload = report_to_dict(report)
         payload["ok"] = True

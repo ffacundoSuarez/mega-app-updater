@@ -103,6 +103,8 @@ export interface UnificadorParams {
   parcial: string;
   wave: number;
   outputDir?: string | null;
+  /** Base histórica para el cliente. Si no está, la unificada sale igual que antes. */
+  cliente?: string | null;
 }
 
 export interface UnificadorResult {
@@ -118,6 +120,9 @@ export interface UnificadorResult {
   align: Record<string, unknown> | null;
   stdout: string;
   stderr: string;
+  clientOutputPath: string | null;
+  clientRowsTotal: number | null;
+  clientNewColumns: string[];
 }
 
 export interface UnificadorProgressPayload {

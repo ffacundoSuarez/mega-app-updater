@@ -5,8 +5,6 @@ compute Total =1000.
 EXECUTE.
 
 
-
-
 VALUE LABELS Wave
 1 'Abril 2022'
 2 'Mayo 2022'
@@ -60,10 +58,11 @@ VALUE LABELS Wave
 50 'Mayo 2026'
 51 'Junio 2026'
 52 'Julio 2026'
-53 'Agosto 2026'.
+53 'Agosto 2026'
+54 'Septiembre 2026'.
 
 
-RECODE Wave (52 thru 53=18) (1 thru 3=1) (4 thru 6=2) (7 thru 9=3) (10 thru 12=4) (13 thru 15=5) (16 thru 
+RECODE Wave (52 thru 54=18) (1 thru 3=1) (4 thru 6=2) (7 thru 9=3) (10 thru 12=4) (13 thru 15=5) (16 thru 
     18=6) (19 thru 21=7) (22 thru 24=8) (25 thru 27=9) (28 thru 30=10) (31 thru 33=11) (34 thru 36=12) 
     (37 thru 39=13) (40 thru 42=14) (43 thru 45=15) (46 thru 48=16) (49 thru 51=17) INTO Trimestral.
 VARIABLE LABELS  Trimestral 'Trimestral'.
@@ -87,18 +86,210 @@ VALUE LABELS Trimestral
 15 'Q4 2025'
 16 'Q1 2026'
 17 'Q2 2026'
-18 'Q3 2026-proceso'.
+18 'Q3 2026'.
 
-RECODE Wave (1 thru 9=1) (10 thru 21=2) (22 thru 33=3) (34 thru 45=4) (46 thru 52=5) INTO YTD.
-VARIABLE LABELS  YTD 'YTD'.
+* YTD ENERO
+
+RECODE wave (10 = 1) (22 = 2) (34 = 3) (46 = 4)
+INTO YTD_ENERO.
+
+VARIABLE LABELS  YTD_ENERO 'YTD ENERO'.
+
+VALUE LABELS  YTD_ENERO
+1  'YTD 23 ENERO'
+2  'YTD 24 ENERO'
+3  'YTD 25 ENERO'
+4  'YTD 26 ENERO'.
+
 EXECUTE.
 
-VALUE LABELS YTD
-1 'YTD 2022'
-2 'YTD 2023'
-3 'YTD 2024'
-4 'YTD 2025'
-5 'YTD 2026'.
+* YTD FEBRERO
+
+RECODE wave (10 thru 11 = 1) (22 thru 23 = 2) (34 thru 35 = 3) (46 thru 47 = 4)
+INTO YTD_FEBRERO.
+
+VARIABLE LABELS  YTD_FEBRERO 'YTD FEBRERO'.
+
+VALUE LABELS  YTD_FEBRERO
+1  'YTD 23 FEBRERO'
+2  'YTD 24 FEBRERO'
+3  'YTD 25 FEBRERO'
+4  'YTD 26 FEBRERO'.
+
+EXECUTE.
+
+
+* YTD MARZO
+
+RECODE wave (10 thru 12 = 1) (22 thru 24 = 2) (34 thru 36 = 3) (46 thru 48 = 4)
+INTO YTD_MARZO.
+
+VARIABLE LABELS  YTD_MARZO 'YTD MARZO'.
+
+VALUE LABELS  YTD_MARZO
+1  'YTD 23 MARZO'
+2  'YTD 24 MARZO'
+3  'YTD 25 MARZO'
+4  'YTD 26 MARZO'.
+
+EXECUTE.
+
+
+
+
+* YTD ABRIL
+
+RECODE wave (1 = 1) (10 thru 13 = 2) (22 thru 25 = 3) (34 thru 37 = 4) (46 thru 49 = 5)
+INTO YTD_ABRIL.
+
+VARIABLE LABELS  YTD_ABRIL 'YTD ABRIL'.
+
+VALUE LABELS  YTD_ABRIL
+1  'YTD 22 ABRIL'
+2  'YTD 23 ABRIL'
+3  'YTD 24 ABRIL'
+4  'YTD 25 ABRIL'
+5  'YTD 26 ABRIL'.
+
+EXECUTE.
+
+
+* YTD MAYO
+
+RECODE wave (1 thru 2= 1) (10 thru 14 = 2) (22 thru 26 = 3) (34 thru 38 = 4) (46 thru 50 = 5)
+INTO YTD_MAYO.
+
+VARIABLE LABELS  YTD_MAYO 'YTD MAYO'.
+
+VALUE LABELS  YTD_MAYO
+1  'YTD 22 MAYO'
+2  'YTD 23 MAYO'
+3  'YTD 24 MAYO'
+4  'YTD 25 MAYO'
+5  'YTD 26 MAYO'.
+
+EXECUTE.
+
+
+* YTD JUNIO
+
+RECODE wave (1 thru 3= 1) (10 thru 15 = 2) (22 thru 27 = 3) (34 thru 39 = 4) (46 thru 51 = 5)
+INTO YTD_JUNIO.
+
+VARIABLE LABELS  YTD_JUNIO 'YTD JUNIO'.
+
+VALUE LABELS  YTD_JUNIO
+1  'YTD 22 JUNIO'
+2  'YTD 23 JUNIO'
+3  'YTD 24 JUNIO'
+4  'YTD 25 JUNIO'
+5  'YTD 26 JUNIO'.
+
+EXECUTE.
+
+
+* YTD JULIO 
+
+RECODE wave (1 thru 4= 1) (10 thru 16 = 2) (22 thru 28 = 3) (34 thru 40 = 4) (46 thru 52 = 5)
+INTO YTD_JULIO.
+
+VARIABLE LABELS  YTD_JULIO 'YTD JULIO'.
+
+VALUE LABELS  YTD_JULIO
+1  'YTD 22 JULIO'
+2  'YTD 23 JULIO'
+3  'YTD 24 JULIO'
+4  'YTD 25 JULIO'
+5  'YTD 26 JULIO'.
+
+EXECUTE.
+
+
+
+* YTD AGOSTO
+
+RECODE wave (1 thru 5= 1) (10 thru 17 = 2) (22 thru 29 = 3) (34 thru 41 = 4) (46 thru 53 = 5)
+INTO YTD_AGOSTO.
+
+VARIABLE LABELS  YTD_AGOSTO 'YTD AGOSTO'.
+
+VALUE LABELS  YTD_AGOSTO
+1  'YTD 22 AGOSTO'
+2  'YTD 23 AGOSTO'
+3  'YTD 24 AGOSTO'
+4  'YTD 25 AGOSTO'
+5  'YTD 26 AGOSTO'.
+
+EXECUTE.
+
+* YTD SEPTIEMBRE
+
+RECODE wave (1 thru 6= 1) (10 thru 18 = 2) (22 thru 30 = 3) (34 thru 42 = 4) (46 thru 54 = 5)
+INTO YTD_SEPTIEMBRE.
+
+VARIABLE LABELS  YTD_SEPTIEMBRE 'YTD SEPTIEMBRE'.
+
+VALUE LABELS  YTD_SEPTIEMBRE
+1  'YTD 22 SEPTIEMBRE'
+2  'YTD 23 SEPTIEMBRE'
+3  'YTD 24 SEPTIEMBRE'
+4  'YTD 25 SEPTIEMBRE'
+5  'YTD 26 SEPTIEMBRE'.
+
+EXECUTE.
+
+
+* YTD OCTUBRE
+
+RECODE wave (1 thru 7= 1) (10 thru 19 = 2) (22 thru 31 = 3) (34 thru 43 = 4) (46 thru 55 = 5)
+INTO YTD_OCTUBRE.
+
+VARIABLE LABELS  YTD_OCTUBRE 'YTD OCTUBRE'.
+
+VALUE LABELS  YTD_OCTUBRE
+1  'YTD 22 OCTUBRE'
+2  'YTD 23 OCTUBRE'
+3  'YTD 24 OCTUBRE'
+4  'YTD 25 OCTUBRE'
+5  'YTD 26 OCTUBRE'.
+
+EXECUTE.
+
+
+
+* YTD NOVIEMBRE
+
+RECODE wave (1 thru 8= 1) (10 thru 20 = 2) (22 thru 32 = 3) (34 thru 44 = 4) (46 thru 56 = 5)
+INTO YTD_NOVIEMBRE.
+
+VARIABLE LABELS  YTD_NOVIEMBRE 'YTD NOVIEMBRE'.
+
+VALUE LABELS  YTD_NOVIEMBRE
+1  'YTD 22 NOVIEMBRE'
+2  'YTD 23 NOVIEMBRE'
+3  'YTD 24 NOVIEMBRE'
+4  'YTD 25 NOVIEMBRE'
+5  'YTD 26 NOVIEMBRE'.
+
+EXECUTE.
+
+
+* YTD DICIEMBRE
+
+RECODE wave (1 thru 9= 1) (10 thru 21 = 2) (22 thru 33 = 3) (34 thru 45 = 4) (46 thru 57 = 5)
+INTO YTD_DICIEMBRE.
+
+VARIABLE LABELS  YTD_DICIEMBRE 'YTD DICIEMBRE'.
+
+VALUE LABELS  YTD_DICIEMBRE
+1  'YTD 22 DICIEMBRE'
+2  'YTD 23 DICIEMBRE'
+3  'YTD 24 DICIEMBRE'
+4  'YTD 25 DICIEMBRE'
+5  'YTD 26 DICIEMBRE'.
+
+EXECUTE.
+
 
 ***Genero
 
@@ -203,15 +394,6 @@ VALUE LABELS Region2
 8 "Valles".
 
 
-****Aprobación gob nac
-
-*do if (wave=11).
-RECODE P104 (1 thru 2=1) (3 thru 4=2) INTO Aprobacion. 
-EXECUTE.
-
-VALUE LABELS Aprobacion
-1 'Aprueba'
-2 'Desaprueba'.
 
 ****Auto
 
@@ -281,65 +463,12 @@ MRSETS
  /DISPLAY NAME=[$P125].
 
 
-MRSETS
- /MCGROUP NAME=$P110 LABEL='Tipo de deuda' VARIABLES=
- P110_1 P110_2 P110_3 P110_4 P110_5 P110_6 P110_7 P110_8 P110_9 P110_97 
- /DISPLAY NAME=[$P110].
-
-
-MRSETS
- /MDGROUP NAME=$P205_1 LABEL='Petrolera responsable' CATEGORYLABELS=VARLABELS VARIABLES=
- P205_1_1 P205_1_2 P205_1_3 P205_1_4 P205_1_5 P205_1_6 P205_1_7 P205_1_8 P205_1_9 P205_1_10 
- P205_1_11 P205_1_97 P205_1_99 VALUE=1 
- /DISPLAY NAME=[$P205_1].
-
-
-MRSETS
- /MDGROUP NAME=$P205_2 LABEL='Estacion de servicio responsable' CATEGORYLABELS=VARLABELS VARIABLES=
- P205_2_1 P205_2_2 P205_2_3 P205_2_4 P205_2_97 P205_2_99 VALUE=1 
- /DISPLAY NAME=[$P205_2].
-
-MRSETS
- /MDGROUP NAME=$P207 LABEL='Petrolera responsable' CATEGORYLABELS=VARLABELS VARIABLES=
- P205_1_1 P205_1_2 P205_1_3 P205_1_4 P205_1_5 P205_1_6 P205_1_7 P205_1_8 P205_1_9 P205_1_10 
- P205_1_11 P205_1_97 P205_1_99 VALUE=1 
- /DISPLAY NAME=[$P207].
-
-
-
-
-MRSETS
- /MDGROUP NAME=$P211 LABEL='Conoce a alguien que le pasó' CATEGORYLABELS=VARLABELS VARIABLES=
- P211_1_1 P211_1_2 P211_1_3 P211_1_99 VALUE=1 
- /DISPLAY NAME=[$P211].
-
-
-
-MRSETS
- /MDGROUP NAME=$P212 LABEL='EESS donde sucedió' CATEGORYLABELS=VARLABELS VARIABLES=
- P212_1 P212_2 P212_3 P212_4 P212_97 VALUE=1 
- /DISPLAY NAME=[$P212].
-
 
 
 MRSETS
  /MDGROUP NAME=$P114 LABEL='Petroleras que más aumentaron' CATEGORYLABELS=VARLABELS VARIABLES=
  P114_1 P114_2 P114_3 P114_4 P114_5 P114_6 P114_7 P114_8 P114_9 P114_10 P114_11 P114_98 P114_99 VALUE=1 
  /DISPLAY NAME=[$P114].
-
-
-
-MRSETS
- /MDGROUP NAME=$P121 LABEL='Bienes y servicios que aumentaron mas-TOP 3' CATEGORYLABELS=VARLABELS VARIABLES=
- P121_1 P121_2 P121_3 P121_4 P121_5 P121_6 P121_7 P121_8 P121_9 P121_10 P121_98 P121_99 VALUE=1 
- /DISPLAY NAME=[$P121].
-
-
-
-MRSETS
- /MDGROUP NAME=$P122 LABEL='Bienes y servicios que aumentaron mas-TOP 3' CATEGORYLABELS=VARLABELS VARIABLES=
- P122_1 P122_2 P122_3 P122_4 P122_5 P122_6 P122_7 P122_8 P122_9 P122_10 P122_97 P122_99 VALUE=1 
- /DISPLAY NAME=[$P122].
 
 
 
@@ -366,38 +495,40 @@ MRSETS
 *do if (wave=11).
 
 recode p104 (3 THRU 4 = 33) ( 1 THRU 2=11) (99=99) into P104T2B.
-recode P202 P203 P209 P211_1 P211_2 P211_3 P211_4 P211_5 P112_2 P112_3 P112_1 (4 thru 5=33) (3=sys) ( 1 thru 2 =11 )(99=99) into
-P202T2B P203T2B P209T2B P211_1T2B P211_2T2B P211_3T2B P211_4T2B P211_5T2B P112_2T2B P112_3T2B P112_1T2B .
-recode P206_1 P206_2 P206_3 P206_4 P206_5 P206_8 (4 thru 5=11) (3=sys) ( 1 thru 2 =33 )(99=99) into P206_1T2B P206_2T2B P206_3T2B P206_4T2B P206_5T2B P206_8T2B .
-recode P01_A1 P01_A2 P01_A3 P01_A4 P01_A5 P01_A6 P01_A7 P01_A8 P01_A9 ( 4 thru 5 =11 ) into P01_A1T2B P01_A2T2B P01_A3T2B P01_A4T2B P01_A5T2B P01_A6T2B P01_A7T2B P01_A8T2B P01_A9T2B.
-recode P01_A1 P01_A2 P01_A3 P01_A4 P01_A5 P01_A6 P01_A7 P01_A8 P01_A9 ( 3 thru 5 =111 ) into P01_A1T3B P01_A2T3B P01_A3T3B P01_A4T3B P01_A5T3B P01_A6T3B P01_A7T3B P01_A8T3B P01_A9T3B.
-recode P01_A1 P01_A2 P01_A3 P01_A4 P01_A5 P01_A6 P01_A7 P01_A8 P01_A9 ( 2 thru 5 =1111)(99=99) into P01_A1T4B P01_A2T4B P01_A3T4B P01_A4T4B P01_A5T4B P01_A6T4B P01_A7T4B P01_A8T4B P01_A9T4B.
 recode P107 P108 P40_A1 P40_A2 P40_A3 P40_A4 P40_A5 P40_A6 P40_A7 P40_A8 (4 thru 5=11) (3=sys) ( 1 thru 2 =33 )(99=99) into
 P107T2B P108T2B P40_A1T2B P40_A2T2B P40_A3T2B P40_A4T2B P40_A5T2B P40_A6T2B P40_A7T2B P40_A8T2B.
 recode P142B (5=33) (4=33) (3=99) (1=11 ) (2=11 ) into P142B_T2B.
+recode P170 P168 P169 (1 THRU 2 = 33) ( 4 THRU 5= 11) (3=99) into P170_T2B P168_T2B P169_T2B.
 EXECUTE.
 
 *end if.
 exe.
 
-MRSETS /MCGROUP VARIABLES = P206_1 P206_1T2B name = $P206_1 LABEL= " ¿qué tan responsable del desabastecimiento es cada uno de los siguientes actores? - Gobierno Nacional".
-MRSETS /MCGROUP VARIABLES = P206_2 P206_2T2B name = $P206_2 LABEL= " ¿qué tan responsable del desabastecimiento es cada uno de los siguientes actores? - Conflicto Ruso-Ukraniano".
-MRSETS /MCGROUP VARIABLES = P206_3 P206_3T2B name = $P206_3 LABEL= " ¿qué tan responsable del desabastecimiento es cada uno de los siguientes actores? - El campo".
-MRSETS /MCGROUP VARIABLES = P206_4 P206_4T2B name = $P206_4 LABEL= " ¿qué tan responsable del desabastecimiento es cada uno de los siguientes actores? - Los medios de comunicación".
-MRSETS /MCGROUP VARIABLES = P206_5 P206_5T2B name = $P206_5 LABEL= " ¿qué tan responsable del desabastecimiento es cada uno de los siguientes actores? - Los países limítrofes".
-MRSETS /MCGROUP VARIABLES = P206_8 P206_8T2B name = $P206_8 LABEL= " ¿qué tan responsable del desabastecimiento es cada uno de los siguientes actores? - Las empresas petroleras".
+recode P01_A1 P01_A2 P01_A3 P01_A4 P01_A5 P01_A6 P01_A7 P01_A8 P01_A9 ( 4 thru 5 =11 ) ( 1 thru 2 =33 ) (3 =99 ) into P01_A1T2B P01_A2T2B P01_A3T2B P01_A4T2B P01_A5T2B P01_A6T2B P01_A7T2B P01_A8T2B P01_A9T2B.
 
-MRSETS /MCGROUP VARIABLES = P211_1 P211_1T2B name = $P211_1 LABEL= " - El desabastecimiento va a impactar en los precios de otros productos de consumo masivo".
-MRSETS /MCGROUP VARIABLES = P211_2 P211_2T2B name = $P211_2 LABEL= " - Los medios se esfuerzan en visibilizar en conflicto".
-MRSETS /MCGROUP VARIABLES = P211_3 P211_3T2B name = $P211_3 LABEL= " - El desabastecimiento va a afectar el desarrollo del país a largo plazo".
-MRSETS /MCGROUP VARIABLES = P211_4 P211_4T2B name = $P211_4 LABEL= " - El problema del desabastecimiento hace que empeore mi opinión del Gobierno Nacional".
-MRSETS /MCGROUP VARIABLES = P211_5 P211_5T2B name = $P211_5 LABEL= " - Es un conflicto que perjudica a todo el país".
+VALUE LABELS P01_A1T2B P01_A2T2B P01_A3T2B P01_A4T2B P01_A5T2B P01_A6T2B P01_A7T2B P01_A8T2B P01_A9T2B
+11 "T2B"
+33 "B2B"
+99 "NR".
 
+recode P01_A1 P01_A2 P01_A3 P01_A4 P01_A5 P01_A6 P01_A7 P01_A8 P01_A9 ( 3 thru 5 =111 ) into P01_A1T3B P01_A2T3B P01_A3T3B P01_A4T3B P01_A5T3B P01_A6T3B P01_A7T3B P01_A8T3B P01_A9T3B.
 
-MRSETS /MCGROUP VARIABLES = P112_1 P112_1T2B name = $P112_1 LABEL= "Comparando con el costo de vida de hace 2 años atrás, ¿Cuánto dirías que aumentó el precio del combustible?".
-MRSETS /MCGROUP VARIABLES = P112_2 P112_2T2B name = $P112_2 LABEL= "Comparando con el costo de vida de hace 5 años atrás, ¿Cuánto dirías que aumentó el precio del combustible?".
-MRSETS /MCGROUP VARIABLES = P112_3 P112_3T2B name = $P112_3 LABEL= "Comparando con el costo de vida de hace 10 años atrás, ¿Cuánto dirías que aumentó el precio del combustible?".
+Value labels P01_A1T3B P01_A2T3B P01_A3T3B P01_A4T3B P01_A5T3B P01_A6T3B P01_A7T3B P01_A8T3B P01_A9T3B
+111 "T3B".
 
+recode P01_A1 P01_A2 P01_A3 P01_A4 P01_A5 P01_A6 P01_A7 P01_A8 P01_A9 ( 2 thru 5 =1111 ) into P01_A1T4B P01_A2T4B P01_A3T4B P01_A4T4B P01_A5T4B P01_A6T4B P01_A7T4B P01_A8T4B P01_A9T4B.
+
+Value labels P01_A1T4B P01_A2T4B P01_A3T4B P01_A4T4B P01_A5T4B P01_A6T4B P01_A7T4B P01_A8T4B P01_A9T4B
+1111 "T4B".
+
+VALUE LABELS P170_T2B P168_T2B P169_T2B
+11 'T2B'
+33 'B2B'
+99 'NINI'.
+
+MRSETS /MCGROUP VARIABLES = P170 P170_T2B  name = $P170 LABEL= "Y continuando con Franco Colapinto ¿Qué tan de acuerdo estás con la siguiente frase? - YPF acompaña el desarrollo profesional de Franco Colapinto".
+MRSETS /MCGROUP VARIABLES = P168 P168_T2B  name = $P168 LABEL= "¿Qué tan de acuerdo o desacuerdo estás con la siguiente frase? - YPF acompaña el desarrollo del talento joven argentino".
+MRSETS /MCGROUP VARIABLES = P169 P169_T2B  name = $P169 LABEL= "Hablando específicamente de Franco Colapinto, ¿Qué tan relevante te parece la participación de Franco Colapinto en el campeonato mundial de F1?".
 MRSETS /MCGROUP VARIABLES = P40_A1 P40_A1T2B name = $P40_A1 LABEL= "El aumento de precios de combustibles… - … es inevitable ya que los precios se encuentran atrasados".
 MRSETS /MCGROUP VARIABLES = P40_A2 P40_A2T2B name = $P40_A2 LABEL= "El aumento de precios de combustibles… - … en ningún caso puede justificarse, ya que la gente no puede pagar más".
 MRSETS /MCGROUP VARIABLES = P40_A3 P40_A3T2B name = $P40_A3 LABEL= "El aumento de precios de combustibles… - … es negativo ya que impacta en el precio de otros productos y por lo tanto genera más inflación".
@@ -415,15 +546,10 @@ VALUE LABELS P142B_T2B
 33 'B2B'
 99 'NINI'.
 
-VALUE LABELS P01_A1T2B P01_A2T2B P01_A3T2B P01_A4T2B P01_A5T2B P01_A6T2B P01_A7T2B P01_A8T2B P01_A9T2B
-11 "T2B"
-111 "T3B"
-1111 "T4B"
-33 "B2B"
-99 "NR".
 
 
-VALUE LABELS P104T2B P107T2B P108T2B P202T2B P203T2B P206_1T2B P206_2T2B P206_3T2B P206_4T2B P206_5T2B P206_8T2B P209T2B P211_1T2B P211_2T2B P211_3T2B P211_4T2B P211_5T2B P112_2T2B P112_3T2B P112_1T2B
+
+VALUE LABELS P104T2B P107T2B P108T2B  
 P40_A1T2B P40_A2T2B P40_A3T2B P40_A4T2B P40_A5T2B P40_A6T2B P40_A7T2B P40_A8T2B 
 P02_A2_junioT2B P02_A3_junioT2B P02_A4_junioT2B P02_A5_junioT2B P02_A6_junioT2B P02_A7_junioT2B P02_A8_junioT2B P02_A1_junioT2B
  P02_A9_junioT2B P02_A1T2B P02_A2T2B P02_A3T2B P02_A4T2B P02_A5T2B P02_A6T2B P02_A7T2B P02_A8T2B P02_A9T2B
@@ -434,8 +560,7 @@ P02_A2_junioT2B P02_A3_junioT2B P02_A4_junioT2B P02_A5_junioT2B P02_A6_junioT2B 
 
 *do if (wave=11).
 
-Recode P02_A1 P02_A2 P02_A3 P02_A4 P02_A5 P02_A6 P02_A7 P02_A8 P02_A9 (1 THRU 2 = 33) (6 THRU 7 = 11) into P02_A1T2B P02_A2T2B P02_A3T2B P02_A4T2B P02_A5T2B P02_A6T2B P02_A7T2B P02_A8T2B P02_A9T2B.
-Recode P02_A1 P02_A2 P02_A3 P02_A4 P02_A5 P02_A6 P02_A7 P02_A8 P02_A9 (1 THRU 3 = 333) (5 THRU 7 = 111) into P02_A1T3B P02_A2T3B P02_A3T3B P02_A4T3B P02_A5T3B P02_A6T3B P02_A7T3B P02_A8T3B P02_A9T3B.
+
 Recode P03_01 P03_02 P03_03 P03_04 P03_05 P03_06 P03_07 P03_08 P03_09 P03_10 P03_11 P03_12 P03_13 P03_14 P03_15 P04_1_A1 P04_1_A2 P04_1_A3 P04_1_A4 P04_1_A5 P04_1_A6 P04_1_A7 P04_1_A8 P04_1_A9 P04_1_A10 P04_1_A11 P04_1_A12 P04_1_A13 P04_1_A14 P04_1_A15 P04_2_A1 P04_2_A2 P04_2_A3 P04_2_A4 P04_2_A5 P04_2_A6 P04_2_A7 P04_2_A8 P04_2_A9 P04_2_A10 P04_2_A11 P04_2_A12 P04_2_A13 P04_2_A14 P04_2_A15 P04_3_A1 P04_3_A2 P04_3_A3 P04_3_A4 P04_3_A5 P04_3_A6 P04_3_A7 P04_3_A8 P04_3_A9 P04_3_A10 P04_3_A11 P04_3_A12 P04_3_A13 P04_3_A14 P04_3_A15 P04B_4_A1 P04B_4_A2 P04B_4_A3 P04B_4_A4 P04B_4_A5 P04B_4_A6 P04B_4_A7 P04B_4_A8 P04B_4_A9 P04B_4_A10 P04B_4_A11 P04B_4_A12 P04B_4_A13 P04B_4_A14 P04B_4_A15 P04B_5_A1 P04B_5_A2 P04B_5_A3 P04B_5_A4 P04B_5_A5 P04B_5_A6 P04B_5_A7 P04B_5_A8 P04B_5_A9 P04B_5_A10 P04B_5_A11 P04B_5_A12 P04B_5_A13 P04B_5_A14 P04B_5_A15 P04B_6_A1 P04B_6_A2 P04B_6_A3 P04B_6_A4 P04B_6_A5 P04B_6_A6 P04B_6_A7 P04B_6_A8 P04B_6_A9 P04B_6_A10 P04B_6_A11 P04B_6_A12 P04B_6_A13 P04B_6_A14 P04B_6_A15 P04B_7_A1 P04B_7_A2 P04B_7_A3 P04B_7_A4 P04B_7_A5 P04B_7_A6 P04B_7_A7 P04B_7_A8 P04B_7_A9 P04B_7_A10 P04B_7_A11 P04B_7_A12 P04B_7_A13 P04B_7_A14 P04B_7_A15 P04B_8_A1 P04B_8_A2 P04B_8_A3 P04B_8_A4 P04B_8_A5 P04B_8_A6 P04B_8_A7 P04B_8_A8 P04B_8_A9 P04B_8_A10 P04B_8_A11 P04B_8_A12 P04B_8_A13 P04B_8_A14 P04B_8_A15
 P04_1_28 P04_2_28 P04_3_28  P04B_4_28 P04B_5_28 P04B_6_28 P04B_7_28 P04B_8_28
  P03_29 P04_1_29 P04_2_29 P04_3_29 P04B_4_29 P04B_5_29 P04B_6_29 P04B_7_29 P04B_8_29 
@@ -447,6 +572,22 @@ recode P03_16 P03_17 P03_18 P03_19 P03_20 P03_21 P03_22 P03_23 P03_24 P03_25 P03
 End if.
 
 EXECUTE.
+
+Recode P02_A1 P02_A2 P02_A3 P02_A4 P02_A5 P02_A6 P02_A7 P02_A8 P02_A9 (1 THRU 2 = 33) (6 THRU 7 = 11) into P02_A1T2B P02_A2T2B P02_A3T2B P02_A4T2B P02_A5T2B P02_A6T2B P02_A7T2B P02_A8T2B P02_A9T2B.
+Recode P02_A1 P02_A2 P02_A3 P02_A4 P02_A5 P02_A6 P02_A7 P02_A8 P02_A9 (1 THRU 3 = 333) (5 THRU 7 = 111) into P02_A1T3B P02_A2T3B P02_A3T3B P02_A4T3B P02_A5T3B P02_A6T3B P02_A7T3B P02_A8T3B P02_A9T3B.
+execute.
+
+Value labels 
+P02_A1T2B P02_A2T2B P02_A3T2B P02_A4T2B P02_A5T2B P02_A6T2B P02_A7T2B P02_A8T2B P02_A9T2B
+11 "T2B"
+33 'B2B'.
+
+Value labels 
+ P02_A1T3B P02_A2T3B P02_A3T3B P02_A4T3B P02_A5T3B P02_A6T3B P02_A7T3B P02_A8T3B P02_A9T3B
+111 "T3B"
+333 "B3B".
+
+
 
 
 MRSETS /MCGROUP VARIABLES = P02_A1 P02_A1T2B P02_A1T3B  name = $P02_A1 LABEL= "¿Qué imagen tenés de las siguientes empresas? - YPF".
@@ -475,114 +616,11 @@ P04B_8_28T2B P03_16T2B P03_17T2B P03_18T2B P03_19T2B P03_20T2B P03_21T2B P03_22T
 33 "B2B"
 99 "NR".
 
-*do if (wave=11).
-recode BL1_1 BL1_2 BL1_3 BL1_4 BL1_5 BL1_6 BL1_7 (4 thru 5=11) (3=sys) ( 1 thru 2 =33 )(99=99) Into BL1_1T2B BL1_2T2B BL1_3T2B BL1_4T2B BL1_5T2B BL1_6T2B BL1_7T2B.
-
-
-VALUE LABELS BL1_1T2B BL1_2T2B BL1_3T2B BL1_4T2B BL1_5T2B BL1_6T2B BL1_7T2B
-11 "T2B"
-33 "B2B"
-99 "NR".
-EXECUTE.
-
-MRSETS /MCGROUP VARIABLES = BL1_1 BL1_1T2B name = $BL1_1 LABEL= "Indica tu nivel de acuerdo con las siguientes frases en relación con YPF. - Me considero un consumidor leal a la marca YPF".
-MRSETS /MCGROUP VARIABLES = BL1_2 BL1_2T2B name = $BL1_2 LABEL= "Indica tu nivel de acuerdo con las siguientes frases en relación con YPF. - YPF sería mi primera opción de carga de combustible".
-MRSETS /MCGROUP VARIABLES = BL1_3 BL1_3T2B name = $BL1_3 LABEL= "Indica tu nivel de acuerdo con las siguientes frases en relación con YPF. - No iría a otra estación de servicio si YPF estuviese disponible en la zona donde circulo".
-MRSETS /MCGROUP VARIABLES = BL1_4 BL1_4T2B name = $BL1_4 LABEL= "Indica tu nivel de acuerdo con las siguientes frases en relación con YPF. - Recomendaría YPF a otros conductores".
-MRSETS /MCGROUP VARIABLES = BL1_5 BL1_5T2B name = $BL1_5 LABEL= "Indica tu nivel de acuerdo con las siguientes frases en relación con YPF. - El precio de otra marca debería ser considerablemente inferior para no elegir YPF".
-MRSETS /MCGROUP VARIABLES = BL1_6 BL1_6T2B name = $BL1_6 LABEL= "Indica tu nivel de acuerdo con las siguientes frases en relación con YPF. - Si hay otra marca tan buena como YPF, prefiero ir a YPF".
-MRSETS /MCGROUP VARIABLES = BL1_7 BL1_7T2B name = $BL1_7 LABEL= "Indica tu nivel de acuerdo con las siguientes frases en relación con YPF. - YPF es una empresa argentina".
 
 
 
 
-*do if (wave=11).
 
-Recode BS1_1 BS1_2 BS1_3 BS1_4 BS1_5 BS1_6 BS1_7 BS1_8 BS1_9 BP1_1 BP1_2 BP1_3 BP1_4 BP1_5 BP1_6 BP1_7 BP1_8 BP1_9 BP2_1 BP2_2 BP2_3 BP2_4 BP2_5 BP2_6 BP2_7 BP2_8 BP2_9
-(9 thru 10 = 11) (1 THRU 2 =33 ) Into BS1_1T2B BS1_2T2B BS1_3T2B BS1_4T2B BS1_5T2B BS1_6T2B BS1_7T2B BS1_8T2B BS1_9T2B BP1_1T2B BP1_2T2B BP1_3T2B BP1_4T2B BP1_5T2B BP1_6T2B BP1_7T2B BP1_8T2B BP1_9T2B BP2_1T2B BP2_2T2B BP2_3T2B BP2_4T2B BP2_5T2B BP2_6T2B BP2_7T2B BP2_8T2B BP2_9T2B.
-
-Recode BS1_1 BS1_2 BS1_3 BS1_4 BS1_5 BS1_6 BS1_7 BS1_8 BS1_9 BP1_1 BP1_2 BP1_3 BP1_4 BP1_5 BP1_6 BP1_7 BP1_8 BP1_9 BP2_1 BP2_2 BP2_3 BP2_4 BP2_5 BP2_6 BP2_7 BP2_8 BP2_9
-(8 thru 10 = 111)(1 THRU 3 =333 ) Into BS1_1T3B BS1_2T3B BS1_3T3B BS1_4T3B BS1_5T3B BS1_6T3B BS1_7T3B BS1_8T3B BS1_9T3B BP1_1T3B BP1_2T3B BP1_3T3B BP1_4T3B BP1_5T3B BP1_6T3B BP1_7T3B BP1_8T3B BP1_9T3B BP2_1T3B BP2_2T3B BP2_3T3B BP2_4T3B BP2_5T3B BP2_6T3B BP2_7T3B BP2_8T3B BP2_9T3B.
-
-Recode BS1_1 BS1_2 BS1_3 BS1_4 BS1_5 BS1_6 BS1_7 BS1_8 BS1_9 BP1_1 BP1_2 BP1_3 BP1_4 BP1_5 BP1_6 BP1_7 BP1_8 BP1_9 BP2_1 BP2_2 BP2_3 BP2_4 BP2_5 BP2_6 BP2_7 BP2_8 BP2_9
-(7 thru 10 = 1111)(1 THRU 4 =3333 ) Into BS1_1T4B BS1_2T4B BS1_3T4B BS1_4T4B BS1_5T4B BS1_6T4B BS1_7T4B BS1_8T4B BS1_9T4B BP1_1T4B BP1_2T4B BP1_3T4B BP1_4T4B BP1_5T4B BP1_6T4B BP1_7T4B BP1_8T4B BP1_9T4B BP2_1T4B BP2_2T4B BP2_3T4B BP2_4T4B BP2_5T4B BP2_6T4B BP2_7T4B BP2_8T4B BP2_9T4B.
-
-Recode BS1_1 BS1_2 BS1_3 BS1_4 BS1_5 BS1_6 BS1_7 BS1_8 BS1_9 BP1_1 BP1_2 BP1_3 BP1_4 BP1_5 BP1_6 BP1_7 BP1_8 BP1_9 BP2_1 BP2_2 BP2_3 BP2_4 BP2_5 BP2_6 BP2_7 BP2_8 BP2_9
-(6 thru 10 = 11111)(1 THRU 5 =33333 ) Into BS1_1T5B BS1_2T5B BS1_3T5B BS1_4T5B BS1_5T5B BS1_6T5B BS1_7T5B BS1_8T5B BS1_9T5B BP1_1T5B BP1_2T5B BP1_3T5B BP1_4T5B BP1_5T5B BP1_6T5B BP1_7T5B BP1_8T5B BP1_9T5B BP2_1T5B BP2_2T5B BP2_3T5B BP2_4T5B BP2_5T5B BP2_6T5B BP2_7T5B BP2_8T5B BP2_9T5B.
-
-
-
-EXECUTE.
-
-
-Value labels BS1_1T2B BS1_2T2B BS1_3T2B BS1_4T2B BS1_5T2B BS1_6T2B BS1_7T2B BS1_8T2B BS1_9T2B BP1_1T2B BP1_2T2B BP1_3T2B BP1_4T2B BP1_5T2B BP1_6T2B BP1_7T2B BP1_8T2B BP1_9T2B BP2_1T2B BP2_2T2B BP2_3T2B BP2_4T2B BP2_5T2B BP2_6T2B BP2_7T2B BP2_8T2B BP2_9T2B
-BS1_1T3B BS1_2T3B BS1_3T3B BS1_4T3B BS1_5T3B BS1_6T3B BS1_7T3B BS1_8T3B BS1_9T3B BP1_1T3B BP1_2T3B BP1_3T3B BP1_4T3B BP1_5T3B BP1_6T3B BP1_7T3B BP1_8T3B BP1_9T3B BP2_1T3B BP2_2T3B BP2_3T3B BP2_4T3B BP2_5T3B BP2_6T3B BP2_7T3B BP2_8T3B BP2_9T3B
-BS1_1T4B BS1_2T4B BS1_3T4B BS1_4T4B BS1_5T4B BS1_6T4B BS1_7T4B BS1_8T4B BS1_9T4B BP1_1T4B BP1_2T4B BP1_3T4B BP1_4T4B BP1_5T4B BP1_6T4B BP1_7T4B BP1_8T4B BP1_9T4B BP2_1T4B BP2_2T4B BP2_3T4B BP2_4T4B BP2_5T4B BP2_6T4B BP2_7T4B BP2_8T4B BP2_9T4B
-BS1_1T5B BS1_2T5B BS1_3T5B BS1_4T5B BS1_5T5B BS1_6T5B BS1_7T5B BS1_8T5B BS1_9T5B BP1_1T5B BP1_2T5B BP1_3T5B BP1_4T5B BP1_5T5B BP1_6T5B BP1_7T5B BP1_8T5B BP1_9T5B BP2_1T5B BP2_2T5B BP2_3T5B BP2_4T5B BP2_5T5B BP2_6T5B BP2_7T5B BP2_8T5B BP2_9T5B
- 11 "T2B"
-111 "T3B"
-1111 "T4B"
-11111 "T5B"
-33 "B2B"
-333 "B3B"
-3333 "B4B"
-33333 "B5B"
-
-
-
-Value labels 
- P02_A1T3B P02_A2T3B P02_A3T3B P02_A4T3B P02_A5T3B P02_A6T3B P02_A7T3B P02_A8T3B P02_A9T3B
-P02_A1T2B P02_A2T2B P02_A3T2B P02_A4T2B P02_A5T2B P02_A6T2B P02_A7T2B P02_A8T2B P02_A9T2B
- 11 "T2B"
-111 "T3B"
-33 "B2B"
-333 "B3B".
-
-
-Value labels 
- P01_A1T2B P01_A2T2B P01_A3T2B P01_A4T2B P01_A5T2B P01_A6T2B P01_A7T2B P01_A8T2B P01_A9T2B
-P01_A1T3B P01_A2T3B P01_A3T3B P01_A4T3B P01_A5T3B P01_A6T3B P01_A7T3B P01_A8T3B P01_A9T3B
-P01_A1T4B P01_A2T4B P01_A3T4B P01_A4T4B P01_A5T4B P01_A6T4B P01_A7T4B P01_A8T4B P01_A9T4B
- 11 "T2B"
-111 "T3B"
-1111 "T4B".
-
-
-
-MRSETS /MCGROUP VARIABLES = BS1_1 BS1_1T2B BS1_1T3B BS1_1T4B BS1_1T5B name = $BS1_1 LABEL= "Califica en una escala de 1 a 10 qué tan cerca te sientes de YPF.".
-MRSETS /MCGROUP VARIABLES = BS1_2 BS1_2T2B BS1_2T3B BS1_2T4B BS1_2T5B name = $BS1_2 LABEL= "Califica en una escala de 1 a 10 qué tan cerca te sientes de Shell.".
-MRSETS /MCGROUP VARIABLES = BS1_3 BS1_3T2B BS1_3T3B BS1_3T4B BS1_3T5B name = $BS1_3 LABEL= "Califica en una escala de 1 a 10 qué tan cerca te sientes de Axion.".
-MRSETS /MCGROUP VARIABLES = BS1_4 BS1_4T2B BS1_4T3B BS1_4T4B BS1_4T5B name = $BS1_4 LABEL= "Califica en una escala de 1 a 10 qué tan cerca te sientes de Puma Energy.".
-MRSETS /MCGROUP VARIABLES = BS1_5 BS1_5T2B BS1_5T3B BS1_5T4B BS1_5T5B name = $BS1_5 LABEL= "Califica en una escala de 1 a 10 qué tan cerca te sientes de Mercado Libre.".
-MRSETS /MCGROUP VARIABLES = BS1_6 BS1_6T2B BS1_6T3B BS1_6T4B BS1_6T5B name = $BS1_6 LABEL= "Califica en una escala de 1 a 10 qué tan cerca te sientes de Aerolíneas Argentinas.".
-MRSETS /MCGROUP VARIABLES = BS1_7 BS1_7T2B BS1_7T3B BS1_7T4B BS1_7T5B name = $BS1_7 LABEL= "Califica en una escala de 1 a 10 qué tan cerca te sientes de McDonald’s.".
-MRSETS /MCGROUP VARIABLES = BS1_8 BS1_8T2B BS1_8T3B BS1_8T4B BS1_8T5B name = $BS1_8 LABEL= "Califica en una escala de 1 a 10 qué tan cerca te sientes de Quilmes.".
-MRSETS /MCGROUP VARIABLES = BS1_9 BS1_9T2B BS1_9T3B BS1_9T4B BS1_9T5B name = $BS1_9 LABEL= "Califica en una escala de 1 a 10 qué tan cerca te sientes de Coca Cola.".
-MRSETS /MCGROUP VARIABLES = BP1_1 BP1_1T2B BP1_1T3B BP1_1T4B BP1_1T5B name = $BP1_1 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a YPF en términos de la siguiente frase: “una empresa comprometida con el desarrollo del país”.".
-MRSETS /MCGROUP VARIABLES = BP1_2 BP1_2T2B BP1_2T3B BP1_2T4B BP1_2T5B name = $BP1_2 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a Shell en términos de la siguiente frase: “una empresa comprometida con el desarrollo del país”.".
-MRSETS /MCGROUP VARIABLES = BP1_3 BP1_3T2B BP1_3T3B BP1_3T4B BP1_3T5B name = $BP1_3 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a Axion en términos de la siguiente frase: “una empresa comprometida con el desarrollo del país”.".
-MRSETS /MCGROUP VARIABLES = BP1_4 BP1_4T2B BP1_4T3B BP1_4T4B BP1_4T5B name = $BP1_4 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a Quilmes en términos de la siguiente frase: “una empresa comprometida con el medio ambiente”.".
-MRSETS /MCGROUP VARIABLES = BP1_5 BP1_5T2B BP1_5T3B BP1_5T4B BP1_5T5B name = $BP1_5 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a Quilmes en términos de la siguiente frase: “una empresa comprometida con el medio ambiente”.".
-MRSETS /MCGROUP VARIABLES = BP1_6 BP1_6T2B BP1_6T3B BP1_6T4B BP1_6T5B name = $BP1_6 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a Quilmes en términos de la siguiente frase: “una empresa comprometida con el medio ambiente”.".
-MRSETS /MCGROUP VARIABLES = BP1_7 BP1_7T2B BP1_7T3B BP1_7T4B BP1_7T5B name = $BP1_7 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a Quilmes en términos de la siguiente frase: “una empresa comprometida con el medio ambiente”.".
-MRSETS /MCGROUP VARIABLES = BP1_8 BP1_8T2B BP1_8T3B BP1_8T4B BP1_8T5B name = $BP1_8 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a Quilmes en términos de la siguiente frase: “una empresa comprometida con el medio ambiente”.".
-MRSETS /MCGROUP VARIABLES = BP1_9 BP1_9T2B BP1_9T3B BP1_9T4B BP1_9T5B name = $BP1_9 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a Coca Cola en términos de la siguiente frase: “una empresa comprometida con el desarrollo del país”.".
-MRSETS /MCGROUP VARIABLES = BP2_1 BP2_1T2B BP2_1T3B BP2_1T4B BP2_1T5B name = $BP2_1 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a YPF en términos de la siguiente frase: “una empresa comprometida con el medio ambiente”.".
-MRSETS /MCGROUP VARIABLES = BP2_2 BP2_2T2B BP2_2T3B BP2_2T4B BP2_2T5B name = $BP2_2 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a Shell en términos de la siguiente frase: “una empresa comprometida con el medio ambiente”.".
-MRSETS /MCGROUP VARIABLES = BP2_3 BP2_3T2B BP2_3T3B BP2_3T4B BP2_3T5B name = $BP2_3 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a Axion en términos de la siguiente frase: “una empresa comprometida con el medio ambiente”.".
-MRSETS /MCGROUP VARIABLES = BP2_4 BP2_4T2B BP2_4T3B BP2_4T4B BP2_4T5B name = $BP2_4 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a Puma Energy en términos de la siguiente frase: “una empresa comprometida con el medio ambiente”.".
-MRSETS /MCGROUP VARIABLES = BP2_5 BP2_5T2B BP2_5T3B BP2_5T4B BP2_5T5B name = $BP2_5 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a Mercado Libre en términos de la siguiente frase: “una empresa comprometida con el medio ambiente”.".
-MRSETS /MCGROUP VARIABLES = BP2_6 BP2_6T2B BP2_6T3B BP2_6T4B BP2_6T5B name = $BP2_6 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a Aerolíneas Argentinas en términos de la siguiente frase: “una empresa comprometida con el medio ambiente”.".
-MRSETS /MCGROUP VARIABLES = BP2_7 BP2_7T2B BP2_7T3B BP2_7T4B BP2_7T5B name = $BP2_7 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a Quilmes en términos de la siguiente frase: “una empresa comprometida con el medio ambiente”.".
-MRSETS /MCGROUP VARIABLES = BP2_8 BP2_8T2B BP2_8T3B BP2_8T4B BP2_8T5B name = $BP2_8 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a Quilmes en términos de la siguiente frase: “una empresa comprometida con el medio ambiente”.".
-MRSETS /MCGROUP VARIABLES = BP2_9 BP2_9T2B BP2_9T3B BP2_9T4B BP2_9T5B name = $BP2_9 LABEL= "Califica en una escala de 1 (pésima) a 10 (excelente) a Quilmes en términos de la siguiente frase: “una empresa comprometida con el medio ambiente”.".
-
-
-*do if (wave=11).
-
-rECODE BS1_1 BS1_2 BS1_3 BS1_4 BS1_5 BS1_6 BS1_7 BS1_8 P20 P23
-(4 thru 5=33) (3=sys) ( 1 thru 2 =11 )(99=99) Into BS1_1T2B BS1_2T2B BS1_3T2B BS1_4T2B BS1_5T2B BS1_6T2B BS1_7T2B BS1_8T2B P20T2B P23T2B.
-rECODE P13  ( 1 THRU 2=11) (3 THRU 4 =33 )(99=99) into P13T2B   .
 rECODE  P18_1 ( 1 THRU 2=11) (99=99) into  P18_1T2B  .
 rECODE P12_1 P12_2 P12_3 P12_4 P12_5 P12_6 P12_7 P12_8 P12_9 P12_13 P11_1 P11_2 P11_3 P11_4 P11_5 P11_6 P11_7 P11_8 P11_9 P11_12 P16_A1 P16_A2 P16_A3 P16_A4 P16_A5 P16_A6
 (4 thru 5=11) (3=sys) ( 1 thru 2 =33 )(99=99) into P12_1T2B P12_2T2B P12_3T2B P12_4T2B P12_5T2B P12_6T2B P12_7T2B P12_8T2B P12_9T2B P12_13T2B P11_1T2B P11_2T2B P11_3T2B P11_4T2B P11_5T2B P11_6T2B P11_7T2B P11_8T2B P11_9T2B P11_12T2B P16_A1T2B P16_A2T2B P16_A3T2B P16_A4T2B P16_A5T2B P16_A6T2B.
@@ -599,8 +637,8 @@ EXECUTE.
 
 
 
-Value labels BS1_1T2B BS1_2T2B BS1_3T2B BS1_4T2B BS1_5T2B BS1_6T2B BS1_7T2B BS1_8T2B P11_1T2B P11_2T2B P11_3T2B P11_4T2B P11_5T2B P11_6T2B P11_7T2B P11_8T2B P11_9T2B  P11_12T2B P16_A1T2B P16_A2T2B P16_A3T2B P16_A4T2B P16_A5T2B P16_A6T2B P20T2B P23T2B
-P13T2B P18_1T2B P12_1T2B P12_2T2B P12_3T2B P12_4T2B P12_5T2B P12_6T2B P12_7T2B P12_8T2B P12_9T2B P12_13T2B 
+Value labels P11_1T2B P11_2T2B P11_3T2B P11_4T2B P11_5T2B P11_6T2B P11_7T2B P11_8T2B P11_9T2B  P11_12T2B P16_A1T2B P16_A2T2B P16_A3T2B P16_A4T2B P16_A5T2B P16_A6T2B
+P18_1T2B P12_1T2B P12_2T2B P12_3T2B P12_4T2B P12_5T2B P12_6T2B P12_7T2B P12_8T2B P12_9T2B P12_13T2B 
 11 "T2B"
 33 "B2B".
 EXECUTE.
@@ -636,17 +674,8 @@ MRSETS	/MCGROUP	VARIABLES	=	P12_13	P12_13T2B	P12_13T3B	name	=	$P12_A13	LABEL="	�
 
 
 
-RECODE P15_1 P15_2 P15_3 P15_4 (9 thru 10 = 11) (0 THRU 1 =33 ) Into P15_1T2B P15_2T2B P15_3T2B P15_4T2B .
-RECODE P15_1 P15_2 P15_3 P15_4 (8 thru 10 = 111)(0 THRU 2 =333 ) Into P15_1T3B P15_2T3B P15_3T3B P15_4T3B .
-RECODE P15_1 P15_2 P15_3 P15_4 (7 thru 10 = 1111)(0 THRU 3 =3333 ) INTO P15_1T4B P15_2T4B P15_3T4B P15_4T4B .
-RECODE P15_1 P15_2 P15_3 P15_4 (6 thru 10 = 11111)(0 THRU 4 =33333 ) (5=sys) Into P15_1T5B P15_2T5B P15_3T5B P15_4T5B .
 
-
-
-Value labels P15_1T2B P15_2T2B P15_3T2B P15_4T2B
-P15_1T3B P15_2T3B P15_3T3B P15_4T3B
-P15_1T4B P15_2T4B P15_3T4B P15_4T4B
-P15_1T5B P15_2T5B P15_3T5B P15_4T5B
+Value labels 
 P10_A1.0T2B_rec P10_A2.0T2B_rec P10_A3.0T2B_rec P10_A4.0T2B_rec P10_A5.0T2B_rec
 11 "T2B"
 111 "T3B"
@@ -658,11 +687,6 @@ P10_A1.0T2B_rec P10_A2.0T2B_rec P10_A3.0T2B_rec P10_A4.0T2B_rec P10_A5.0T2B_rec
 33333 "B5B".
 EXECUTE.
 
-
-MRSETS /MCGROUP VARIABLES = P15_1 P15_1T2B P15_1T3B P15_1T4B P15_1T5B name = $P15_1 LABEL= " Pensando en la transparencia/corrupción de las empresas ¿Dónde ubicarías a YPF?".
-MRSETS /MCGROUP VARIABLES = P15_2 P15_2T2B P15_2T3B P15_2T4B P15_2T5B name = $P15_2 LABEL= " Pensando en la transparencia/corrupción de las empresas ¿Dónde ubicarías a SHELL?".
-MRSETS /MCGROUP VARIABLES = P15_3 P15_3T2B P15_3T3B P15_3T4B P15_3T5B name = $P15_3 LABEL= " Pensando en la transparencia/corrupción de las empresas ¿Dónde ubicarías a AXION Energy?".
-MRSETS /MCGROUP VARIABLES = P15_4 P15_4T2B P15_4T3B P15_4T4B P15_4T5B name = $P15_4 LABEL= " Pensando en la transparencia/corrupción de las empresas ¿Dónde ubicarías a PUMA Energy?".
 
 MRSETS /MCGROUP VARIABLES = P16_A1 P16_A1T2B name = $P16_A1 LABEL= "Es muy importante para nuestro país desarrollar Vaca Muerta".
 MRSETS /MCGROUP VARIABLES = P16_A2 P16_A2T2B name = $P16_A2 LABEL= "Nuestro país tiene la capacidad y el conocimiento de desarrollar Vaca Muerta".
@@ -895,9 +919,8 @@ MRSETS /MCGROUP VARIABLES = P04B_8_29 P04B_8_29T2B name = $P04B_8_29 LABEL = " Q
 
 EXECUTE.
 
-MRSETS /MDGROUP VALUE =1 CATEGORYLABELS =COUNTEDVALUES VARIABLES = G06_1 G06_2 G06_3 G06_4 G06_98 G06_99 NAME =$G06 LABEL = "¿Quiénes te parece que son los actores involucrados en el desarrollo de la industria del Gas?".
  
-RECODE G08_1 G08_2 G08_3 G08_4 G08_5 G08_6 G11 (1 THRU 2 = 11)(4 THRU 5 =33) INTO G08_1_T2B G08_2_T2B G08_3_T2B G08_4_T2B G08_5_T2B G08_6_T2B G11_T2B.
+RECODE G08_1 G08_2 G08_3 G08_4 G08_5 G08_6 (1 THRU 2 = 11)(4 THRU 5 =33) INTO G08_1_T2B G08_2_T2B G08_3_T2B G08_4_T2B G08_5_T2B G08_6_T2B.
 
 MRSETS /MCGROUP VARIABLES = G08_1 G08_1_T2B name = $G08_1 LABEL= "Tendrá un impacto en el día a día, porque el precio de la tarifa de GAS no va a estar atada al precio del dólar".
 MRSETS /MCGROUP VARIABLES = G08_2 G08_2_T2B name = $G08_2 LABEL= "El Estado gastara menos dinero en comprar GAS en el extranjero".
@@ -906,32 +929,6 @@ MRSETS /MCGROUP VARIABLES = G08_4 G08_4_T2B name = $G08_4 LABEL= "El desarrollo 
 MRSETS /MCGROUP VARIABLES = G08_5 G08_5_T2B name = $G08_5 LABEL= "La reducción en la tarifa del GAS representará un alivio importante en el gasto de mi hogar".
 MRSETS /MCGROUP VARIABLES = G08_6 G08_6_T2B name = $G08_6 LABEL= "La reducción en la tarifa del GAS representará un alivio importante en el gasto de mi hogar".
 
-MRSETS /MCGROUP VARIABLES = G11 G11_T2B name = $G11 LABEL= "¿Cuál es tu opinión sobre el desarrollo del Gasoducto Néstor Kirchner?".
-
-
-Recode ER2 (1 2 =33) (4 5 =11) into ER2_T2B.
-EXECUTE.
-
-VALUE LABELS ER2_T2B 
-11 "T2B"
-33 "B2B".
-
-MRSETS /MCGROUP VARIABLES = ER2 ER2_T2B  name = $ER2 LABEL= "¿Qué tan importante te parece el desarrollo de nuevas fuentes de energías alternativas y/o renovables".
-
-
-
-Recode ER8_1 ER8_2 ER8_3 (1 2 =33) (4 5 =11) into ER8_1_T2B ER8_2_T2B ER8_3_T2B.
-Recode ER8_1 ER8_2 ER8_3 (3 4 5 = 22 ) into ER8_1_Imp ER8_2_Imp ER8_3_Imp.
-EXECUTE.
-
-VALUE LABELS ER8_1_T2B ER8_2_T2B ER8_3_T2B ER8_1_Imp ER8_2_Imp ER8_3_Imp
-11 "T2B"
-22 "Importante"
-33 "B2B".
-
-MRSETS /MCGROUP VARIABLES = ER8_1 ER8_1_T2B ER8_1_Imp name = $ER8_1 LABEL= "¿Qué tan importante es para vos que el país posea…? - Soberanía energética".
-MRSETS /MCGROUP VARIABLES = ER8_2 ER8_2_T2B ER8_2_Imp name = $ER8_2 LABEL= "¿Qué tan importante es para vos que el país posea…? - Soberanía alimenticia".
-MRSETS /MCGROUP VARIABLES = ER8_3 ER8_3_T2B ER8_3_Imp name = $ER8_3 LABEL= "¿Qué tan importante es para vos que el país posea…? - Soberanía económica".
 
 ***********************
 
@@ -946,7 +943,6 @@ MRSETS /MDGROUP VALUE =1 VARIABLES = T03_6_4 T03_6_7 T03_6_8 T03_6_9 T03_6_10 NA
 MRSETS /MDGROUP VALUE =1 VARIABLES = T03_7_4 T03_7_7 T03_7_8 T03_7_9 T03_7_10 NAME = $T03_7 CATEGORYLABELS =COUNTEDVALUES LABEL =" ¿Y seguís a alguna de las siguientes marcas en Twitch? " .
 MRSETS /MDGROUP VALUE =1 VARIABLES = T03_97_4 T03_97_7 T03_97_8 T03_97_9 T03_97_10 NAME = $T03_97 CATEGORYLABELS =COUNTEDVALUES LABEL =" ¿Y seguís a alguna de las siguientes marcas en [QID164-ChoiceTextEntryValue-38]? " .
 
-MRSETS /MDGROUP VALUE =1 VARIABLES = T08_1 T08_4 T08_5 T08_6 T08_7 T08_8 T08_9 T08_10 T08_11 NAME = $T08 CATEGORYLABELS =COUNTEDVALUES LABEL ="¿En cuales? ".
 end if.
 
 
@@ -964,42 +960,15 @@ MRSETS /MCGROUP VARIABLES = P113b_Cod1 P113b_Cod2 P113b_Cod3 P113b_Cod4 P113b_co
  NAME = $P113b LABEL =" P113.B. Principal responsable del aumento del combustible".
 
 
-MRSETS /MCGROUP VARIABLES =  P133_Cod_1 P133_Cod_2 NAME = $P133 LABEL =" ¿Qué es lo que sabes al respecto del acuerdo que alcanzo YPF en el caso Maxus?".
-
-MRSETS /MCGROUP VARIABLES =  P135_Cod_1 P135_Cod_2 NAME = $P135 LABEL =" ¿Por qué la empeora?".
-
-recode  T04   T05 (1 2 =33) (4 5 =11) into T04_T2B T05_T2B.
+recode   T05 (1 2 =33) (4 5 =11) into T05_T2B.
 EXECUTE.
 
-VALUE LABELS T04_T2B T05_T2B
+VALUE LABELS T05_T2B
 11 "T2B"
 33 "B2B".
 
-MRSETS /MCGROUP VARIABLES = T04  T04_T2B name = $T04 LABEL= "¿Cómo evalúas el contenido de la marca YPF en Instagram? ".
 
 MRSETS /MCGROUP VARIABLES = T05  T05_T2B name = $T05 LABEL= "En general, ¿Cuan relevante te parece el contenido de YPF en las redes sociales? ".
-
-recode   ER5 ER6  (1 2 =33) (3 4 =11) into ER5_T2B ER6_T2B.
-EXECUTE.
-
-VALUE LABELS ER5_T2B ER6_T2B
-11 "T2B"
-33 "B2B".
-
-MRSETS /MCGROUP VARIABLES = ER5  ER5_T2B name = $ER5 LABEL= "Según tu opinión ¿te parece que YPF tiene la capacidad de liderar el desarrollo de energías alternativas y/o renovables en el país? ".
-
-MRSETS /MCGROUP VARIABLES = ER6  ER6_T2B name = $ER6 LABEL= "¿Cuánta responsabilidad debería tener YPF en el desarrollo de energías alternativas en el país?  ".
-
-
-
-recode  P136  (1 2 =33) (4 5 =11) into P136_T2B.
-EXECUTE.
-
-VALUE LABELS P136_T2B
-11 "T2B"
-33 "B2B".
-
-MRSETS /MCGROUP VARIABLES = P136  P136_T2B name = $P136 LABEL= "¿Y Cuál es tu opinión sobre el impacto del acuerdo para la Argentina? ".
 
 
 Recode P03_E_16	P03_E_17	P03_E_20	P03_E_22	P03_E_24	P4_E_1_16	P4_E_1_17	P4_E_1_20	P4_E_1_22	P4_E_1_24	P4_E_2_16	P4_E_2_17	P4_E_2_20	P4_E_2_22	P4_E_2_24	P4_E_3_16	P4_E_3_17	P4_E_3_20	P4_E_3_22	P4_E_3_24
@@ -1037,36 +1006,11 @@ MRSETS /MCGROUP VARIABLES =	 P142  P142_T2B	NAME =	$P142 	LABEL= "	Indícanos po
 EXECUTE.
 
 
-
-recode   P158_1 P158_2 P158_3 (1 2 =33) (4 5 =11) into  P158_1_T2B P158_2_T2B P158_3_T2B.
-EXECUTE.
-
-VALUE LABELS P158_1_T2B P158_2_T2B P158_3_T2B
-11 "T2B"
-33 "B2B".
-
-MRSETS /MCGROUP VARIABLES = P158_1  P158_1_T2B name = $P158_1 LABEL= "Indica por favor tu grado de acuerdo/desacuerdo con las siguientes frases respecto a la campaña de YPF Gas que viste: - La campaña de YPF GAS me genera confianza".
-MRSETS /MCGROUP VARIABLES = P158_2  P158_2_T2B name = $P158_2 LABEL= "Indica por favor tu grado de acuerdo/desacuerdo con las siguientes frases respecto a la campaña de YPF Gas que viste: - La campaña de YPF GAS me genera seguridad".
-MRSETS /MCGROUP VARIABLES = P158_3  P158_3_T2B name = $P158_3 LABEL= "Indica por favor tu grado de acuerdo/desacuerdo con las siguientes frases respecto a la campaña de YPF Gas que viste: - La garrafa de YPF Gas rinde más".
-
-
 ********************************************************************
 
 
 MRSETS /MDGROUP VALUE =1 VARIABLES = P141_1 P141_4 P141_5 P141_6 P141_7 P141_8 P141_9 NAME = $P141 CATEGORYLABELS =COUNTEDVALUES LABEL = "Y además de [QID218-ChoiceGroup-SelectedChoicesTextEntry], ¿Crees que hay otros responsables? ".
 
-
-
-Do if (Wave=21).
-Compute 	P40_A1	=	P124_A1	.
-Compute 	P40_A2	=	P124_A2	.
-Compute 	P40_A3	=	P124_A3	.
-Compute 	P40_A4	=	P124_A4	.
-Compute 	P40_A5	=	P124_A5	.
-Compute 	P40_A6	=	P124_A6	.
-Compute 	P40_A7	=	P124_A7	.
-END IF. 
-exe.
 
 **********
 
@@ -1137,11 +1081,11 @@ MRSETS /MCGROUP VARIABLES = GG9 GG9_T2B NAME = $GG9 LABEL = "Indicanos tu grado 
 
 *MRSETS /MDGROUP VALUE =1 VARIABLES =  S3_1 S3_2 S3_3 S3_4 S3_5 NAME = $S3 CATEGORYLABELS =COUNTEDVALUES LABEL = "¿Cuáles de estas afirmaciones te describe mejor cuando se trata de alimentos y bebidas? ".
 
-Recode  P161_1 P161_2 P161_3 P161_4 P161_5 P161_6 P161_7 P161_8 P161R9 P161R10 P161R11 P161R12 P164_1 P164_2 P164_3
+Recode  P161_1 P161_2 P161_3 P161_4 P161_5 P161_6 P161_7 P161_8 P161_9 P161_10 P161_11 P161_12 P164_1 P164_2 P164_3 P164_4 P164_5
 (1 2 =33)(4 5 =11) into 
-P161_1_T2B	P161_2_T2B	P161_3_T2B	P161_4_T2B	P161_5_T2B	P161_6_T2B	P161_7_T2B P161_8_T2B P161_9_T2B P161_10_T2B P161_11_T2B P161_12_T2B P164_1_T2B P164_2_T2B P164_3_T2B.
+P161_1_T2B	P161_2_T2B	P161_3_T2B	P161_4_T2B	P161_5_T2B	P161_6_T2B	P161_7_T2B P161_8_T2B P161_9_T2B P161_10_T2B P161_11_T2B P161_12_T2B P164_1_T2B P164_2_T2B P164_3_T2B P164_4_T2B P164_5_T2B.
 
-VALUE LABELS P161_1_T2B	P161_2_T2B	P161_3_T2B	P161_4_T2B	P161_5_T2B	P161_6_T2B	P161_7_T2B P161_8_T2B P161_9_T2B P161_10_T2B P161_11_T2B P161_12_T2B  P164_1_T2B P164_2_T2B P164_3_T2B
+VALUE LABELS P161_1_T2B	P161_2_T2B	P161_3_T2B	P161_4_T2B	P161_5_T2B	P161_6_T2B	P161_7_T2B P161_8_T2B P161_9_T2B P161_10_T2B P161_11_T2B P161_12_T2B P164_1_T2B P164_2_T2B P164_3_T2B P164_4_T2B P164_5_T2B
 11 "T2B"
 33 "B2B".
 
@@ -1153,14 +1097,16 @@ MRSETS /MCGROUP VARIABLES = 	P161_5	P161_5_T2B	NAME =	$P161_5	LABEL = "	¿Qué i
 MRSETS /MCGROUP VARIABLES = 	P161_6	P161_6_T2B	NAME =	$P161_6	LABEL = "	¿Qué imagen tenés de cada uno de ellos? - Facundo Arana	 ".
 MRSETS /MCGROUP VARIABLES = 	P161_7	P161_7_T2B	NAME =	$P161_7	LABEL = "	¿Qué imagen tenés de cada uno de ellos? - Agustin Poli	 ".
 MRSETS /MCGROUP VARIABLES = 	P161_8	P161_8_T2B	NAME =	$P161_8	LABEL = "	¿Qué imagen tenés de cada uno de ellos? - Noel de Castro	 ".
-MRSETS /MCGROUP VARIABLES = 	P161R9	P161_9_T2B	NAME =	$P161_9	LABEL = "	¿Qué imagen tenés de cada uno de ellos? - Valentin Perrone	 ".
-MRSETS /MCGROUP VARIABLES = 	P161R10	P161_10_T2B	NAME =	$P161_10	LABEL = "	¿Qué imagen tenés de cada uno de ellos? - Nicolás Varrone	 ".
-MRSETS /MCGROUP VARIABLES = 	P161R11	P161_11_T2B	NAME =	$P161_11	LABEL = "	¿Qué imagen tenés de cada uno de ellos? - Enzo Fernández	 ".
-MRSETS /MCGROUP VARIABLES = 	P161R12	P161_12_T2B	NAME =	$P161_12	LABEL = "	¿Qué imagen tenés de cada uno de ellos? - Leandro Paredes	 ".
+MRSETS /MCGROUP VARIABLES = 	P161_9	P161_9_T2B	NAME =	$P161_9	LABEL = "	¿Qué imagen tenés de cada uno de ellos? - Valentin Perrone	 ".
+MRSETS /MCGROUP VARIABLES = 	P161_10	P161_10_T2B	NAME =	$P161_10	LABEL = "	¿Qué imagen tenés de cada uno de ellos? - Nicolás Varrone	 ".
+MRSETS /MCGROUP VARIABLES = 	P161_11	P161_11_T2B	NAME =	$P161_11	LABEL = "	¿Qué imagen tenés de cada uno de ellos? - Enzo Fernández	 ".
+MRSETS /MCGROUP VARIABLES = 	P161_12	P161_12_T2B	NAME =	$P161_12	LABEL = "	¿Qué imagen tenés de cada uno de ellos? - Leandro Paredes	 ".
 
 MRSETS /MCGROUP VARIABLES = 	P164_1	P164_1_T2B	NAME =	$P164_1	LABEL = "	¿Qué tan adecuadas crees que son las alianzas entre YPF y...? - Café Cabrales	 ".
 MRSETS /MCGROUP VARIABLES = 	P164_2	P164_2_T2B	NAME =	$P164_2	LABEL = "	¿Qué tan adecuadas crees que son las alianzas entre YPF y...? - Guapaletas ".
 MRSETS /MCGROUP VARIABLES = 	P164_3	P164_3_T2B	NAME =	$P164_3	LABEL = "	¿Qué tan adecuadas crees que son las alianzas entre YPF y...? - Selección de fútbol".
+MRSETS /MCGROUP VARIABLES = 	P164_4	P164_4_T2B	NAME =	$P164_4	LABEL = "	¿Qué tan adecuadas crees que son las alianzas entre YPF y...? - Cheesecake factory".
+MRSETS /MCGROUP VARIABLES = 	P164_5	P164_5_T2B	NAME =	$P164_5	LABEL = "	¿Qué tan adecuadas crees que son las alianzas entre YPF y...? - La Fonte D’Oro".
 end if.
 
 

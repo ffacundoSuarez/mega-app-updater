@@ -121,8 +121,9 @@ class TestWavePatch(unittest.TestCase):
         meta = EngineMeta()
         _patch_wave_54(df, meta, 54)
         self.assertTrue((df["Trimestral"] == 18).all())
-        self.assertTrue((df["YTD"] == 5).all())
+        self.assertNotIn("YTD", df.columns)
         self.assertEqual(meta.value_labels["Wave"][54.0], "Septiembre 2026")
+        self.assertEqual(meta.value_labels["Trimestral"][18.0], "Q3 2026")
 
     def test_stamp_elimina_wave_minuscula(self):
         df = pd.DataFrame({"wave": [49.0], "X": [1.0]})
