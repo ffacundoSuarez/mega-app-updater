@@ -635,6 +635,100 @@ def is_truly_ordinal(labels_dict):
     
     return has_keywords or is_numeric_scale
 
+
+# Palabras de polaridad para armar T2B/B2B. Negativas primero: "desacuerdo"
+# contiene "acuerdo" y "insatisfecho" contiene "satisfecho".
+_SCALE_NEG_WORDS = (
+    'desacuerdo', 'disgusta', 'insatisfecho', 'pésima', 'pesima',
+    'mala', 'malo', 'peor', 'difícil', 'dificil', 'nada', 'nunca',
+    'improbable', 'inadecuada', 'irrelevante',
+)
+_SCALE_POS_WORDS = (
+    'buena', 'bueno', 'buen', 'excelente', 'acuerdo', 'gusta',
+    'satisfecho', 'mejor', 'fácil', 'facil', 'mucho', 'ganas',
+    'probable', 'seguro', 'siempre', 'adecuada', 'relevante',
+)
+
+
+def is_non_evaluative_label(label):
+    """True si la opción no debe entrar a T2B/B2B (NS/NC o 'ni … ni …')."""
+    text = str(label).strip().lower() if label is not None else ""
+    if not text:
+        return True
+    trash_tokens = ("ns/nc", "no sabe", "dk/na", "no contesta")
+    if any(token in text for token in trash_tokens):
+        return True
+    # "Ni buena ni mala" / "Ni relevante ni irrelevante"
+    if re.search(r"\bni\b.+\bni\b", text):
+        return True
+    return False
+
+
+def _label_polarity(label):
+    """'pos', 'neg' o None según el texto de la etiqueta."""
+    text = str(label).strip().lower()
+    if any(word in text for word in _SCALE_NEG_WORDS):
+        return "neg"
+    if any(word in text for word in _SCALE_POS_WORDS):
+        return "pos"
+    return None
+
+
+def resolve_t2b_b2b_codes(value_labels, var_name=None):
+    """
+    Elige códigos T2B/B2B por el texto de las etiquetas.
+
+    Saca del box NS/NC y neutros 'ni … ni …'. Con lo que queda mira las
+    puntas: lo positivo va a T2B, lo negativo a B2B. Así un "No sabe" al
+    final (P146) no se come el lugar de "Buena".
+    """
+    if not value_labels or len(value_labels) < 4:
+        return [], []
+
+    items = []
+    for key, label in value_labels.items():
+        try:
+            code = float(key)
+        except (TypeError, ValueError):
+            continue
+        items.append((code, label))
+    items.sort(key=lambda pair: pair[0])
+
+    evaluable = [
+        (code, label) for code, label in items
+        if not is_non_evaluative_label(label)
+    ]
+    if len(evaluable) < 4:
+        return [], []
+
+    eval_codes = [code for code, _ in evaluable]
+    first_pol = _label_polarity(evaluable[0][1])
+    last_pol = _label_polarity(evaluable[-1][1])
+
+    # Punta positiva al inicio (1=Muy buena…) o al final (5=Muy buena…)
+    if first_pol == "pos" or last_pol == "neg":
+        t2b_keys = eval_codes[:2]
+        b2b_keys = eval_codes[-2:]
+    elif first_pol == "neg" or last_pol == "pos":
+        t2b_keys = eval_codes[-2:]
+        b2b_keys = eval_codes[:2]
+    else:
+        # Sin pistas de texto: Likert clásico (código alto = positivo)
+        t2b_keys = eval_codes[-2:]
+        b2b_keys = eval_codes[:2]
+
+    if var_name:
+        t2b_set = set(t2b_keys)
+        b2b_set = set(b2b_keys)
+        t2b_lbls = [str(lbl).strip() for code, lbl in evaluable if code in t2b_set]
+        b2b_lbls = [str(lbl).strip() for code, lbl in evaluable if code in b2b_set]
+        logging.info(
+            "📦 [T2B/B2B] %s: T2B=%s | B2B=%s",
+            var_name, t2b_lbls, b2b_lbls,
+        )
+
+    return t2b_keys, b2b_keys
+
 def is_frequency_variable(labels_dict):
     """
     Detecta si las etiquetas contienen términos relacionados con frecuencia temporal.
