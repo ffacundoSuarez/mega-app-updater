@@ -549,13 +549,12 @@ TRACKING_CHARTS = [
     {
         "chart_name": "Chart_P107", 
         "variable": "P107", 
-        #"metrics": {"Muy buena + algo buena": ["t2b"], "Algo mala + muy mala": ["b2b"], "Ni buena ni mala": ["ni buena ni mala"]}
-        "metrics": {"Muy buena + algo buena": ["b2b"], "Algo mala + muy mala": ["t2b"], "Ni buena ni mala": ["ni buena ni mala"]}
+        "metrics": {"Muy buena + algo buena": ["t2b"], "Algo mala + muy mala": ["b2b"], "Ni buena ni mala": ["ni buena ni mala"]}
     },    
     {
         "chart_name": "Chart_P108", 
         "variable": "P108", 
-        "metrics": {"Muy buena + algo buena": ["b2b"], "Algo mala + muy mala": ["t2b"]}
+        "metrics": {"Muy buena + algo buena": ["t2b"], "Algo mala + muy mala": ["b2b"]}
     },
     {
         "chart_name": "Chart_P105",
@@ -1477,10 +1476,8 @@ TRACKING_CHARTS = [
         "ola_impar": True,
         "metrics": {
             "No sabe o no contesta": ["no sabe"],
-            #"Mala + Muy Mala": ["b2b"],
-            #"Buena + Muy Buena": ["t2b"]                    
-            "Mala + Muy Mala": ["t2b"],
-            "Buena + Muy Buena": ["b2b"]                    
+            "Mala + Muy Mala": ["b2b"],
+            "Buena + Muy Buena": ["t2b"]
             }
     },
     {
@@ -1898,8 +1895,7 @@ TRACKING_CHARTS = [
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
-        #"metrics": {"T2B": ["algo buena","muy buena"], "ni buena ni mala": ["ni"], "B2B": ["muy mala","algo mala"]}
-        "metrics": {"T2B": ["muy mala","algo mala"], "ni buena ni mala": ["ni"], "B2B": ["algo buena","muy buena"]}
+        "metrics": {"T2B": ["algo buena","muy buena"], "ni buena ni mala": ["ni"], "B2B": ["muy mala","algo mala"]}
     },
     {
         "chart_name": "Chart_YTD_P108",
@@ -1909,7 +1905,7 @@ TRACKING_CHARTS = [
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
-        "metrics": {"T2B": ["b2b"], "B2B": ["t2b"]}
+        "metrics": {"T2B": ["t2b"], "B2B": ["b2b"]}
     },
     {
         "chart_name": "Chart_YTD_P105",
@@ -2870,12 +2866,9 @@ TRACKING_CHARTS = [
         "target_year": "YTD 2026",         
         "year_suffix": "26",               
         "is_percentage": False,
-        #"metrics": {"T2B": ["t2b"],
-        #            "B2B": ["b2b"],
-        #            "No sabe/No contesta": ["no sabe"]}
-        "metrics": {"T2B": ["b2b"],
-                    "B2B": ["t2b"],
-                    "No sabe/No contesta": ["no sabe"]}        
+        "metrics": {"T2B": ["t2b"],
+                    "B2B": ["b2b"],
+                    "No sabe/No contesta": ["no sabe"]}
     },
     {
         "chart_name": "Chart_YTD_P147",

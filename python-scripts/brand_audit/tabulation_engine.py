@@ -228,27 +228,14 @@ class TabulationEngine:
             print(f"DEBUG: Variable {var_name} no tiene datos válidos.")
             return None
 
-        # --- AUTO-DETECTAR T2B Y B2B ---
+        # --- AUTO-DETECTAR T2B Y B2B (por etiqueta; excluye NS/NC y 'ni…ni') ---
         t2b_keys, b2b_keys = [], []
         t2b_label = "T2B"
         b2b_label = "B2B"
         
         if len(value_labels) >= 4 and utils.is_truly_ordinal(value_labels):
             try:
-                valid_keys = sorted([float(k) for k in value_labels.keys() if float(k) <= 10])
-                if len(valid_keys) >= 4:
-                    first_lbl = str(value_labels.get(valid_keys[0], "")).lower()
-                    last_lbl = str(value_labels.get(valid_keys[-1], "")).lower()
-                    
-                    pos_words = ['buena', 'excelente', 'acuerdo', 'gusta', 'satisfecho', 'mejor', 'fácil', 'mucho', 'ganas', 'probable', 'seguro', 'siempre']
-                    neg_words = ['mala', 'pésima', 'desacuerdo', 'disgusta', 'insatisfecho', 'peor', 'difícil', 'nada', 'nunca', 'improbable']
-
-                    if any(w in first_lbl for w in pos_words) or any(w in last_lbl for w in neg_words):
-                        t2b_keys = valid_keys[:2]
-                        b2b_keys = valid_keys[-2:]
-                    elif any(w in first_lbl for w in neg_words) or any(w in last_lbl for w in pos_words):
-                        t2b_keys = valid_keys[-2:]
-                        b2b_keys = valid_keys[:2]
+                t2b_keys, b2b_keys = utils.resolve_t2b_b2b_codes(value_labels, var_name)
             except Exception:
                 pass
 
@@ -631,21 +618,37 @@ class TabulationEngine:
         value_labels = utils.get_label_dict(self.meta.variable_value_labels, var_name)
         if not value_labels: return None
 
-        codes = sorted([float(k) for k in value_labels.keys()])
-        num_options = len(codes)
-        max_code = max(codes)
-        min_code = min(codes)
+        # Códigos evaluables (sin NS/NC ni 'ni…ni') para no meter "No sabe" en las cajas
+        eval_codes = sorted([
+            float(k) for k, lbl in value_labels.items()
+            if not utils.is_non_evaluative_label(lbl)
+        ], key=lambda x: x)
+        if not eval_codes:
+            eval_codes = sorted([float(k) for k in value_labels.keys()])
+
+        num_options = len(eval_codes)
+        max_code = max(eval_codes)
+        min_code = min(eval_codes)
 
         t2b_codes, b2b_codes, t3b_codes, b3b_codes, t4b_codes = [], [], [], [], []
-        
+
+        # T2B/B2B por polaridad del texto (misma lógica que SRQ)
         if num_options >= 4:
-            t2b_codes = [max_code, max_code - 1]
-            b2b_codes = [min_code, min_code + 1]
+            t2b_codes, b2b_codes = utils.resolve_t2b_b2b_codes(value_labels, var_name)
+            if not t2b_codes:
+                t2b_codes = [max_code, eval_codes[-2]]
+                b2b_codes = [min_code, eval_codes[1]]
         if num_options >= 3:
-            t3b_codes = [max_code, max_code - 1, max_code - 2]
-            b3b_codes = [min_code, min_code + 1, min_code + 2]
+            t3b_codes = eval_codes[-3:] if len(eval_codes) >= 3 else []
+            b3b_codes = eval_codes[:3] if len(eval_codes) >= 3 else []
+            # Si T2B quedó en el extremo bajo, T3B/B3B van al revés
+            if t2b_codes and set(t2b_codes) == set(eval_codes[:2]):
+                t3b_codes = eval_codes[:3]
+                b3b_codes = eval_codes[-3:]
         if num_options >= 4:
-            t4b_codes = [max_code, max_code - 1, max_code - 2, max_code - 3]
+            t4b_codes = eval_codes[-4:]
+            if t2b_codes and set(t2b_codes) == set(eval_codes[:2]):
+                t4b_codes = eval_codes[:4]
 
         df_valid = self.df[self.df[var_name].notna()].copy()
         if df_valid.empty: return None
